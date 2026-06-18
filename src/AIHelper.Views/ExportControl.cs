@@ -1,0 +1,435 @@
+using System;
+using System.CodeDom.Compiler;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Markup;
+using AIHelper.Helpers;
+using AIHelper.Models;
+using AIHelper.Services;
+
+namespace AIHelper.Views;
+
+public class ExportControl : UserControl, IComponentConnector
+{
+	private bool _isUpdatingDate;
+
+	private bool _hasInitializedDate;
+
+	internal DatePicker DpTargetDate;
+
+	internal RadioButton RdoSingleFile;
+
+	internal RadioButton RdoMultiFile;
+
+	internal ToggleButton ToggleAiCompress;
+
+	internal ToggleButton ToggleHoldingPrompt;
+
+	internal TextBox TxtKlineDays;
+
+	internal CheckBox ChkIdxSH;
+
+	internal CheckBox ChkIdxSZ;
+
+	internal CheckBox ChkIdxCY;
+
+	internal CheckBox ChkIdxHS300;
+
+	internal TextBox TxtIndexDays;
+
+	internal Button BtnFetchQuote;
+
+	internal Button BtnFetchMinute;
+
+	internal Button BtnFetchKline;
+
+	internal Button BtnFetchTick;
+
+	internal CheckBox ChkComboQuote;
+
+	internal CheckBox ChkComboMinute;
+
+	internal CheckBox ChkComboKline;
+
+	internal CheckBox ChkComboTick;
+
+	internal Button BtnFetchComposite;
+
+	private bool _contentLoaded;
+
+	public Func<List<(string Code, string Name)>> GetSelectedStocksFunc { get; set; }
+
+	public Func<string> GetCurrentTabNameFunc { get; set; }
+
+	public Action<string> PrintLogAction { get; set; }
+
+	public ExportControl()
+	{
+		InitializeComponent();
+		DpTargetDate.SelectedDateChanged += DpTargetDate_SelectedDateChanged;
+		base.Loaded += ExportControl_Loaded;
+	}
+
+	private async void ExportControl_Loaded(object sender, RoutedEventArgs e)
+	{
+		if (!_hasInitializedDate)
+		{
+			_hasInitializedDate = true;
+			await AlignToActualTradingDateAsync();
+		}
+	}
+
+	private async Task AlignToActualTradingDateAsync()
+	{
+		try
+		{
+			DpTargetDate.IsEnabled = false;
+			DateTime netToday = TimeHelper.BeijingNow;
+			DateTime value = await DataExportEngine.GetActualTradingDateAsync(netToday);
+			_isUpdatingDate = true;
+			DpTargetDate.SelectedDate = value;
+			_isUpdatingDate = false;
+			if (netToday.Date != value.Date)
+			{
+				ExportControl exportControl = this;
+				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(32, 1);
+				defaultInterpolatedStringHandler.AppendLiteral("\ud83d\udcc5 开机自检：服务器显示今日非交易日，已自动定位至有效交易日 ");
+				defaultInterpolatedStringHandler.AppendFormatted(value, "yyyy-MM-dd");
+				exportControl.Log(defaultInterpolatedStringHandler.ToStringAndClear());
+			}
+			else
+			{
+				ExportControl exportControl2 = this;
+				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(23, 1);
+				defaultInterpolatedStringHandler.AppendLiteral("\ud83d\udcc5 开机自检：服务器日历已同步 (");
+				defaultInterpolatedStringHandler.AppendFormatted(value, "yyyy-MM-dd");
+				defaultInterpolatedStringHandler.AppendLiteral(" 交易日)");
+				exportControl2.Log(defaultInterpolatedStringHandler.ToStringAndClear());
+			}
+		}
+		catch
+		{
+		}
+		finally
+		{
+			DpTargetDate.IsEnabled = true;
+		}
+	}
+
+	private async void DpTargetDate_SelectedDateChanged(object sender, SelectionChangedEventArgs e)
+	{
+		if (_isUpdatingDate || !DpTargetDate.SelectedDate.HasValue)
+		{
+			return;
+		}
+		DateTime target = DpTargetDate.SelectedDate.Value;
+		DpTargetDate.IsEnabled = false;
+		try
+		{
+			DateTime value = await DataExportEngine.GetActualTradingDateAsync(target);
+			if (value.Date != target.Date)
+			{
+				_isUpdatingDate = true;
+				DpTargetDate.SelectedDate = value;
+				_isUpdatingDate = false;
+				ExportControl exportControl = this;
+				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(24, 2);
+				defaultInterpolatedStringHandler.AppendLiteral("⚠\ufe0f 选定日期 ");
+				defaultInterpolatedStringHandler.AppendFormatted(target, "yyyy-MM-dd");
+				defaultInterpolatedStringHandler.AppendLiteral(" 非交易日，日历已自动对齐至: ");
+				defaultInterpolatedStringHandler.AppendFormatted(value, "yyyy-MM-dd");
+				exportControl.Log(defaultInterpolatedStringHandler.ToStringAndClear());
+			}
+		}
+		catch
+		{
+		}
+		finally
+		{
+			DpTargetDate.IsEnabled = true;
+		}
+	}
+
+	public void ApplyConfig(AppConfig config)
+	{
+		if (config != null)
+		{
+			ToggleAiCompress.IsChecked = config.IsJsonMinify;
+			ToggleHoldingPrompt.IsChecked = config.ExportIncludeHoldingPrompt;
+			RdoSingleFile.IsChecked = config.ExportIsSingleFile;
+			RdoMultiFile.IsChecked = !config.ExportIsSingleFile;
+			TxtKlineDays.Text = config.ExportKlineDays.ToString();
+			TxtIndexDays.Text = config.ExportIndexDays.ToString();
+			ChkIdxSH.IsChecked = config.ExportIdxSH;
+			ChkIdxSZ.IsChecked = config.ExportIdxSZ;
+			ChkIdxCY.IsChecked = config.ExportIdxCY;
+			ChkIdxHS300.IsChecked = config.ExportIdxHS300;
+			ChkComboQuote.IsChecked = config.ExportComboQuote;
+			ChkComboMinute.IsChecked = config.ExportComboMinute;
+			ChkComboKline.IsChecked = config.ExportComboKline;
+			ChkComboTick.IsChecked = config.ExportComboTick;
+		}
+	}
+
+	public void SyncToConfig(AppConfig config)
+	{
+		if (config != null)
+		{
+			config.IsJsonMinify = ToggleAiCompress.IsChecked.GetValueOrDefault();
+			config.ExportIsSingleFile = RdoSingleFile.IsChecked.GetValueOrDefault();
+			config.ExportIncludeHoldingPrompt = ToggleHoldingPrompt.IsChecked.GetValueOrDefault();
+			if (int.TryParse(TxtKlineDays.Text, out var result))
+			{
+				config.ExportKlineDays = result;
+			}
+			if (int.TryParse(TxtIndexDays.Text, out var result2))
+			{
+				config.ExportIndexDays = result2;
+			}
+			config.ExportIdxSH = ChkIdxSH.IsChecked.GetValueOrDefault();
+			config.ExportIdxSZ = ChkIdxSZ.IsChecked.GetValueOrDefault();
+			config.ExportIdxCY = ChkIdxCY.IsChecked.GetValueOrDefault();
+			config.ExportIdxHS300 = ChkIdxHS300.IsChecked.GetValueOrDefault();
+			config.ExportComboQuote = ChkComboQuote.IsChecked.GetValueOrDefault();
+			config.ExportComboMinute = ChkComboMinute.IsChecked.GetValueOrDefault();
+			config.ExportComboKline = ChkComboKline.IsChecked.GetValueOrDefault();
+			config.ExportComboTick = ChkComboTick.IsChecked.GetValueOrDefault();
+		}
+	}
+
+	private async void BtnFetchQuote_Click(object sender, RoutedEventArgs e)
+	{
+		await ExecuteExportTaskAsync(quote: true);
+	}
+
+	private async void BtnFetchMinute_Click(object sender, RoutedEventArgs e)
+	{
+		await ExecuteExportTaskAsync(quote: false, minute: true);
+	}
+
+	private async void BtnFetchKline_Click(object sender, RoutedEventArgs e)
+	{
+		await ExecuteExportTaskAsync(quote: false, minute: false, kline: true);
+	}
+
+	private async void BtnFetchTick_Click(object sender, RoutedEventArgs e)
+	{
+		await ExecuteExportTaskAsync(quote: false, minute: false, kline: false, tick: true);
+	}
+
+	private async void BtnFetchComposite_Click(object sender, RoutedEventArgs e)
+	{
+		bool valueOrDefault = ChkComboQuote.IsChecked.GetValueOrDefault();
+		bool valueOrDefault2 = ChkComboMinute.IsChecked.GetValueOrDefault();
+		bool valueOrDefault3 = ChkComboKline.IsChecked.GetValueOrDefault();
+		bool valueOrDefault4 = ChkComboTick.IsChecked.GetValueOrDefault();
+		if (!valueOrDefault && !valueOrDefault2 && !valueOrDefault3 && !valueOrDefault4)
+		{
+			Log("⚠\ufe0f 复合模式下，至少需要勾选一项取数维度！");
+			return;
+		}
+		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(3, 4);
+		defaultInterpolatedStringHandler.AppendFormatted(valueOrDefault);
+		defaultInterpolatedStringHandler.AppendLiteral(",");
+		defaultInterpolatedStringHandler.AppendFormatted(valueOrDefault2);
+		defaultInterpolatedStringHandler.AppendLiteral(",");
+		defaultInterpolatedStringHandler.AppendFormatted(valueOrDefault3);
+		defaultInterpolatedStringHandler.AppendLiteral(",");
+		defaultInterpolatedStringHandler.AppendFormatted(valueOrDefault4);
+		AnalyticsService.Log("4", defaultInterpolatedStringHandler.ToStringAndClear());
+		await ExecuteExportTaskAsync(valueOrDefault, valueOrDefault2, valueOrDefault3, valueOrDefault4);
+	}
+
+	private async Task ExecuteExportTaskAsync(bool quote = false, bool minute = false, bool kline = false, bool tick = false)
+	{
+		if (GetSelectedStocksFunc == null)
+		{
+			Log("❌ 致命错误：未绑定数据源委托 (GetSelectedStocksFunc)。");
+			return;
+		}
+		List<(string, string)> list = GetSelectedStocksFunc();
+		if (list == null || !list.Any())
+		{
+			Log("⚠\ufe0f 当前未勾选任何标的股票，请先在列表中勾选！");
+			return;
+		}
+		SetButtonsEnabled(isEnabled: false);
+		Log("==================================================");
+		ExportControl exportControl = this;
+		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
+		defaultInterpolatedStringHandler.AppendLiteral("取数任务开始... 目标标的数量: ");
+		defaultInterpolatedStringHandler.AppendFormatted(list.Count);
+		exportControl.Log(defaultInterpolatedStringHandler.ToStringAndClear());
+		try
+		{
+			int result;
+			int klineDays = (int.TryParse(TxtKlineDays.Text, out result) ? Math.Clamp(result, 5, 300) : 100);
+			int result2;
+			int indexDays = (int.TryParse(TxtIndexDays.Text, out result2) ? Math.Clamp(result2, 3, 60) : 10);
+			await DataExportEngine.ExecuteExportAsync(new ExportConfig
+			{
+				SelectedStocks = list,
+				TargetDate = (DpTargetDate.SelectedDate ?? DateTime.Now),
+				FetchQuote = quote,
+				FetchMinute = minute,
+				FetchTick = tick,
+				FetchKline = kline,
+				KlineDays = klineDays,
+				IndexDays = indexDays,
+				EnableAiCompression = ToggleAiCompress.IsChecked.GetValueOrDefault(),
+				IncludeHoldingPrompt = ToggleHoldingPrompt.IsChecked.GetValueOrDefault(),
+				IsSingleFileMode = RdoSingleFile.IsChecked.GetValueOrDefault(),
+				TabName = (GetCurrentTabNameFunc?.Invoke() ?? "默认分组"),
+				SelectedIndices = GetSelectedIndices()
+			}, Log);
+		}
+		catch (Exception ex)
+		{
+			Log("❌ 取数引擎崩溃: " + ex.Message);
+		}
+		finally
+		{
+			SetButtonsEnabled(isEnabled: true);
+			Log("==================================================");
+		}
+	}
+
+	private List<string> GetSelectedIndices()
+	{
+		List<string> list = new List<string>();
+		if (ChkIdxSH.IsChecked.GetValueOrDefault())
+		{
+			list.Add(ChkIdxSH.Tag.ToString());
+		}
+		if (ChkIdxSZ.IsChecked.GetValueOrDefault())
+		{
+			list.Add(ChkIdxSZ.Tag.ToString());
+		}
+		if (ChkIdxCY.IsChecked.GetValueOrDefault())
+		{
+			list.Add(ChkIdxCY.Tag.ToString());
+		}
+		if (ChkIdxHS300.IsChecked.GetValueOrDefault())
+		{
+			list.Add(ChkIdxHS300.Tag.ToString());
+		}
+		return list;
+	}
+
+	private void Log(string message)
+	{
+		string message2 = message;
+		base.Dispatcher.Invoke(delegate
+		{
+			PrintLogAction?.Invoke(message2);
+		});
+	}
+
+	private void SetButtonsEnabled(bool isEnabled)
+	{
+		BtnFetchQuote.IsEnabled = isEnabled;
+		BtnFetchMinute.IsEnabled = isEnabled;
+		BtnFetchKline.IsEnabled = isEnabled;
+		BtnFetchTick.IsEnabled = isEnabled;
+		BtnFetchComposite.IsEnabled = isEnabled;
+		ToggleAiCompress.IsEnabled = isEnabled;
+		DpTargetDate.IsEnabled = isEnabled;
+	}
+
+	[DebuggerNonUserCode]
+	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
+	public void InitializeComponent()
+	{
+		if (!_contentLoaded)
+		{
+			_contentLoaded = true;
+			Uri resourceLocator = new Uri("/AIHelper;component/views/exportcontrol.xaml", UriKind.Relative);
+			Application.LoadComponent(this, resourceLocator);
+		}
+	}
+
+	[DebuggerNonUserCode]
+	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	void IComponentConnector.Connect(int connectionId, object target)
+	{
+		switch (connectionId)
+		{
+		case 1:
+			DpTargetDate = (DatePicker)target;
+			break;
+		case 2:
+			RdoSingleFile = (RadioButton)target;
+			break;
+		case 3:
+			RdoMultiFile = (RadioButton)target;
+			break;
+		case 4:
+			ToggleAiCompress = (ToggleButton)target;
+			break;
+		case 5:
+			ToggleHoldingPrompt = (ToggleButton)target;
+			break;
+		case 6:
+			TxtKlineDays = (TextBox)target;
+			break;
+		case 7:
+			ChkIdxSH = (CheckBox)target;
+			break;
+		case 8:
+			ChkIdxSZ = (CheckBox)target;
+			break;
+		case 9:
+			ChkIdxCY = (CheckBox)target;
+			break;
+		case 10:
+			ChkIdxHS300 = (CheckBox)target;
+			break;
+		case 11:
+			TxtIndexDays = (TextBox)target;
+			break;
+		case 12:
+			BtnFetchQuote = (Button)target;
+			BtnFetchQuote.Click += BtnFetchQuote_Click;
+			break;
+		case 13:
+			BtnFetchMinute = (Button)target;
+			BtnFetchMinute.Click += BtnFetchMinute_Click;
+			break;
+		case 14:
+			BtnFetchKline = (Button)target;
+			BtnFetchKline.Click += BtnFetchKline_Click;
+			break;
+		case 15:
+			BtnFetchTick = (Button)target;
+			BtnFetchTick.Click += BtnFetchTick_Click;
+			break;
+		case 16:
+			ChkComboQuote = (CheckBox)target;
+			break;
+		case 17:
+			ChkComboMinute = (CheckBox)target;
+			break;
+		case 18:
+			ChkComboKline = (CheckBox)target;
+			break;
+		case 19:
+			ChkComboTick = (CheckBox)target;
+			break;
+		case 20:
+			BtnFetchComposite = (Button)target;
+			BtnFetchComposite.Click += BtnFetchComposite_Click;
+			break;
+		default:
+			_contentLoaded = true;
+			break;
+		}
+	}
+}

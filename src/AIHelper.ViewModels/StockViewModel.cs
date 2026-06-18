@@ -1,0 +1,1183 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using AIHelper.Helpers;
+using AIHelper.Models;
+using AIHelper.Views;
+using HandyControl.Controls;
+
+namespace AIHelper.ViewModels;
+
+public class StockViewModel : INotifyPropertyChanged
+{
+	private const string DataFileName = "StockGroups.json";
+
+	private const string NameMapCacheFile = "StockNameMap.json";
+
+	private readonly string _filePath;
+
+	private ObservableCollection<StockModel> _searchResults = new ObservableCollection<StockModel>();
+
+	private bool _isSearchPopupOpen;
+
+	private string _searchText;
+
+	private bool _isAllStocksSelected;
+
+	private StockGroupModel _selectedGroup;
+
+	private StockModel _currentSelectedStock;
+
+	private CancellationTokenSource? _searchCts;
+
+	private CancellationTokenSource? _cts;
+
+	private bool _isSleepingLogged;
+
+	public Action<string>? LogAction { get; set; }
+
+	public Action<long>? LatencyAction { get; set; }
+
+	public ObservableCollection<StockGroupModel> StockGroups { get; set; } = new ObservableCollection<StockGroupModel>();
+
+
+	public Dictionary<string, string> StockNameMap { get; set; } = new Dictionary<string, string>();
+
+
+	public Dictionary<string, StockModel> GlobalStockCache { get; set; } = new Dictionary<string, StockModel>();
+
+
+	public ObservableCollection<StockModel> SearchResults
+	{
+		get
+		{
+			return _searchResults;
+		}
+		set
+		{
+			_searchResults = value;
+			OnPropertyChanged("SearchResults");
+		}
+	}
+
+	public bool IsSearchPopupOpen
+	{
+		get
+		{
+			return _isSearchPopupOpen;
+		}
+		set
+		{
+			_isSearchPopupOpen = value;
+			OnPropertyChanged("IsSearchPopupOpen");
+		}
+	}
+
+	public string SearchText
+	{
+		get
+		{
+			return _searchText;
+		}
+		set
+		{
+			_searchText = value;
+			OnPropertyChanged("SearchText");
+			DoHybridSearch(value);
+		}
+	}
+
+	public string CurrentGroupName => SelectedGroup?.Header ?? "默认分组";
+
+	public bool IsAllStocksSelected
+	{
+		get
+		{
+			return _isAllStocksSelected;
+		}
+		set
+		{
+			if (_isAllStocksSelected == value)
+			{
+				return;
+			}
+			_isAllStocksSelected = value;
+			OnPropertyChanged("IsAllStocksSelected");
+			if (SelectedGroup == null || SelectedGroup.Stocks == null)
+			{
+				return;
+			}
+			foreach (StockModel stock in SelectedGroup.Stocks)
+			{
+				stock.IsChecked = value;
+			}
+		}
+	}
+
+	public StockGroupModel SelectedGroup
+	{
+		get
+		{
+			return _selectedGroup;
+		}
+		set
+		{
+			if (_selectedGroup == value)
+			{
+				return;
+			}
+			_selectedGroup = value;
+			OnPropertyChanged("SelectedGroup");
+			_isAllStocksSelected = (_selectedGroup?.Stocks?.All((StockModel s) => s.IsChecked)).GetValueOrDefault();
+			OnPropertyChanged("IsAllStocksSelected");
+			if (_selectedGroup != null && !_selectedGroup.IsOverview)
+			{
+				Task.Run(async delegate
+				{
+					await RefreshSelectedStocks();
+				});
+			}
+		}
+	}
+
+	public StockModel CurrentSelectedStock
+	{
+		get
+		{
+			return _currentSelectedStock;
+		}
+		set
+		{
+			_currentSelectedStock = value;
+			OnPropertyChanged("CurrentSelectedStock");
+		}
+	}
+
+	public ICommand OpenChartCommand => new RelayCommand(delegate(object o)
+	{
+		if (o is StockModel stockModel)
+		{
+			new ChartWindow("https://www.iwencai.com/unifiedwap/result?w=" + stockModel.Code, stockModel.Code ?? "").Show();
+		}
+	});
+
+	public ICommand ConfirmAddStockCommand => new RelayCommand(delegate(object o)
+	{
+		if (o is StockModel stockModel)
+		{
+			AddStockInternal(stockModel.Code, stockModel.Name);
+			SearchText = "";
+			IsSearchPopupOpen = false;
+		}
+	});
+
+	public ICommand QuickAddStockCommand => new RelayCommand(delegate
+	{
+		if (SearchResults != null && SearchResults.Count > 0)
+		{
+			StockModel stockModel = SearchResults[0];
+			AddStockInternal(stockModel.Code, stockModel.Name);
+			SearchText = "";
+			IsSearchPopupOpen = false;
+		}
+		else
+		{
+			string text = SearchText?.Trim();
+			if (!string.IsNullOrEmpty(text))
+			{
+				string value;
+				string name = (StockNameMap.TryGetValue(text, out value) ? value : "--");
+				AddStockInternal(text, name);
+				SearchText = "";
+				IsSearchPopupOpen = false;
+			}
+		}
+	});
+
+	public ICommand RemoveStockCommand => new RelayCommand(delegate(object o)
+	{
+		StockModel stock = o as StockModel;
+		if (stock != null && SelectedGroup != null && !SelectedGroup.IsOverview)
+		{
+			SelectedGroup.Stocks.Remove(stock);
+			if (!StockGroups.Any((StockGroupModel g) => !g.IsOverview && g.Stocks.Any((StockModel s) => s.Code == stock.Code)))
+			{
+				StockModel stockModel = StockGroups[0].Stocks.FirstOrDefault((StockModel s) => s.Code == stock.Code);
+				if (stockModel != null)
+				{
+					StockGroups[0].Stocks.Remove(stockModel);
+				}
+				GlobalStockCache.Remove(stock.Code);
+			}
+			SaveLocalData();
+			Application.Current.Dispatcher.Invoke(delegate
+			{
+				LogAction?.Invoke("\ud83d\uddd1\ufe0f 已删除: " + stock.Name);
+			});
+			AnalyticsService.Log("7", stock.Code ?? "");
+		}
+	});
+
+	public ICommand AddGroupCommand => new RelayCommand(delegate(object o)
+	{
+		string text = o as string;
+		if (string.IsNullOrWhiteSpace(text))
+		{
+			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(3, 1);
+			defaultInterpolatedStringHandler.AppendLiteral("分组 ");
+			defaultInterpolatedStringHandler.AppendFormatted(StockGroups.Count);
+			text = defaultInterpolatedStringHandler.ToStringAndClear();
+		}
+		StockGroupModel stockGroupModel = new StockGroupModel
+		{
+			Header = text
+		};
+		StockGroups.Add(stockGroupModel);
+		SelectedGroup = stockGroupModel;
+		AnalyticsService.Log("16", "1");
+		SaveLocalData();
+	});
+
+	public ICommand RemoveGroupCommand => new RelayCommand(delegate(object o)
+	{
+		if (o is StockGroupModel stockGroupModel && !stockGroupModel.IsOverview)
+		{
+			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(32, 2);
+			defaultInterpolatedStringHandler.AppendLiteral("确定要删除分组 [");
+			defaultInterpolatedStringHandler.AppendFormatted(stockGroupModel.Header);
+			defaultInterpolatedStringHandler.AppendLiteral("] 及其下包含的 ");
+			defaultInterpolatedStringHandler.AppendFormatted(stockGroupModel.Stocks.Count);
+			defaultInterpolatedStringHandler.AppendLiteral(" 只股票吗？\n此操作不可逆！");
+			if (HandyControl.Controls.MessageBox.Show(defaultInterpolatedStringHandler.ToStringAndClear(), "删组确认", MessageBoxButton.YesNo, MessageBoxImage.Exclamation) == MessageBoxResult.Yes)
+			{
+				List<StockModel> list = stockGroupModel.Stocks.ToList();
+				StockGroups.Remove(stockGroupModel);
+				foreach (StockModel stock in list)
+				{
+					if (!StockGroups.Any((StockGroupModel g) => !g.IsOverview && g.Stocks.Any((StockModel s) => s.Code == stock.Code)))
+					{
+						StockModel stockModel = StockGroups[0].Stocks.FirstOrDefault((StockModel s) => s.Code == stock.Code);
+						if (stockModel != null)
+						{
+							StockGroups[0].Stocks.Remove(stockModel);
+						}
+						GlobalStockCache.Remove(stock.Code);
+					}
+				}
+				if (StockGroups.Count > 0)
+				{
+					SelectedGroup = StockGroups[0];
+				}
+				AnalyticsService.Log("16", "0");
+				SaveLocalData();
+			}
+		}
+	});
+
+	public ICommand RenameGroupCommand => new RelayCommand(delegate(object o)
+	{
+		StockGroupModel group = o as StockGroupModel;
+		if (group == null || group.IsOverview)
+		{
+			Application.Current.Dispatcher.Invoke(delegate
+			{
+				LogAction?.Invoke("⚠\ufe0f 总览页属于系统层，无法重命名。");
+			});
+		}
+		else
+		{
+			System.Windows.Window inputWin = new System.Windows.Window
+			{
+				Title = "重命名分组",
+				Width = 300.0,
+				Height = 180.0,
+				WindowStartupLocation = WindowStartupLocation.CenterScreen,
+				ResizeMode = ResizeMode.NoResize,
+				Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F3F4F6"))
+			};
+			StackPanel stackPanel = new StackPanel
+			{
+				Margin = new Thickness(15.0)
+			};
+			System.Windows.Controls.TextBox tb = new System.Windows.Controls.TextBox
+			{
+				Text = group.Header,
+				FontSize = 14.0,
+				Padding = new Thickness(5.0),
+				Margin = new Thickness(0.0, 0.0, 0.0, 15.0)
+			};
+			Button button = new Button
+			{
+				Content = "确定",
+				Width = 80.0,
+				Height = 30.0,
+				IsDefault = true,
+				Cursor = Cursors.Hand
+			};
+			button.Click += delegate
+			{
+				if (!string.IsNullOrWhiteSpace(tb.Text))
+				{
+					group.Header = tb.Text.Trim();
+					SaveLocalData();
+					Application.Current.Dispatcher.Invoke(delegate
+					{
+						LogAction?.Invoke("✏\ufe0f 分组已重命名为: " + group.Header);
+					});
+				}
+				inputWin.Close();
+			};
+			stackPanel.Children.Add(new TextBlock
+			{
+				Text = "请输入新的分组名称：",
+				Margin = new Thickness(0.0, 0.0, 0.0, 5.0),
+				FontWeight = FontWeights.Bold
+			});
+			stackPanel.Children.Add(tb);
+			stackPanel.Children.Add(button);
+			inputWin.Content = stackPanel;
+			tb.SelectAll();
+			tb.Focus();
+			AnalyticsService.Log("0", "1");
+			inputWin.ShowDialog();
+		}
+	});
+
+	public ICommand ManualRefreshCommand => new RelayCommand(async delegate
+	{
+		Application.Current.Dispatcher.Invoke(delegate
+		{
+			LogAction?.Invoke("\ud83d\udd04 手动刷新数据...");
+		});
+		AnalyticsService.Log("0", "0");
+		await RefreshAll();
+	});
+
+	public ICommand MoveStockToGroupCommand => new RelayCommand(delegate(object o)
+	{
+		StockGroupModel targetGroup = o as StockGroupModel;
+		StockModel stockToMove = CurrentSelectedStock;
+		if (targetGroup != null && stockToMove != null && SelectedGroup != null && !SelectedGroup.IsOverview && targetGroup != SelectedGroup)
+		{
+			if (!targetGroup.Stocks.Any((StockModel s) => s.Code == stockToMove.Code))
+			{
+				targetGroup.Stocks.Add(stockToMove);
+			}
+			SelectedGroup.Stocks.Remove(stockToMove);
+			SaveLocalData();
+			AnalyticsService.Log("8", "0");
+			Application.Current.Dispatcher.Invoke(delegate
+			{
+				Action<string>? logAction = LogAction;
+				if (logAction != null)
+				{
+					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(12, 2);
+					defaultInterpolatedStringHandler.AppendLiteral("\ud83d\ude9a 已移动 ");
+					defaultInterpolatedStringHandler.AppendFormatted(stockToMove.Name);
+					defaultInterpolatedStringHandler.AppendLiteral(" 到 [");
+					defaultInterpolatedStringHandler.AppendFormatted(targetGroup.Header);
+					defaultInterpolatedStringHandler.AppendLiteral("]");
+					logAction!(defaultInterpolatedStringHandler.ToStringAndClear());
+				}
+			});
+		}
+	});
+
+	public event PropertyChangedEventHandler? PropertyChanged;
+
+	public StockViewModel()
+	{
+		_filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StockGroups.json");
+		LoadLocalData();
+	}
+
+	public List<(string Code, string Name)> GetSelectedStocks()
+	{
+		if (SelectedGroup == null || SelectedGroup.Stocks == null)
+		{
+			return new List<(string, string)>();
+		}
+		return (from s in SelectedGroup.Stocks
+			where s.IsChecked
+			select (s.Code, s.Name)).ToList();
+	}
+
+	public void AddGroup(string groupName, List<StockModel> stocks)
+	{
+		StockGroupModel newGroup = new StockGroupModel
+		{
+			Header = groupName
+		};
+		foreach (StockModel stock in stocks)
+		{
+			if (GlobalStockCache.TryGetValue(stock.PureCode, out var value))
+			{
+				newGroup.Stocks.Add(value);
+				continue;
+			}
+			GlobalStockCache[stock.PureCode] = stock;
+			StockGroups[0].Stocks.Add(stock);
+			newGroup.Stocks.Add(stock);
+		}
+		Application.Current.Dispatcher.Invoke(delegate
+		{
+			StockGroups.Add(newGroup);
+			SelectedGroup = newGroup;
+		});
+		SaveLocalData();
+	}
+
+	public void LoadLocalData()
+	{
+		StockGroups.Clear();
+		StockGroupModel item = new StockGroupModel
+		{
+			GroupId = "OVERVIEW_ID",
+			Header = "总览",
+			IsOverview = true
+		};
+		StockGroups.Add(item);
+		if (File.Exists(_filePath))
+		{
+			try
+			{
+				List<StockGroupModel> list = JsonSerializer.Deserialize<List<StockGroupModel>>(File.ReadAllText(_filePath));
+				if (list != null)
+				{
+					foreach (StockGroupModel item2 in list)
+					{
+						if (item2.Stocks == null)
+						{
+							item2.Stocks = new ObservableCollection<StockModel>();
+						}
+						StockGroups.Add(item2);
+					}
+				}
+			}
+			catch
+			{
+			}
+		}
+		if (StockGroups.Count == 1)
+		{
+			StockGroupModel stockGroupModel = new StockGroupModel
+			{
+				Header = "我的自选"
+			};
+			stockGroupModel.Stocks.Add(new StockModel
+			{
+				Code = "000001",
+				Name = "平安银行",
+				IsChecked = true
+			});
+			StockGroups.Add(stockGroupModel);
+			SaveLocalData();
+		}
+		RebuildGlobalCacheAndOverview();
+	}
+
+	public void RebuildGlobalCacheAndOverview()
+	{
+		StockGroupModel stockGroupModel = StockGroups[0];
+		stockGroupModel.Stocks.Clear();
+		GlobalStockCache.Clear();
+		for (int i = 1; i < StockGroups.Count; i++)
+		{
+			StockGroupModel stockGroupModel2 = StockGroups[i];
+			for (int j = 0; j < stockGroupModel2.Stocks.Count; j++)
+			{
+				StockModel stockModel = stockGroupModel2.Stocks[j];
+				if (!string.IsNullOrEmpty(stockModel.Code))
+				{
+					string pureCode = stockModel.PureCode;
+					if (GlobalStockCache.TryGetValue(pureCode, out var value))
+					{
+						stockGroupModel2.Stocks[j] = value;
+						continue;
+					}
+					GlobalStockCache.Add(pureCode, stockModel);
+					stockGroupModel.Stocks.Add(stockModel);
+				}
+			}
+		}
+		if (SelectedGroup == null)
+		{
+			SelectedGroup = StockGroups[0];
+		}
+	}
+
+	public void SaveLocalData()
+	{
+		List<StockGroupModel> value = StockGroups.Skip(1).ToList();
+		try
+		{
+			JsonSerializerOptions options = new JsonSerializerOptions
+			{
+				WriteIndented = true,
+				Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+			};
+			string contents = JsonSerializer.Serialize(value, options);
+			File.WriteAllText(_filePath, contents);
+		}
+		catch
+		{
+		}
+	}
+
+	public async Task LoadBaseCodeNameTable()
+	{
+		string cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StockNameMap.json");
+		Stopwatch watch = Stopwatch.StartNew();
+		bool flag = false;
+		if (TryLoadNameMapCache(cachePath))
+		{
+			flag = File.GetLastWriteTime(cachePath).Date == TimeHelper.BeijingNow.Date;
+			Application.Current.Dispatcher.Invoke(delegate
+			{
+				LogAction?.Invoke("\ud83d\udcc2 读取今日代码表缓存...");
+			});
+		}
+		else
+		{
+			foreach (string fallbackPath in GetFallbackNameMapCachePaths())
+			{
+				if (TryLoadNameMapCache(fallbackPath))
+				{
+					SaveNameMapCache(cachePath);
+					break;
+				}
+			}
+		}
+		if (!flag)
+		{
+			Application.Current.Dispatcher.Invoke(delegate
+			{
+				LogAction?.Invoke("\ud83c\udf10 同步全量代码 & ETF列表...");
+			});
+			if (StockNameMap.Count == 0)
+			{
+				LoadSeedNameMap();
+			}
+			try
+			{
+				ParseCodeNameJson(await NetworkHelper.GetDataAsync("/api/codes"));
+			}
+			catch (Exception ex3)
+			{
+				Exception ex2 = ex3;
+				Application.Current.Dispatcher.Invoke(delegate
+				{
+					LogAction?.Invoke("⚠\ufe0f 股票表获取失败: " + ex2.Message);
+				});
+			}
+			try
+			{
+				ParseEtfJson(await NetworkHelper.GetDataAsync("/api/etf?limit=10000"));
+			}
+			catch (Exception ex4)
+			{
+				Exception ex = ex4;
+				Application.Current.Dispatcher.Invoke(delegate
+				{
+					LogAction?.Invoke("⚠\ufe0f ETF表获取失败: " + ex.Message);
+				});
+			}
+			if (StockNameMap.Count > 0)
+			{
+				try
+				{
+					SaveNameMapCache(cachePath);
+					Application.Current.Dispatcher.Invoke(delegate
+					{
+						Action<string>? logAction = LogAction;
+						if (logAction != null)
+						{
+							DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(23, 1);
+							defaultInterpolatedStringHandler.AppendLiteral("✅ 代码表更新完成 (股票+ETF 共 ");
+							defaultInterpolatedStringHandler.AppendFormatted(StockNameMap.Count);
+							defaultInterpolatedStringHandler.AppendLiteral(" 条)");
+							logAction!(defaultInterpolatedStringHandler.ToStringAndClear());
+						}
+					});
+				}
+				catch
+				{
+				}
+			}
+		}
+		watch.Stop();
+		LatencyAction?.Invoke(watch.ElapsedMilliseconds);
+		RefreshAllNames();
+	}
+
+	private bool TryLoadNameMapCache(string cachePath)
+	{
+		try
+		{
+			if (!File.Exists(cachePath))
+			{
+				return false;
+			}
+			Dictionary<string, string> dictionary = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(cachePath));
+			if (dictionary == null || dictionary.Count == 0)
+			{
+				return false;
+			}
+			StockNameMap = dictionary;
+			return true;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private IEnumerable<string> GetFallbackNameMapCachePaths()
+	{
+		yield return Path.Combine(Environment.CurrentDirectory, "StockNameMap.json");
+		string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+		if (!string.IsNullOrWhiteSpace(desktop))
+		{
+			yield return Path.Combine(desktop, "strock", "strock", "StockNameMap.json");
+		}
+	}
+
+	private void SaveNameMapCache(string cachePath)
+	{
+		try
+		{
+			JsonSerializerOptions options = new JsonSerializerOptions
+			{
+				WriteIndented = true,
+				Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+			};
+			File.WriteAllText(cachePath, JsonSerializer.Serialize(StockNameMap, options));
+		}
+		catch
+		{
+		}
+	}
+
+	private void LoadSeedNameMap()
+	{
+		StockNameMap["000001"] = "Ping An Bank";
+		StockNameMap["000002"] = "Vanke A";
+		StockNameMap["000300"] = "CSI 300";
+		StockNameMap["399001"] = "SZSE Component";
+		StockNameMap["399006"] = "ChiNext Index";
+		StockNameMap["510300"] = "CSI 300 ETF";
+		StockNameMap["600000"] = "SPD Bank";
+		StockNameMap["600519"] = "Kweichow Moutai";
+		StockNameMap["601318"] = "Ping An Insurance";
+		StockNameMap["601398"] = "ICBC";
+	}
+
+	private void ParseCodeNameJson(string json)
+	{
+		if (string.IsNullOrWhiteSpace(json))
+		{
+			return;
+		}
+		try
+		{
+			using JsonDocument jsonDocument = JsonDocument.Parse(json);
+			if (!jsonDocument.RootElement.TryGetProperty("data", out var value) || value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("codes", out var value2) || value2.ValueKind != JsonValueKind.Array)
+			{
+				return;
+			}
+			foreach (JsonElement item in value2.EnumerateArray())
+			{
+				if (item.ValueKind == JsonValueKind.Object)
+				{
+					string text = "";
+					string value3 = "";
+					if (item.TryGetProperty("code", out var value4) && value4.ValueKind == JsonValueKind.String)
+					{
+						text = value4.GetString() ?? "";
+					}
+					if (item.TryGetProperty("name", out var value5) && value5.ValueKind == JsonValueKind.String)
+					{
+						value3 = value5.GetString() ?? "";
+					}
+					if (!string.IsNullOrEmpty(text))
+					{
+						StockNameMap[text] = value3;
+					}
+				}
+			}
+		}
+		catch
+		{
+		}
+	}
+
+	private void ParseEtfJson(string json)
+	{
+		if (string.IsNullOrWhiteSpace(json))
+		{
+			return;
+		}
+		try
+		{
+			using JsonDocument jsonDocument = JsonDocument.Parse(json);
+			if (!jsonDocument.RootElement.TryGetProperty("data", out var value) || value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("list", out var value2) || value2.ValueKind != JsonValueKind.Array)
+			{
+				return;
+			}
+			foreach (JsonElement item in value2.EnumerateArray())
+			{
+				if (item.ValueKind == JsonValueKind.Object)
+				{
+					string text = "";
+					string value3 = "";
+					if (item.TryGetProperty("code", out var value4) && value4.ValueKind == JsonValueKind.String)
+					{
+						text = value4.GetString() ?? "";
+					}
+					if (item.TryGetProperty("name", out var value5) && value5.ValueKind == JsonValueKind.String)
+					{
+						value3 = value5.GetString() ?? "";
+					}
+					if (!string.IsNullOrEmpty(text))
+					{
+						StockNameMap[text] = value3;
+					}
+				}
+			}
+		}
+		catch
+		{
+		}
+	}
+
+	private void RefreshAllNames()
+	{
+		Application.Current.Dispatcher.Invoke(delegate
+		{
+			foreach (StockModel value2 in GlobalStockCache.Values)
+			{
+				if (StockNameMap.TryGetValue(value2.PureCode, out var value))
+				{
+					value2.Name = value;
+				}
+			}
+		});
+	}
+
+	private void DoHybridSearch(string keyword)
+	{
+		string keyword2 = keyword;
+		_searchCts?.Cancel();
+		_searchCts = new CancellationTokenSource();
+		CancellationToken token = _searchCts!.Token;
+		if (string.IsNullOrWhiteSpace(keyword2))
+		{
+			IsSearchPopupOpen = false;
+			return;
+		}
+		List<StockModel> onlineResults;
+		Task.Run(async delegate
+		{
+			List<StockModel> localResults = (from kvp in StockNameMap.Where<KeyValuePair<string, string>>((KeyValuePair<string, string> kvp) => kvp.Key.Contains(keyword2) || kvp.Value.Contains(keyword2)).Take(10)
+				select new StockModel
+				{
+					Code = kvp.Key,
+					Name = kvp.Value
+				}).ToList();
+			Application.Current.Dispatcher.Invoke(delegate
+			{
+				SearchResults.Clear();
+				foreach (StockModel item in localResults)
+				{
+					SearchResults.Add(item);
+				}
+				IsSearchPopupOpen = SearchResults.Count > 0;
+			});
+			await Task.Delay(300, token);
+			if (token.IsCancellationRequested)
+			{
+				return;
+			}
+			try
+			{
+				string json = await NetworkHelper.GetDataAsync("/api/search?keyword=" + Uri.EscapeDataString(keyword2));
+				if (token.IsCancellationRequested)
+				{
+					return;
+				}
+				using JsonDocument jsonDocument = JsonDocument.Parse(json);
+				JsonElement rootElement = jsonDocument.RootElement;
+				if (rootElement.TryGetProperty("code", out var value) && value.GetInt32() == 0 && rootElement.TryGetProperty("data", out var value2))
+				{
+					onlineResults = new List<StockModel>();
+					foreach (JsonElement item2 in value2.EnumerateArray())
+					{
+						string text = item2.GetProperty("code").GetString() ?? "";
+						string name = item2.GetProperty("name").GetString() ?? "";
+						if (!string.IsNullOrEmpty(text))
+						{
+							StockNameMap[text] = name;
+							onlineResults.Add(new StockModel
+							{
+								Code = text,
+								Name = name
+							});
+						}
+					}
+					Application.Current.Dispatcher.Invoke(delegate
+					{
+						foreach (StockModel netItem in onlineResults)
+						{
+							if (!SearchResults.Any((StockModel s) => s.Code == netItem.Code))
+							{
+								SearchResults.Add(netItem);
+							}
+						}
+						IsSearchPopupOpen = SearchResults.Count > 0;
+					});
+					SaveNameMapCache(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StockNameMap.json"));
+				}
+			}
+			catch
+			{
+			}
+		}, token);
+	}
+
+	private void AddStockInternal(string code, string name)
+	{
+		string code2 = code;
+		string name2 = name;
+		if (SelectedGroup == null || SelectedGroup.IsOverview)
+		{
+			Application.Current.Dispatcher.Invoke(delegate
+			{
+				LogAction?.Invoke("⚠\ufe0f 请先选择一个具体分组。");
+			});
+			return;
+		}
+		if (SelectedGroup.Stocks.Any((StockModel s) => s.PureCode == code2))
+		{
+			Application.Current.Dispatcher.Invoke(delegate
+			{
+				LogAction?.Invoke("⚠\ufe0f " + name2 + " 已在当前组中。");
+			});
+			return;
+		}
+		StockModel stockModel;
+		if (GlobalStockCache.TryGetValue(code2, out var value))
+		{
+			stockModel = value;
+		}
+		else
+		{
+			stockModel = new StockModel
+			{
+				Code = code2,
+				Name = name2,
+				IsChecked = true
+			};
+			GlobalStockCache[code2] = stockModel;
+			StockGroups[0].Stocks.Add(stockModel);
+		}
+		SelectedGroup.Stocks.Add(stockModel);
+		SaveLocalData();
+		Task.Run(async delegate
+		{
+			await RefreshSelectedStocks();
+		});
+		Application.Current.Dispatcher.Invoke(delegate
+		{
+			LogAction?.Invoke("✅ 已添加: " + name2);
+		});
+		AnalyticsService.Log("6", code2 ?? "");
+	}
+
+	public bool AddStockFromImport(string code)
+	{
+		string code2 = code;
+		if (string.IsNullOrWhiteSpace(code2))
+		{
+			return false;
+		}
+		string value;
+		string name = (StockNameMap.TryGetValue(code2, out value) ? value : "--");
+		if (SelectedGroup == null || SelectedGroup.IsOverview)
+		{
+			if (StockGroups.Count <= 1)
+			{
+				return false;
+			}
+			Application.Current.Dispatcher.Invoke(() => SelectedGroup = StockGroups[1]);
+		}
+		if (SelectedGroup.Stocks.Any((StockModel s) => s.PureCode == code2))
+		{
+			return false;
+		}
+		AddStockInternal(code2, name);
+		return true;
+	}
+
+	public string GetExportText(bool exportAllTabs)
+	{
+		StringBuilder stringBuilder = new StringBuilder();
+		List<StockGroupModel> list = new List<StockGroupModel>();
+		if (exportAllTabs)
+		{
+			list = StockGroups.Where((StockGroupModel g) => !g.IsOverview).ToList();
+		}
+		else if (SelectedGroup != null && !SelectedGroup.IsOverview)
+		{
+			list.Add(SelectedGroup);
+		}
+		foreach (StockGroupModel item in list)
+		{
+			List<StockModel> list2 = item.Stocks.Where((StockModel s) => s.IsChecked).ToList();
+			if (list2.Count == 0)
+			{
+				continue;
+			}
+			StringBuilder stringBuilder2 = stringBuilder;
+			StringBuilder.AppendInterpolatedStringHandler handler = new StringBuilder.AppendInterpolatedStringHandler(3, 1, stringBuilder2);
+			handler.AppendLiteral("\nG");
+			handler.AppendFormatted(item.Header);
+			handler.AppendLiteral("G");
+			stringBuilder2.AppendLine(ref handler);
+			foreach (StockModel item2 in list2)
+			{
+				stringBuilder.AppendLine(item2.Code);
+			}
+		}
+		return stringBuilder.ToString().Trim();
+	}
+
+	public void AddStockFromChat(string code)
+	{
+		if (string.IsNullOrWhiteSpace(code))
+		{
+			return;
+		}
+		string value;
+		string name = (StockNameMap.TryGetValue(code, out value) ? value : "--");
+		StockGroupModel targetGroup = StockGroups.FirstOrDefault((StockGroupModel g) => g.Header == "聊天室");
+		if (targetGroup == null)
+		{
+			targetGroup = new StockGroupModel
+			{
+				Header = "聊天室"
+			};
+			Application.Current.Dispatcher.Invoke(delegate
+			{
+				StockGroups.Add(targetGroup);
+			});
+		}
+		SelectedGroup = targetGroup;
+		AddStockInternal(code, name);
+		AnalyticsService.Log("6", "C" + code);
+	}
+
+	public async Task RefreshAll()
+	{
+		await RefreshSelectedStocks();
+	}
+
+	public async Task RefreshSelectedStocks()
+	{
+		List<StockModel> list = GlobalStockCache.Values.ToList();
+		if (list.Count == 0)
+		{
+			return;
+		}
+		Stopwatch watch = Stopwatch.StartNew();
+		await Task.WhenAll(list.Chunk(50).Select((Func<StockModel[], Task>)async delegate(StockModel[] chunk)
+		{
+			try
+			{
+				string text = string.Join(",", chunk.Select((StockModel s) => s.PureCode));
+				UpdateBatchStockUI(await NetworkHelper.GetDataAsync("/api/quote?code=" + text));
+			}
+			catch
+			{
+			}
+		}));
+		watch.Stop();
+		LatencyAction?.Invoke(watch.ElapsedMilliseconds);
+	}
+
+	private void UpdateBatchStockUI(string json)
+	{
+		if (string.IsNullOrWhiteSpace(json))
+		{
+			return;
+		}
+		try
+		{
+			using JsonDocument jsonDocument = JsonDocument.Parse(json);
+			if (!jsonDocument.RootElement.TryGetProperty("data", out var value) || value.ValueKind != JsonValueKind.Array)
+			{
+				return;
+			}
+			List<(string Code, double Price, double LastClose, double Percent, double Open, double High, double Low)> updates = new List<(string, double, double, double, double, double, double)>();
+			foreach (JsonElement item5 in value.EnumerateArray())
+			{
+				if (item5.ValueKind != JsonValueKind.Object)
+				{
+					continue;
+				}
+				string text = "";
+				if (item5.TryGetProperty("Code", out var value2) && value2.ValueKind == JsonValueKind.String)
+				{
+					text = value2.GetString() ?? "";
+				}
+				if (!string.IsNullOrEmpty(text) && item5.TryGetProperty("K", out var value3) && value3.ValueKind == JsonValueKind.Object)
+				{
+					double num = 0.0;
+					double num2 = 0.0;
+					double item = 0.0;
+					double item2 = 0.0;
+					double item3 = 0.0;
+					double item4 = 0.0;
+					if (value3.TryGetProperty("Close", out var value4) && value4.ValueKind == JsonValueKind.Number)
+					{
+						num = value4.GetDouble() / 1000.0;
+					}
+					JsonElement value6;
+					if (value3.TryGetProperty("Last", out var value5) && value5.ValueKind == JsonValueKind.Number)
+					{
+						num2 = value5.GetDouble() / 1000.0;
+					}
+					else if (value3.TryGetProperty("PreClose", out value6) && value6.ValueKind == JsonValueKind.Number)
+					{
+						num2 = value6.GetDouble() / 1000.0;
+					}
+					if (num2 > 0.0 && num > 0.0)
+					{
+						item = (num - num2) / num2 * 100.0;
+					}
+					if (value3.TryGetProperty("Open", out var value7) && value7.ValueKind == JsonValueKind.Number)
+					{
+						item2 = value7.GetDouble() / 1000.0;
+					}
+					if (value3.TryGetProperty("High", out var value8) && value8.ValueKind == JsonValueKind.Number)
+					{
+						item3 = value8.GetDouble() / 1000.0;
+					}
+					if (value3.TryGetProperty("Low", out var value9) && value9.ValueKind == JsonValueKind.Number)
+					{
+						item4 = value9.GetDouble() / 1000.0;
+					}
+					updates.Add((text, num, num2, item, item2, item3, item4));
+				}
+			}
+			if (updates.Count <= 0)
+			{
+				return;
+			}
+			Application.Current.Dispatcher.Invoke(delegate
+			{
+				foreach (var item6 in updates)
+				{
+					if (GlobalStockCache.TryGetValue(item6.Code, out var value10))
+					{
+						value10.Price = item6.Price;
+						value10.LastClose = item6.LastClose;
+						value10.Percent = item6.Percent;
+						value10.Open = item6.Open;
+						value10.High = item6.High;
+						value10.Low = item6.Low;
+					}
+				}
+			});
+		}
+		catch
+		{
+		}
+	}
+
+	public void StartService()
+	{
+		if (_cts != null)
+		{
+			return;
+		}
+		_cts = new CancellationTokenSource();
+		CancellationToken token = _cts!.Token;
+		Task.Run(async delegate
+		{
+			await RefreshAll();
+			while (!token.IsCancellationRequested)
+			{
+				if (IsTradingTime())
+				{
+					_isSleepingLogged = false;
+					await RefreshAll();
+					try
+					{
+						await Task.Delay(3000, token);
+					}
+					catch
+					{
+						break;
+					}
+				}
+				else
+				{
+					if (!_isSleepingLogged)
+					{
+						Application.Current.Dispatcher.Invoke(delegate
+						{
+							LogAction?.Invoke("\ud83d\udca4 非交易时间，暂停自动刷新...");
+						});
+						_isSleepingLogged = true;
+					}
+					try
+					{
+						await Task.Delay(1000, token);
+					}
+					catch
+					{
+						break;
+					}
+				}
+			}
+		}, token);
+	}
+
+	private bool IsTradingTime()
+	{
+		DateTime beijingNow = TimeHelper.BeijingNow;
+		if (beijingNow.DayOfWeek == DayOfWeek.Saturday || beijingNow.DayOfWeek == DayOfWeek.Sunday)
+		{
+			return false;
+		}
+		TimeSpan timeOfDay = beijingNow.TimeOfDay;
+		if (!(timeOfDay >= new TimeSpan(9, 15, 0)) || !(timeOfDay <= new TimeSpan(11, 30, 0)))
+		{
+			if (timeOfDay >= new TimeSpan(13, 0, 0))
+			{
+				return timeOfDay <= new TimeSpan(15, 0, 0);
+			}
+			return false;
+		}
+		return true;
+	}
+
+	protected void OnPropertyChanged([CallerMemberName] string? name = null)
+	{
+		this.PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+	}
+}

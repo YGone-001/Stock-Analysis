@@ -1,0 +1,9 @@
+* text=auto
+*.cs text eol=crlf
+*.csproj text eol=crlf
+*.md text eol=lf
+*.json text eol=lf
+*.baml binary
+*.ico binary
+*.png binary
+*.dll binary

@@ -1,0 +1,37 @@
+# Build outputs
+bin/
+obj/
+out/
+publish/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Test and coverage output
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# Local runtime data
+StockGroups.json
+StockNameMap.json
+GPSJ/
+logs/
+*.log
+
+# OS/editor files
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.tmp
+
+# NuGet
+*.nupkg
+packages/
