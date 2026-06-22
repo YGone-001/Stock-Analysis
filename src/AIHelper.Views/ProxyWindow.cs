@@ -90,7 +90,7 @@ public class ProxyWindow : HandyControl.Controls.Window, IComponentConnector
 				Timeout = TimeSpan.FromSeconds(5.0)
 			};
 			AppConfig appConfig = ConfigManager.Load();
-			string requestUri = (string.IsNullOrWhiteSpace(appConfig.AkServerUrl) ? "https://www.98da.com" : appConfig.AkServerUrl);
+			string requestUri = "https://push2.eastmoney.com";
 			HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Head, requestUri);
 			HttpResponseMessage httpResponseMessage = await client.SendAsync(request);
 			if (httpResponseMessage.IsSuccessStatusCode)

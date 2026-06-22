@@ -1,0 +1,124 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using AIHelper.Helpers;
+
+namespace AIHelper.Services.StockData;
+
+public sealed class StockDataDiagnostics
+{
+	public async Task<IReadOnlyList<StockDataDiagnosticItem>> RunAsync(string sampleCode = "600519", CancellationToken cancellationToken = default)
+	{
+		var results = new List<StockDataDiagnosticItem>();
+		StockNameCacheSnapshot cache = await NetworkHelper.GetStockNameCacheSnapshotAsync(cancellationToken);
+		results.Add(new StockDataDiagnosticItem("代码表缓存", cache.Exists, cache.Exists ? cache.Items.Count + " 条；版本 2；来源 " + cache.Source + (cache.IsStale ? "；已过期" : "；有效") : "缓存为空或不可读"));
+
+		StockDataResult search = await NetworkHelper.GetDataResultAsync("/api/search?keyword=" + Uri.EscapeDataString(sampleCode), cancellationToken);
+		results.Add(CreateArrayResult("股票搜索", search, "data"));
+
+		StockDataResult quote = await NetworkHelper.GetDataResultAsync("/api/quote?code=" + sampleCode, cancellationToken);
+		int quoteRows = CountArray(quote.Json, "data");
+		bool hasFiveLevels = HasFiveLevels(quote.Json);
+		bool hasDepthValues = HasAvailableDepth(quote.Json);
+		results.Add(new StockDataDiagnosticItem("实时行情/五档", quote.Success && quoteRows > 0 && hasFiveLevels, BuildMessage(quote, quoteRows) + (hasFiveLevels ? (hasDepthValues ? "；买卖五档完整且有值" : "；买卖五档结构完整，当前时段无档位值") : "；买卖五档不完整")));
+
+		StockDataResult kline = await NetworkHelper.GetDataResultAsync("/api/kline-all?code=" + sampleCode + "&type=day&limit=5", cancellationToken);
+		results.Add(CreateArrayResult("日 K", kline, "data"));
+		string tradingDate = GetLatestKlineDate(kline.Json) ?? TimeHelper.BeijingNow.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+
+		StockDataResult minute = await NetworkHelper.GetDataResultAsync("/api/minute?code=" + sampleCode + "&date=" + tradingDate, cancellationToken);
+		results.Add(CreateNestedArrayResult("分时", minute, "data", "List"));
+
+		StockDataResult ticks = await NetworkHelper.GetDataResultAsync("/api/minute-trade-all?code=" + sampleCode + "&date=" + tradingDate, cancellationToken);
+		results.Add(CreateNestedArrayResult("逐笔", ticks, "data", "List"));
+		return results;
+	}
+
+	private static StockDataDiagnosticItem CreateArrayResult(string name, StockDataResult result, string property)
+	{
+		int count = CountArray(result.Json, property);
+		return new StockDataDiagnosticItem(name, result.Success && count > 0, BuildMessage(result, count));
+	}
+
+	private static StockDataDiagnosticItem CreateNestedArrayResult(string name, StockDataResult result, string parent, string property)
+	{
+		int count = CountArray(result.Json, parent, property);
+		return new StockDataDiagnosticItem(name, result.Success && count > 0, BuildMessage(result, count));
+	}
+
+	private static string BuildMessage(StockDataResult result, int count)
+	{
+		string message = count + " 条；来源 " + result.Source;
+		if (result.UsedCache) message += "；本地缓存";
+		if (!string.IsNullOrWhiteSpace(result.Error)) message += "；" + result.Error;
+		return message;
+	}
+
+	private static int CountArray(string json, params string[] path)
+	{
+		try
+		{
+			using JsonDocument document = JsonDocument.Parse(json);
+			JsonElement value = document.RootElement;
+			foreach (string property in path)
+			{
+				if (!value.TryGetProperty(property, out value)) return 0;
+			}
+			return value.ValueKind == JsonValueKind.Array ? value.GetArrayLength() : 0;
+		}
+		catch
+		{
+			return 0;
+		}
+	}
+
+	private static string GetLatestKlineDate(string json)
+	{
+		try
+		{
+			using JsonDocument document = JsonDocument.Parse(json);
+			JsonElement data = document.RootElement.GetProperty("data");
+			if (data.ValueKind != JsonValueKind.Array || data.GetArrayLength() == 0) return null;
+			string value = data.EnumerateArray().Last().GetProperty("Time").GetString();
+			return DateTime.TryParse(value, out var date) ? date.ToString("yyyyMMdd", CultureInfo.InvariantCulture) : null;
+		}
+		catch
+		{
+			return null;
+		}
+	}
+
+	private static bool HasFiveLevels(string json)
+	{
+		try
+		{
+			using JsonDocument document = JsonDocument.Parse(json);
+			JsonElement first = document.RootElement.GetProperty("data")[0];
+			return first.GetProperty("BuyLevel").GetArrayLength() == 5 && first.GetProperty("SellLevel").GetArrayLength() == 5 && first.TryGetProperty("TotalHand", out _);
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private static bool HasAvailableDepth(string json)
+	{
+		try
+		{
+			using JsonDocument document = JsonDocument.Parse(json);
+			JsonElement first = document.RootElement.GetProperty("data")[0];
+			return first.GetProperty("BuyLevel").EnumerateArray().Concat(first.GetProperty("SellLevel").EnumerateArray()).Any(level => level.TryGetProperty("Available", out var available) && available.GetBoolean());
+		}
+		catch
+		{
+			return false;
+		}
+	}
+}
+
+public sealed record StockDataDiagnosticItem(string Name, bool Success, string Message);

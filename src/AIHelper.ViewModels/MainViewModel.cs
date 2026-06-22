@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using AIHelper.Helpers;
+using AIHelper.Services.StockData;
 using AIHelper.Views;
 using HandyControl.Controls;
 
@@ -166,8 +167,6 @@ public class MainViewModel : INotifyPropertyChanged
 
 	public ICommand SetProxyCommand { get; set; }
 
-	public ICommand SetDataSourceCommand { get; set; }
-
 	public ICommand OpenHelpCommand { get; set; }
 
 	public ICommand OpenSparrowCommand { get; set; }
@@ -183,6 +182,8 @@ public class MainViewModel : INotifyPropertyChanged
 	public ICommand OpenFiveDayChartCommand { get; set; }
 
 	public ICommand OpenImportExportCommand { get; set; }
+
+	public ICommand DiagnoseDataSourcesCommand { get; set; }
 
 	public StockViewModel StockVM { get; set; }
 
@@ -324,6 +325,24 @@ public class MainViewModel : INotifyPropertyChanged
 
 	private void InitCommands()
 	{
+		DiagnoseDataSourcesCommand = new RelayCommand(async delegate
+		{
+			AppendLog("🩺 开始诊断股票数据源...");
+			try
+			{
+				IReadOnlyList<StockDataDiagnosticItem> results = await new StockDataDiagnostics().RunAsync();
+				foreach (StockDataDiagnosticItem item in results)
+				{
+					AppendLog((item.Success ? "✅ " : "❌ ") + item.Name + "：" + item.Message);
+				}
+				int passed = results.Count(item => item.Success);
+				HandyControl.Controls.MessageBox.Show("数据源诊断完成：" + passed + "/" + results.Count + " 项通过。\n详细结果已写入日志窗口。", "数据源诊断", MessageBoxButton.OK, passed == results.Count ? MessageBoxImage.Information : MessageBoxImage.Warning);
+			}
+			catch (Exception ex)
+			{
+				AppendLog("❌ 数据源诊断失败：" + ex.Message);
+			}
+		});
 		OpenImportExportCommand = new RelayCommand(delegate
 		{
 			ImportExportWindow importExportWindow = new ImportExportWindow(this);
@@ -522,12 +541,6 @@ public class MainViewModel : INotifyPropertyChanged
 			proxyWindow.Owner = Application.Current.MainWindow;
 			proxyWindow.ShowDialog();
 		});
-		SetDataSourceCommand = new RelayCommand(delegate
-		{
-			DataSourceWindow dataSourceWindow = new DataSourceWindow();
-			dataSourceWindow.Owner = Application.Current.MainWindow;
-			dataSourceWindow.ShowDialog();
-		});
 		OpenHelpCommand = new RelayCommand(delegate
 		{
 			try
@@ -598,16 +611,22 @@ public class MainViewModel : INotifyPropertyChanged
 			Icon = "\ud83d\udce5",
 			Command = OpenImportExportCommand
 		});
+		menuItemModel2.Children.Add(new MenuItemModel
+		{
+			Header = "手动刷新股票代码表",
+			Icon = "🔄",
+			Command = StockVM.RefreshCodeTableCommand
+		});
+		menuItemModel2.Children.Add(new MenuItemModel
+		{
+			Header = "诊断股票数据源",
+			Icon = "🩺",
+			Command = DiagnoseDataSourcesCommand
+		});
 		MenuItemModel menuItemModel3 = new MenuItemModel
 		{
 			Header = "设置(_S)"
 		};
-		menuItemModel3.Children.Add(new MenuItemModel
-		{
-			Header = "数据源节点设置",
-			Icon = "\ud83d\udd0c",
-			Command = SetDataSourceCommand
-		});
 		menuItemModel3.Children.Add(new MenuItemModel
 		{
 			Header = "API接口代理",

@@ -33,7 +33,7 @@ public class AppConfig
 
 	public bool IsAutoOpenFolder { get; set; }
 
-	public bool IsChatVisible { get; set; } = true;
+	public bool IsChatVisible { get; set; }
 
 
 	public bool IsJsonMinify { get; set; } = true;
@@ -62,7 +62,10 @@ public class AppConfig
 	public bool IsQueryKLine { get; set; } = true;
 
 
-	public string AkServerUrl { get; set; } = "https://www.98da.com";
+	public bool IsChatEnabled { get; set; }
+
+
+	public string ChatServerUrl { get; set; } = "";
 
 
 	public bool ExportIsSingleFile { get; set; } = true;

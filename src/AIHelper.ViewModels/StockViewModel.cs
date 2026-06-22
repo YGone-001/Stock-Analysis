@@ -17,6 +17,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using AIHelper.Helpers;
 using AIHelper.Models;
+using AIHelper.Services.StockData;
 using AIHelper.Views;
 using HandyControl.Controls;
 
@@ -47,6 +48,16 @@ public class StockViewModel : INotifyPropertyChanged
 	private CancellationTokenSource? _cts;
 
 	private bool _isSleepingLogged;
+
+	private readonly SemaphoreSlim _refreshGate = new SemaphoreSlim(1, 1);
+
+	private int _consecutiveRefreshFailures;
+
+	private DateTime _quoteBackoffUntil = DateTime.MinValue;
+
+	private bool _quoteBackoffLogged;
+
+	private bool _cacheNoticeShown;
 
 	public Action<string>? LogAction { get; set; }
 
@@ -364,7 +375,13 @@ public class StockViewModel : INotifyPropertyChanged
 			LogAction?.Invoke("\ud83d\udd04 手动刷新数据...");
 		});
 		AnalyticsService.Log("0", "0");
+		ResetQuoteBackoff();
 		await RefreshAll();
+	});
+
+	public ICommand RefreshCodeTableCommand => new RelayCommand(async delegate
+	{
+		await RefreshCodeNameCacheAsync(forceRefresh: true);
 	});
 
 	public ICommand MoveStockToGroupCommand => new RelayCommand(delegate(object o)
@@ -402,6 +419,7 @@ public class StockViewModel : INotifyPropertyChanged
 	public StockViewModel()
 	{
 		_filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StockGroups.json");
+		NetworkHelper.StockDataStatusChanged += OnStockDataStatusChanged;
 		LoadLocalData();
 	}
 
@@ -545,7 +563,7 @@ public class StockViewModel : INotifyPropertyChanged
 		bool flag = false;
 		if (TryLoadNameMapCache(cachePath))
 		{
-			flag = File.GetLastWriteTime(cachePath).Date == TimeHelper.BeijingNow.Date;
+			flag = false;
 			Application.Current.Dispatcher.Invoke(delegate
 			{
 				LogAction?.Invoke("\ud83d\udcc2 读取今日代码表缓存...");
@@ -624,6 +642,62 @@ public class StockViewModel : INotifyPropertyChanged
 		RefreshAllNames();
 	}
 
+	public async Task RefreshCodeNameCacheAsync(bool forceRefresh)
+	{
+		Application.Current.Dispatcher.Invoke(delegate
+		{
+			LogAction?.Invoke(forceRefresh ? "🔄 正在手动刷新股票代码表..." : "🌐 正在同步股票代码表...");
+		});
+		string suffix = forceRefresh ? "?force=1" : "";
+		Task<StockDataResult> stockTask = NetworkHelper.GetDataResultAsync("/api/codes" + suffix);
+		Task<StockDataResult> etfTask = NetworkHelper.GetDataResultAsync("/api/etf" + suffix);
+		await Task.WhenAll(stockTask, etfTask);
+		StockDataResult stockResult = await stockTask;
+		StockDataResult etfResult = await etfTask;
+		if (stockResult.Success) ParseCodeNameJson(stockResult.Json);
+		if (etfResult.Success) ParseEtfJson(etfResult.Json);
+		if (StockNameMap.Count == 0) LoadSeedNameMap();
+		await NetworkHelper.MergeStockNameCacheAsync(StockNameMap, forceRefresh ? "ManualRefresh" : "StockViewModel");
+		RefreshAllNames();
+		Application.Current.Dispatcher.Invoke(delegate
+		{
+			if (stockResult.UsedCache || etfResult.UsedCache)
+			{
+				LogAction?.Invoke("⚠️ 公开源暂不可用，正在使用本地代码表缓存。");
+			}
+			else if (stockResult.Success && etfResult.Success)
+			{
+				LogAction?.Invoke("✅ 股票代码表刷新完成，共 " + StockNameMap.Count + " 条。");
+			}
+			else
+			{
+				LogAction?.Invoke("⚠️ 代码表刷新未完整成功，已保留现有缓存。");
+			}
+		});
+	}
+
+	private void OnStockDataStatusChanged(StockDataResult result)
+	{
+		if (result == null) return;
+		if (result.UsedCache && (!_cacheNoticeShown || !string.IsNullOrWhiteSpace(result.Error)))
+		{
+			_cacheNoticeShown = true;
+			Application.Current?.Dispatcher.Invoke(delegate
+			{
+				LogAction?.Invoke(result.IsStale ? "📦 正在使用本地代码表缓存，公开源将在后台刷新。" : "📦 正在使用本地代码表缓存。");
+			});
+		}
+		if (result.IsBackgroundRefresh && result.Success && (result.Endpoint.StartsWith("/api/codes") || result.Endpoint.StartsWith("/api/etf")))
+		{
+			Application.Current?.Dispatcher.Invoke(delegate
+			{
+				if (result.Endpoint.StartsWith("/api/etf")) ParseEtfJson(result.Json); else ParseCodeNameJson(result.Json);
+				RefreshAllNames();
+				LogAction?.Invoke("✅ 后台代码表同步完成。");
+			});
+		}
+	}
+
 	private bool TryLoadNameMapCache(string cachePath)
 	{
 		try
@@ -658,18 +732,7 @@ public class StockViewModel : INotifyPropertyChanged
 
 	private void SaveNameMapCache(string cachePath)
 	{
-		try
-		{
-			JsonSerializerOptions options = new JsonSerializerOptions
-			{
-				WriteIndented = true,
-				Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-			};
-			File.WriteAllText(cachePath, JsonSerializer.Serialize(StockNameMap, options));
-		}
-		catch
-		{
-		}
+		_ = NetworkHelper.MergeStockNameCacheAsync(StockNameMap, "StockViewModel");
 	}
 
 	private void LoadSeedNameMap()
@@ -1002,34 +1065,73 @@ public class StockViewModel : INotifyPropertyChanged
 		{
 			return;
 		}
-		Stopwatch watch = Stopwatch.StartNew();
-		await Task.WhenAll(list.Chunk(50).Select((Func<StockModel[], Task>)async delegate(StockModel[] chunk)
+		if (TimeHelper.BeijingNow < _quoteBackoffUntil)
 		{
-			try
+			return;
+		}
+		if (!await _refreshGate.WaitAsync(0))
+		{
+			return;
+		}
+		Stopwatch watch = Stopwatch.StartNew();
+		bool[] results = Array.Empty<bool>();
+		try
+		{
+			results = await Task.WhenAll(list.Chunk(50).Select(async delegate(StockModel[] chunk)
 			{
-				string text = string.Join(",", chunk.Select((StockModel s) => s.PureCode));
-				UpdateBatchStockUI(await NetworkHelper.GetDataAsync("/api/quote?code=" + text));
-			}
-			catch
-			{
-			}
-		}));
+				try
+				{
+					string codes = string.Join(",", chunk.Select((StockModel stock) => stock.PureCode));
+					StockDataResult result = await NetworkHelper.GetDataResultAsync("/api/quote?code=" + codes);
+					return result.Success && UpdateBatchStockUI(result.Json) > 0;
+				}
+				catch
+				{
+					return false;
+				}
+			}));
+		}
+		finally
+		{
+			_refreshGate.Release();
+		}
 		watch.Stop();
 		LatencyAction?.Invoke(watch.ElapsedMilliseconds);
+		if (results.Length > 0 && results.All(success => success))
+		{
+			bool recovered = _consecutiveRefreshFailures > 0 || _quoteBackoffLogged;
+			_consecutiveRefreshFailures = 0;
+			_quoteBackoffUntil = DateTime.MinValue;
+			_quoteBackoffLogged = false;
+			if (recovered) Application.Current.Dispatcher.Invoke(delegate { LogAction?.Invoke("✅ 行情公开源已恢复，刷新间隔恢复为 3 秒。"); });
+		}
+		else
+		{
+			_consecutiveRefreshFailures++;
+			if (_consecutiveRefreshFailures >= 3)
+			{
+				_quoteBackoffUntil = TimeHelper.BeijingNow.AddSeconds(30);
+				if (!_quoteBackoffLogged)
+				{
+					_quoteBackoffLogged = true;
+					Application.Current.Dispatcher.Invoke(delegate { LogAction?.Invoke("⚠️ 行情连续失败，暂停自动请求 30 秒。"); });
+				}
+			}
+		}
 	}
 
-	private void UpdateBatchStockUI(string json)
+	private int UpdateBatchStockUI(string json)
 	{
 		if (string.IsNullOrWhiteSpace(json))
 		{
-			return;
+			return 0;
 		}
 		try
 		{
 			using JsonDocument jsonDocument = JsonDocument.Parse(json);
 			if (!jsonDocument.RootElement.TryGetProperty("data", out var value) || value.ValueKind != JsonValueKind.Array)
 			{
-				return;
+				return 0;
 			}
 			List<(string Code, double Price, double LastClose, double Percent, double Open, double High, double Low)> updates = new List<(string, double, double, double, double, double, double)>();
 			foreach (JsonElement item5 in value.EnumerateArray())
@@ -1085,7 +1187,7 @@ public class StockViewModel : INotifyPropertyChanged
 			}
 			if (updates.Count <= 0)
 			{
-				return;
+				return 0;
 			}
 			Application.Current.Dispatcher.Invoke(delegate
 			{
@@ -1102,10 +1204,19 @@ public class StockViewModel : INotifyPropertyChanged
 					}
 				}
 			});
+			return updates.Count;
 		}
 		catch
 		{
+			return 0;
 		}
+	}
+
+	private void ResetQuoteBackoff()
+	{
+		_consecutiveRefreshFailures = 0;
+		_quoteBackoffUntil = DateTime.MinValue;
+		_quoteBackoffLogged = false;
 	}
 
 	public void StartService()
@@ -1127,7 +1238,8 @@ public class StockViewModel : INotifyPropertyChanged
 					await RefreshAll();
 					try
 					{
-						await Task.Delay(3000, token);
+						TimeSpan delay = _quoteBackoffUntil > TimeHelper.BeijingNow ? _quoteBackoffUntil - TimeHelper.BeijingNow : TimeSpan.FromSeconds(3);
+						await Task.Delay(delay, token);
 					}
 					catch
 					{

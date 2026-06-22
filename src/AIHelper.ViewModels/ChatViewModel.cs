@@ -469,7 +469,7 @@ public class ChatViewModel : INotifyPropertyChanged
 
 	private async void InitializeSignalR()
 	{
-		_connection = ((IHubConnectionBuilder)new HubConnectionBuilder()).WithUrl("https://chat.98da.com/chatHub", (Action<HttpConnectionOptions>)delegate(HttpConnectionOptions options)
+		_connection = ((IHubConnectionBuilder)new HubConnectionBuilder()).WithUrl(ChatServiceConfig.BuildUrl("/chatHub"), (Action<HttpConnectionOptions>)delegate(HttpConnectionOptions options)
 		{
 			options.AccessTokenProvider = () => Task.FromResult(_token);
 		}).WithAutomaticReconnect().Build();
@@ -800,7 +800,7 @@ public class ChatViewModel : INotifyPropertyChanged
 				{
 					Timeout = TimeSpan.FromSeconds(30.0)
 				};
-				string requestUri = "https://chat.98da.com/api/upload/image";
+				string requestUri = ChatServiceConfig.BuildUrl("/api/upload/image");
 				byte[] content2 = Convert.FromBase64String(base65);
 				using MultipartFormDataContent content = new MultipartFormDataContent();
 				ByteArrayContent byteArrayContent = new ByteArrayContent(content2);

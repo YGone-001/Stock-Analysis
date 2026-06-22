@@ -12,7 +12,7 @@ namespace AIHelper.ViewModels;
 
 public class LoginViewModel : INotifyPropertyChanged
 {
-	private readonly string _apiBaseUrl = "https://chat.98da.com/api/auth";
+	private readonly string _apiBaseUrl = ChatServiceConfig.BuildUrl("/api/auth");
 
 	private string _username;
 

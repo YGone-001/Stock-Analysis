@@ -79,6 +79,12 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 	private async void ChatView_Loaded(object sender, RoutedEventArgs e)
 	{
 		AppConfig appConfig = ConfigManager.Load();
+		if (!ChatServiceConfig.IsEnabled)
+		{
+			ChatMainUI.Visibility = Visibility.Collapsed;
+			LoginOverlay.Visibility = Visibility.Visible;
+			return;
+		}
 		if (appConfig.IsChatAutoLogin && !string.IsNullOrEmpty(appConfig.SavedChatUser) && !string.IsNullOrEmpty(appConfig.SavedChatPwd))
 		{
 			await PerformSilentLogin(appConfig);
@@ -100,7 +106,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 		{
 			if (chatMessageModel.Content.StartsWith("/uploads") || chatMessageModel.Content.StartsWith("http"))
 			{
-				new ImageBrowser(new Uri(chatMessageModel.Content.StartsWith("http") ? chatMessageModel.Content : ("https://chat.98da.com" + chatMessageModel.Content))).Show();
+				new ImageBrowser(new Uri(chatMessageModel.Content.StartsWith("http") ? chatMessageModel.Content : ChatServiceConfig.BuildUrl(chatMessageModel.Content))).Show();
 				return;
 			}
 			string tempPath = Path.GetTempPath();
@@ -300,7 +306,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 			{
 				Timeout = TimeSpan.FromSeconds(5.0)
 			};
-			HttpResponseMessage httpResponseMessage = await client.PostAsync("https://chat.98da.com/api/auth/login", content);
+			HttpResponseMessage httpResponseMessage = await client.PostAsync(ChatServiceConfig.BuildUrl("/api/auth/login"), content);
 			if (!httpResponseMessage.IsSuccessStatusCode)
 			{
 				return;
@@ -367,6 +373,11 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 
 	private void BtnShowLogin_Click(object sender, RoutedEventArgs e)
 	{
+		if (!ChatServiceConfig.IsEnabled)
+		{
+			Growl.Info("聊天服务为可选功能，当前未配置。");
+			return;
+		}
 		LoginWindow loginWindow = new LoginWindow();
 		loginWindow.Owner = System.Windows.Window.GetWindow(this);
 		if (loginWindow.ShowDialog().GetValueOrDefault())

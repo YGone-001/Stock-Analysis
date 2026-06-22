@@ -53,6 +53,5 @@ public class LogViewModel : INotifyPropertyChanged
 		defaultInterpolatedStringHandler.AppendFormatted(DateTime.Now, "HH:mm:ss");
 		defaultInterpolatedStringHandler.AppendLiteral("] 系统就绪...\r\n");
 		_logContent = defaultInterpolatedStringHandler.ToStringAndClear();
-		base._002Ector();
 	}
 }

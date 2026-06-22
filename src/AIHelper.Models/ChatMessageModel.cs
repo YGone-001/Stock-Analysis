@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using AIHelper.Helpers;
 
 namespace AIHelper.Models;
 
@@ -169,7 +170,7 @@ public class ChatMessageModel : INotifyPropertyChanged
 				imageBytes = null;
 				if (Content.StartsWith("/uploads") || Content.StartsWith("http"))
 				{
-					string fullUrl = (Content.StartsWith("http") ? Content : ("https://chat.98da.com" + Content));
+					string fullUrl = Content.StartsWith("http") ? Content : ChatServiceConfig.BuildUrl(Content);
 					string text = Path.GetFileName(new Uri(fullUrl).LocalPath);
 					if (string.IsNullOrEmpty(text))
 					{

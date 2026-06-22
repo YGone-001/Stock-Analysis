@@ -1,10 +1,10 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <AssemblyName>AIHelper</AssemblyName>
     <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
     <OutputType>WinExe</OutputType>
     <UseWPF>True</UseWPF>
-    <TargetFramework>netcoreapp8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup>
@@ -103,7 +103,6 @@
     <None Remove="views\proxywindow.baml" />
     <None Remove="assets\emoji.png" />
     <None Remove="views\sparrowwindow.baml" />
-    <None Remove="views\datasourcewindow.baml" />
     <None Remove="views\turtlewindowdc.baml" />
     <None Remove="assets\pic.png" />
     <None Remove="views\chatview.baml" />
@@ -111,117 +110,104 @@
     <None Remove="views\loginwindow.baml" />
     <None Remove="app.baml" />
     <None Remove="views\imageviewerwindow.baml" />
-    <EmbeddedResource Include="assets\emoji_tab_icon.png" />
-    <EmbeddedResource Include="assets\emoji\21.png" />
-    <EmbeddedResource Include="assets\emoji\20.png" />
-    <EmbeddedResource Include="assets\emoji\23.png" />
-    <EmbeddedResource Include="assets\emoji\22.png" />
-    <EmbeddedResource Include="assets\emoji\25.png" />
-    <EmbeddedResource Include="assets\emoji\24.png" />
-    <EmbeddedResource Include="assets\emoji\27.png" />
-    <EmbeddedResource Include="assets\emoji\26.png" />
-    <EmbeddedResource Include="assets\emoji\29.png" />
-    <EmbeddedResource Include="assets\emoji\28.png" />
-    <EmbeddedResource Include="assets\emoji\03.png" />
-    <EmbeddedResource Include="assets\emoji\02.png" />
-    <EmbeddedResource Include="assets\emoji\01.png" />
-    <EmbeddedResource Include="assets\emoji\07.png" />
-    <EmbeddedResource Include="assets\emoji\06.png" />
-    <EmbeddedResource Include="assets\emoji\05.png" />
-    <EmbeddedResource Include="assets\emoji\04.png" />
-    <EmbeddedResource Include="assets\emoji\09.png" />
-    <EmbeddedResource Include="assets\emoji\08.png" />
-    <EmbeddedResource Include="assets\emoji\31.png" />
-    <EmbeddedResource Include="assets\emoji\33.png" />
-    <EmbeddedResource Include="assets\emoji\30.png" />
-    <EmbeddedResource Include="assets\emoji\35.png" />
-    <EmbeddedResource Include="assets\emoji\32.png" />
-    <EmbeddedResource Include="assets\emoji\37.png" />
-    <EmbeddedResource Include="assets\emoji\34.png" />
-    <EmbeddedResource Include="assets\emoji\39.png" />
-    <EmbeddedResource Include="assets\emoji\36.png" />
-    <EmbeddedResource Include="assets\emoji\38.png" />
-    <EmbeddedResource Include="assets\emoji\13.png" />
-    <EmbeddedResource Include="assets\emoji\11.png" />
-    <EmbeddedResource Include="assets\emoji\12.png" />
-    <EmbeddedResource Include="assets\emoji\17.png" />
-    <EmbeddedResource Include="assets\emoji\10.png" />
-    <EmbeddedResource Include="assets\emoji\15.png" />
-    <EmbeddedResource Include="assets\emoji\16.png" />
-    <EmbeddedResource Include="assets\emoji\14.png" />
-    <EmbeddedResource Include="assets\emoji\19.png" />
-    <EmbeddedResource Include="assets\emoji\18.png" />
-    <EmbeddedResource Include="assets\emoji\47.png" />
-    <EmbeddedResource Include="assets\emoji\46.png" />
-    <EmbeddedResource Include="assets\emoji\45.png" />
-    <EmbeddedResource Include="assets\emoji\44.png" />
-    <EmbeddedResource Include="assets\emoji\43.png" />
-    <EmbeddedResource Include="assets\emoji\42.png" />
-    <EmbeddedResource Include="assets\emoji\41.png" />
-    <EmbeddedResource Include="assets\emoji\40.png" />
-    <EmbeddedResource Include="views\wencaiwindow.baml" />
-    <EmbeddedResource Include="assets\data.png" />
-    <EmbeddedResource Include="assets\face\17.png" />
-    <EmbeddedResource Include="assets\face\16.png" />
-    <EmbeddedResource Include="assets\face\15.png" />
-    <EmbeddedResource Include="assets\face\14.png" />
-    <EmbeddedResource Include="assets\face\13.png" />
-    <EmbeddedResource Include="assets\face\12.png" />
-    <EmbeddedResource Include="assets\face\11.png" />
-    <EmbeddedResource Include="assets\face\10.png" />
-    <EmbeddedResource Include="assets\face\19.png" />
-    <EmbeddedResource Include="assets\face\18.png" />
-    <EmbeddedResource Include="assets\face\25.png" />
-    <EmbeddedResource Include="assets\face\24.png" />
-    <EmbeddedResource Include="assets\face\21.png" />
-    <EmbeddedResource Include="assets\face\23.png" />
-    <EmbeddedResource Include="assets\face\20.png" />
-    <EmbeddedResource Include="assets\face\22.png" />
-    <EmbeddedResource Include="assets\face\07.png" />
-    <EmbeddedResource Include="assets\face\05.png" />
-    <EmbeddedResource Include="assets\face\06.png" />
-    <EmbeddedResource Include="assets\face\03.png" />
-    <EmbeddedResource Include="assets\face\04.png" />
-    <EmbeddedResource Include="assets\face\01.png" />
-    <EmbeddedResource Include="assets\face\02.png" />
-    <EmbeddedResource Include="assets\face\09.png" />
-    <EmbeddedResource Include="assets\face\08.png" />
-    <EmbeddedResource Include="assets\app.ico" />
-    <EmbeddedResource Include="views\chartwindow.baml" />
-    <EmbeddedResource Include="views\exportcontrol.baml" />
-    <EmbeddedResource Include="views\livechartwindow.baml" />
-    <EmbeddedResource Include="views\stockview.baml" />
-    <EmbeddedResource Include="tv.js" />
-    <EmbeddedResource Include="views\importexportwindow.baml" />
-    <EmbeddedResource Include="views\positionwindow.baml" />
-    <EmbeddedResource Include="mainwindow.baml" />
-    <EmbeddedResource Include="views\proxywindow.baml" />
-    <EmbeddedResource Include="assets\emoji.png" />
-    <EmbeddedResource Include="views\sparrowwindow.baml" />
-    <EmbeddedResource Include="views\datasourcewindow.baml" />
-    <EmbeddedResource Include="views\turtlewindowdc.baml" />
-    <EmbeddedResource Include="assets\pic.png" />
-    <EmbeddedResource Include="views\chatview.baml" />
-    <EmbeddedResource Include="views\sparrowwindowdc.baml" />
-    <EmbeddedResource Include="views\loginwindow.baml" />
-    <EmbeddedResource Include="app.baml" />
-    <EmbeddedResource Include="views\imageviewerwindow.baml" />
+    <Resource Include="assets\emoji_tab_icon.png" />
+    <Resource Include="assets\emoji\21.png" />
+    <Resource Include="assets\emoji\20.png" />
+    <Resource Include="assets\emoji\23.png" />
+    <Resource Include="assets\emoji\22.png" />
+    <Resource Include="assets\emoji\25.png" />
+    <Resource Include="assets\emoji\24.png" />
+    <Resource Include="assets\emoji\27.png" />
+    <Resource Include="assets\emoji\26.png" />
+    <Resource Include="assets\emoji\29.png" />
+    <Resource Include="assets\emoji\28.png" />
+    <Resource Include="assets\emoji\03.png" />
+    <Resource Include="assets\emoji\02.png" />
+    <Resource Include="assets\emoji\01.png" />
+    <Resource Include="assets\emoji\07.png" />
+    <Resource Include="assets\emoji\06.png" />
+    <Resource Include="assets\emoji\05.png" />
+    <Resource Include="assets\emoji\04.png" />
+    <Resource Include="assets\emoji\09.png" />
+    <Resource Include="assets\emoji\08.png" />
+    <Resource Include="assets\emoji\31.png" />
+    <Resource Include="assets\emoji\33.png" />
+    <Resource Include="assets\emoji\30.png" />
+    <Resource Include="assets\emoji\35.png" />
+    <Resource Include="assets\emoji\32.png" />
+    <Resource Include="assets\emoji\37.png" />
+    <Resource Include="assets\emoji\34.png" />
+    <Resource Include="assets\emoji\39.png" />
+    <Resource Include="assets\emoji\36.png" />
+    <Resource Include="assets\emoji\38.png" />
+    <Resource Include="assets\emoji\13.png" />
+    <Resource Include="assets\emoji\11.png" />
+    <Resource Include="assets\emoji\12.png" />
+    <Resource Include="assets\emoji\17.png" />
+    <Resource Include="assets\emoji\10.png" />
+    <Resource Include="assets\emoji\15.png" />
+    <Resource Include="assets\emoji\16.png" />
+    <Resource Include="assets\emoji\14.png" />
+    <Resource Include="assets\emoji\19.png" />
+    <Resource Include="assets\emoji\18.png" />
+    <Resource Include="assets\emoji\47.png" />
+    <Resource Include="assets\emoji\46.png" />
+    <Resource Include="assets\emoji\45.png" />
+    <Resource Include="assets\emoji\44.png" />
+    <Resource Include="assets\emoji\43.png" />
+    <Resource Include="assets\emoji\42.png" />
+    <Resource Include="assets\emoji\41.png" />
+    <Resource Include="assets\emoji\40.png" />
+    <Resource Include="views\wencaiwindow.baml" />
+    <Resource Include="assets\data.png" />
+    <Resource Include="assets\face\17.png" />
+    <Resource Include="assets\face\16.png" />
+    <Resource Include="assets\face\15.png" />
+    <Resource Include="assets\face\14.png" />
+    <Resource Include="assets\face\13.png" />
+    <Resource Include="assets\face\12.png" />
+    <Resource Include="assets\face\11.png" />
+    <Resource Include="assets\face\10.png" />
+    <Resource Include="assets\face\19.png" />
+    <Resource Include="assets\face\18.png" />
+    <Resource Include="assets\face\25.png" />
+    <Resource Include="assets\face\24.png" />
+    <Resource Include="assets\face\21.png" />
+    <Resource Include="assets\face\23.png" />
+    <Resource Include="assets\face\20.png" />
+    <Resource Include="assets\face\22.png" />
+    <Resource Include="assets\face\07.png" />
+    <Resource Include="assets\face\05.png" />
+    <Resource Include="assets\face\06.png" />
+    <Resource Include="assets\face\03.png" />
+    <Resource Include="assets\face\04.png" />
+    <Resource Include="assets\face\01.png" />
+    <Resource Include="assets\face\02.png" />
+    <Resource Include="assets\face\09.png" />
+    <Resource Include="assets\face\08.png" />
+    <Resource Include="assets\app.ico" />
+    <Resource Include="views\chartwindow.baml" />
+    <Resource Include="views\exportcontrol.baml" />
+    <Resource Include="views\livechartwindow.baml" />
+    <Resource Include="views\stockview.baml" />
+    <Resource Include="tv.js" />
+    <Resource Include="views\importexportwindow.baml" />
+    <Resource Include="views\positionwindow.baml" />
+    <Resource Include="mainwindow.baml" />
+    <Resource Include="views\proxywindow.baml" />
+    <Resource Include="assets\emoji.png" />
+    <Resource Include="views\sparrowwindow.baml" />
+    <Resource Include="views\turtlewindowdc.baml" />
+    <Resource Include="assets\pic.png" />
+    <Resource Include="views\chatview.baml" />
+    <Resource Include="views\sparrowwindowdc.baml" />
+    <Resource Include="views\loginwindow.baml" />
+    <Resource Include="app.baml" />
+    <Resource Include="views\imageviewerwindow.baml" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="PresentationCore">
-      <HintPath>..\recovered-bundle\PresentationCore.dll</HintPath>
-    </Reference>
-    <Reference Include="WindowsBase">
-      <HintPath>..\recovered-bundle\WindowsBase.dll</HintPath>
-    </Reference>
     <Reference Include="HandyControl">
       <HintPath>..\recovered-bundle\HandyControl.dll</HintPath>
-    </Reference>
-    <Reference Include="System.ComponentModel">
-      <HintPath>..\recovered-bundle\System.ComponentModel.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Collections">
-      <HintPath>..\recovered-bundle\System.Collections.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Web.WebView2.Wpf">
       <HintPath>..\recovered-bundle\Microsoft.Web.WebView2.Wpf.dll</HintPath>
@@ -229,72 +215,9 @@
     <Reference Include="Microsoft.Web.WebView2.Core">
       <HintPath>..\recovered-bundle\Microsoft.Web.WebView2.Core.dll</HintPath>
     </Reference>
-    <Reference Include="System.Runtime.InteropServices">
-      <HintPath>..\recovered-bundle\System.Runtime.InteropServices.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Net.Http">
-      <HintPath>..\recovered-bundle\System.Net.Http.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Text.Json">
-      <HintPath>..\recovered-bundle\System.Text.Json.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Net.WebProxy">
-      <HintPath>..\recovered-bundle\System.Net.WebProxy.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Collections.Concurrent">
-      <HintPath>..\recovered-bundle\System.Collections.Concurrent.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Threading">
-      <HintPath>..\recovered-bundle\System.Threading.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Linq.Expressions">
-      <HintPath>..\recovered-bundle\System.Linq.Expressions.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Net.Primitives">
-      <HintPath>..\recovered-bundle\System.Net.Primitives.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Security.Cryptography">
-      <HintPath>..\recovered-bundle\System.Security.Cryptography.dll</HintPath>
-    </Reference>
-    <Reference Include="System.ObjectModel">
-      <HintPath>..\recovered-bundle\System.ObjectModel.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.AspNetCore.SignalR.Client.Core">
-      <HintPath>..\recovered-bundle\Microsoft.AspNetCore.SignalR.Client.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.AspNetCore.Http.Connections.Client">
-      <HintPath>..\recovered-bundle\Microsoft.AspNetCore.Http.Connections.Client.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Net.Ping">
-      <HintPath>..\recovered-bundle\System.Net.Ping.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Text.RegularExpressions">
-      <HintPath>..\recovered-bundle\System.Text.RegularExpressions.dll</HintPath>
-    </Reference>
-    <Reference Include="System.ComponentModel.TypeConverter">
-      <HintPath>..\recovered-bundle\System.ComponentModel.TypeConverter.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Security.Cryptography.ProtectedData">
-      <HintPath>..\recovered-bundle\System.Security.Cryptography.ProtectedData.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Linq">
-      <HintPath>..\recovered-bundle\System.Linq.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Net.ServicePoint">
-      <HintPath>..\recovered-bundle\System.Net.ServicePoint.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Diagnostics.Process">
-      <HintPath>..\recovered-bundle\System.Diagnostics.Process.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Text.Encodings.Web">
-      <HintPath>..\recovered-bundle\System.Text.Encodings.Web.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.CSharp">
-      <HintPath>..\recovered-bundle\Microsoft.CSharp.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.AspNetCore.SignalR.Client">
-      <HintPath>..\recovered-bundle\Microsoft.AspNetCore.SignalR.Client.dll</HintPath>
-    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.28" />
   </ItemGroup>
 </Project>
 

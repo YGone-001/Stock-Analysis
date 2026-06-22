@@ -1,14 +1,14 @@
 # Stock Analysis
 
-Stock Analysis is a recovered and maintained C# / WPF stock analysis workspace based on the original AIHelper desktop application. The current focus is replacing private 98da market-data dependencies with local cache and public data sources, while preserving the original stock list, search, quote refresh, chart, scan, and export workflows.
+Stock Analysis is a recovered and maintained C# / WPF stock analysis workspace based on the original AIHelper desktop application. Stock-market data is provided by East Money, with a local stock-name cache for offline startup and resilience.
 
 ## Current Status
 
 - The project source lives under `src/`.
 - Recovered runtime dependencies are stored under `recovered-bundle/` and are referenced by `src/AIHelper.csproj`.
-- `NetworkHelper` now intercepts the main stock-data endpoints and routes them to local cache or public East Money endpoints where possible.
+- `NetworkHelper` routes every supported stock-data endpoint to East Money and rejects direct requests to other market-data hosts.
 - `StockViewModel` can load stale local stock-name cache, import a fallback local cache, and incrementally persist online search results.
-- Minute and tick export endpoints still need a public-source replacement.
+- Quotes, code tables, search, daily K-lines, minute bars, tick details, indices, and trading-day checks are all implemented through East Money.
 
 ## Repository Layout
 
@@ -22,7 +22,6 @@ Stock Analysis is a recovered and maintained C# / WPF stock analysis workspace b
 |   +-- AIHelper.Views/           # Recovered WPF views/code-behind
 |   +-- AIHelper.csproj
 +-- recovered-bundle/             # Recovered dependency DLLs used by the project
-+-- AIHelper_REVERSE_SUMMARY.md   # Reverse-engineering notes and interface summary
 +-- LICENSE
 +-- README.md
 ```
@@ -33,7 +32,7 @@ Stock Analysis is a recovered and maintained C# / WPF stock analysis workspace b
 - .NET 8 SDK
 - WebView2 Runtime
 
-The current development machine only has .NET Core SDK 3.1 installed, so `dotnet build` fails with `NETSDK1045` until .NET 8 SDK is installed.
+The project builds with the .NET 8 SDK pinned by `global.json`.
 
 ## Build
 
@@ -43,12 +42,10 @@ dotnet build .\src\AIHelper.csproj
 
 ## Data Source Notes
 
-The original application depended on `www.98da.com` for stock codes, ETF lists, quotes, and historical K-line data. This repository is being migrated away from that private dependency:
-
-- `/api/quote` is mapped to East Money batch quote data.
-- `/api/search` is mapped to East Money suggest/search data.
-- `/api/kline-all` and `/api/index` are mapped to East Money daily K-line data.
-- `/api/codes` and `/api/etf` prefer `StockNameMap.json` local cache and only attempt public-source sync when no cache exists.
+- `/api/quote`, `/api/search`, `/api/kline-all`, `/api/index`, `/api/minute`, `/api/minute-trade-all`, and `/api/workday` are mapped to East Money.
+- `/api/codes` and `/api/etf` use `StockNameMap.json` as a local cache and refresh it from East Money.
+- Direct market-data URLs are accepted only when their host is `eastmoney.com` or one of its subdomains.
+- Chat is an independent optional service and is disabled unless explicitly configured.
 
 Generated local files such as `StockNameMap.json`, `StockGroups.json`, and export folders are intentionally ignored by Git.
 

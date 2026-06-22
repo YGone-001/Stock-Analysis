@@ -199,7 +199,7 @@ public class SparrowWindow : HandyControl.Controls.Window, IComponentConnector
 							{
 								if (_cts.Token.IsCancellationRequested)
 								{
-									return (Task);
+									return;
 								}
 								rawJson = await NetworkHelper.GetDataAsync("/api/quote?code=" + stock.Code);
 								quoteJson = rawJson;
@@ -212,7 +212,7 @@ public class SparrowWindow : HandyControl.Controls.Window, IComponentConnector
 											AppendLog("❌ 上游服务器异常拒绝，请降低线程数重试！", isHighlight: true);
 											_cts.Cancel();
 										}
-										return (Task);
+										return;
 									}
 									if (quoteJson.Contains("\"code\":-1") && quoteJson.Contains("超时"))
 									{

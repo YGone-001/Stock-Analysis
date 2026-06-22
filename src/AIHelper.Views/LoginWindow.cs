@@ -18,7 +18,7 @@ namespace AIHelper.Views;
 
 public class LoginWindow : Window, IComponentConnector
 {
-	private readonly string _apiBaseUrl = "https://chat.98da.com/api/auth";
+	private readonly string _apiBaseUrl = ChatServiceConfig.BuildUrl("/api/auth");
 
 	private static readonly byte[] s_additionalEntropy = Encoding.UTF8.GetBytes("CyberFish_2026_Salt");
 
