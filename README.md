@@ -47,6 +47,10 @@ dotnet build .\src\AIHelper.csproj
 - Direct market-data URLs are accepted only when their host is `eastmoney.com` or one of its subdomains.
 - Chat is an independent optional service and is disabled unless explicitly configured.
 
+An optional private FastAPI gateway lives in `market-data-server/`. Set
+`AkServerUrl` in the app config to `http://127.0.0.1:8000` to try that gateway
+first, while retaining the in-client East Money provider as fallback.
+
 Generated local files such as `StockNameMap.json`, `StockGroups.json`, and export folders are intentionally ignored by Git.
 
 ## Development Branches

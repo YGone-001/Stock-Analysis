@@ -90,7 +90,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
 		_cookieContainer = new CookieContainer();
 		HttpClient httpClient = new HttpClient(new HttpClientHandler
 		{
-			UseProxy = false,
+			UseProxy = true,
 			CookieContainer = _cookieContainer,
 			UseCookies = true,
 			AutomaticDecompression = (DecompressionMethods.GZip | DecompressionMethods.Deflate),
@@ -126,6 +126,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
 			try
 			{
 				using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url);
+				request.Version = HttpVersion.Version11;
 				request.Headers.Add("Referer", "http://quote.eastmoney.com/");
 				using HttpResponseMessage response = await _emClient.SendAsync(request);
 				response.EnsureSuccessStatusCode();

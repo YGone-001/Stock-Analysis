@@ -3,10 +3,10 @@ using System.CodeDom.Compiler;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Markup;
+using AIHelper.Helpers;
 using HandyControl.Controls;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
@@ -26,12 +26,12 @@ public class WenCaiWindow : System.Windows.Window, IComponentConnector
 	public WenCaiWindow(string stockCode, string stockName)
 	{
 		InitializeComponent();
-		_stockCode = stockCode;
+		_stockCode = StockNavigationHelper.NormalizeCode(stockCode);
 		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(12, 2);
 		defaultInterpolatedStringHandler.AppendLiteral("问财智能分析 - ");
 		defaultInterpolatedStringHandler.AppendFormatted(stockName);
 		defaultInterpolatedStringHandler.AppendLiteral(" (");
-		defaultInterpolatedStringHandler.AppendFormatted(stockCode);
+		defaultInterpolatedStringHandler.AppendFormatted(_stockCode);
 		defaultInterpolatedStringHandler.AppendLiteral(")");
 		base.Title = defaultInterpolatedStringHandler.ToStringAndClear();
 		base.Loaded += WenCaiWindow_Loaded;
@@ -50,11 +50,7 @@ public class WenCaiWindow : System.Windows.Window, IComponentConnector
 		{
 			TxtStatus.Text = "⏳ 正在初始化本地浏览器引擎...";
 			await WenCaiWebView.EnsureCoreWebView2Async(null);
-			string pureCode = Regex.Match(_stockCode, "\\d{6}").Value;
-			if (string.IsNullOrEmpty(pureCode))
-			{
-				pureCode = _stockCode;
-			}
+			string pureCode = StockNavigationHelper.NormalizeCode(_stockCode);
 			TxtStatus.Text = "\ud83c\udf10 正在请求问财数据：" + pureCode;
 			string uri = "https://www.iwencai.com/unifiedwap/result?w=" + pureCode;
 			WenCaiWebView.CoreWebView2.Navigate(uri);

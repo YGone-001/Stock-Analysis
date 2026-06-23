@@ -358,9 +358,8 @@ public class MainViewModel : INotifyPropertyChanged
 			}
 			try
 			{
-				Type type4 = obj.GetType();
-				string text8 = type4.GetProperty("Code")?.GetValue(obj)?.ToString() ?? "";
-				string value = type4.GetProperty("Name")?.GetValue(obj)?.ToString() ?? "未知股票";
+				string text8 = StockNavigationHelper.GetCode(obj);
+				string value = StockNavigationHelper.GetName(obj);
 				if (!string.IsNullOrEmpty(text8))
 				{
 					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler2 = new DefaultInterpolatedStringHandler(16, 2);
@@ -371,16 +370,7 @@ public class MainViewModel : INotifyPropertyChanged
 					defaultInterpolatedStringHandler2.AppendLiteral(")");
 					AppendLog(defaultInterpolatedStringHandler2.ToStringAndClear());
 					AnalyticsService.Log("2", "5");
-					string value2 = (text8.StartsWith("6") ? "1" : "0");
-					string value3 = DateTimeOffset.Now.ToUnixTimeSeconds().ToString();
-					defaultInterpolatedStringHandler2 = new DefaultInterpolatedStringHandler(81, 3);
-					defaultInterpolatedStringHandler2.AppendLiteral("https://webquotepic.eastmoney.com/GetPic.aspx?imageType=t&type=M4&nid=");
-					defaultInterpolatedStringHandler2.AppendFormatted(value2);
-					defaultInterpolatedStringHandler2.AppendLiteral(".");
-					defaultInterpolatedStringHandler2.AppendFormatted(text8);
-					defaultInterpolatedStringHandler2.AppendLiteral("&timespan=");
-					defaultInterpolatedStringHandler2.AppendFormatted(value3);
-					imageUrl = defaultInterpolatedStringHandler2.ToStringAndClear();
+					imageUrl = StockNavigationHelper.BuildEastMoneyFiveDayImageUrl(text8);
 					Application.Current.Dispatcher.Invoke(delegate
 					{
 						try
@@ -409,9 +399,8 @@ public class MainViewModel : INotifyPropertyChanged
 			}
 			try
 			{
-				Type type3 = obj.GetType();
-				string text6 = type3.GetProperty("Code")?.GetValue(obj)?.ToString() ?? "";
-				string text7 = type3.GetProperty("Name")?.GetValue(obj)?.ToString() ?? "未知股票";
+				string text6 = StockNavigationHelper.GetCode(obj);
+				string text7 = StockNavigationHelper.GetName(obj);
 				if (!string.IsNullOrEmpty(text6))
 				{
 					WenCaiWindow wenCaiWindow = new WenCaiWindow(text6, text7);
@@ -434,9 +423,8 @@ public class MainViewModel : INotifyPropertyChanged
 			}
 			try
 			{
-				Type type2 = obj.GetType();
-				string text4 = type2.GetProperty("Code")?.GetValue(obj)?.ToString() ?? "";
-				string text5 = type2.GetProperty("Name")?.GetValue(obj)?.ToString() ?? "未知股票";
+				string text4 = StockNavigationHelper.GetCode(obj);
+				string text5 = StockNavigationHelper.GetName(obj);
 				if (!string.IsNullOrEmpty(text4))
 				{
 					LiveChartWindow liveChartWindow = new LiveChartWindow(text4, text5);
@@ -572,7 +560,7 @@ public class MainViewModel : INotifyPropertyChanged
 			if (!(TimeHelper.BeijingNow.TimeOfDay < new TimeSpan(14, 30, 0)) || HandyControl.Controls.MessageBox.Show("量化选股建议在 14:30 以后执行，是否强制打开？", "风险确认", MessageBoxButton.YesNo, MessageBoxImage.Exclamation) == MessageBoxResult.Yes)
 			{
 				AnalyticsService.Log("9", "0");
-				SparrowWindow sparrowWindow = new SparrowWindow(this);
+				SparrowWindowDC sparrowWindow = new SparrowWindowDC(this);
 				sparrowWindow.Owner = Application.Current.MainWindow;
 				sparrowWindow.Show();
 			}

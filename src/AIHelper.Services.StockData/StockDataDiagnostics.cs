@@ -25,6 +25,7 @@ public sealed class StockDataDiagnostics
 		bool hasFiveLevels = HasFiveLevels(quote.Json);
 		bool hasDepthValues = HasAvailableDepth(quote.Json);
 		results.Add(new StockDataDiagnosticItem("实时行情/五档", quote.Success && quoteRows > 0 && hasFiveLevels, BuildMessage(quote, quoteRows) + (hasFiveLevels ? (hasDepthValues ? "；买卖五档完整且有值" : "；买卖五档结构完整，当前时段无档位值") : "；买卖五档不完整")));
+		results.Add(CreateSparrowQuoteResult(quote));
 
 		StockDataResult kline = await NetworkHelper.GetDataResultAsync("/api/kline-all?code=" + sampleCode + "&type=day&limit=5", cancellationToken);
 		results.Add(CreateArrayResult("日 K", kline, "data"));
@@ -48,6 +49,31 @@ public sealed class StockDataDiagnostics
 	{
 		int count = CountArray(result.Json, parent, property);
 		return new StockDataDiagnosticItem(name, result.Success && count > 0, BuildMessage(result, count));
+	}
+
+	private static StockDataDiagnosticItem CreateSparrowQuoteResult(StockDataResult result)
+	{
+		try
+		{
+			using JsonDocument document = JsonDocument.Parse(result.Json);
+			JsonElement first = document.RootElement.GetProperty("data")[0];
+			double amount = GetNumber(first, "Amount");
+			double outer = GetNumber(first, "Wp");
+			double inner = GetNumber(first, "Np");
+			double turnover = GetNumber(first, "Turnover");
+			bool ok = result.Success && amount > 0 && outer > 0 && inner > 0;
+			string message = BuildMessage(result, 1) + "；成交额 " + amount.ToString("F0", CultureInfo.InvariantCulture) + "；外盘 " + outer.ToString("F0", CultureInfo.InvariantCulture) + "；内盘 " + inner.ToString("F0", CultureInfo.InvariantCulture) + "；换手 " + turnover.ToString("F2", CultureInfo.InvariantCulture);
+			return new StockDataDiagnosticItem("麻雀选股盘口字段", ok, message);
+		}
+		catch
+		{
+			return new StockDataDiagnosticItem("麻雀选股盘口字段", false, BuildMessage(result, 0) + "；缺少 Amount/Wp/Np");
+		}
+	}
+
+	private static double GetNumber(JsonElement item, string property)
+	{
+		return item.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDouble() : 0;
 	}
 
 	private static string BuildMessage(StockDataResult result, int count)

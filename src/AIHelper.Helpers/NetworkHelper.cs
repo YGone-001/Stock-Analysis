@@ -46,7 +46,7 @@ public static class NetworkHelper
 		}
 		else
 		{
-			handler.UseProxy = false;
+			handler.UseProxy = true;
 		}
 
 		HttpClient previousClient = _client;
@@ -57,7 +57,9 @@ public static class NetworkHelper
 		_client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
 		_localCacheProvider ??= new LocalStockCacheProvider();
 		var eastMoney = new EastMoneyStockDataProvider(_client, _localCacheProvider);
-		_stockDataProvider = new FallbackStockDataProvider(eastMoney, _localCacheProvider);
+		var externalGateway = new ExternalStockDataProvider(_client);
+		var publicProvider = new PreferredStockDataProvider(externalGateway, eastMoney);
+		_stockDataProvider = new FallbackStockDataProvider(publicProvider, _localCacheProvider);
 		_stockDataProvider.StatusChanged += result => StockDataStatusChanged?.Invoke(result);
 		previousClient?.Dispose();
 	}
@@ -115,6 +117,7 @@ public static class NetworkHelper
 	private static async Task<string> SendEastMoneyGetAsync(Uri uri, CancellationToken cancellationToken)
 	{
 		using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, uri);
+		request.Version = HttpVersion.Version11;
 		request.Headers.Referrer = new Uri("https://quote.eastmoney.com/");
 		using HttpResponseMessage response = await _client.SendAsync(request, cancellationToken);
 		response.EnsureSuccessStatusCode();

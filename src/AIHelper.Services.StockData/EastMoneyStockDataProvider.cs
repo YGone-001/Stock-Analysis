@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
@@ -68,7 +69,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		{
 			return await GetSingleQuoteAsync(request, codes[0], cancellationToken);
 		}
-		string url = "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f14,f2,f3,f5,f15,f16,f17,f18&secids=" + string.Join(",", codes.Select(ToSecId));
+		string url = "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f14,f2,f3,f5,f6,f8,f15,f16,f17,f18,f19,f20,f21,f22,f23,f24,f25,f26,f27,f28,f31,f32,f33,f34,f35,f36,f37,f38,f39,f40&secids=" + string.Join(",", codes.Select(ToSecId));
 		try
 		{
 			using JsonDocument document = JsonDocument.Parse(await SendGetWithRetryAsync(url, cancellationToken));
@@ -91,8 +92,13 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 					Code = code,
 					Name = GetString(item, "f14"),
 					TotalHand = GetDouble(item, "f5"),
-					BuyLevel = BuildLevels(item, new string[5] { "f19", "f21", "f23", "f25", "f27" }, new string[5] { "f20", "f22", "f24", "f26", "f28" }),
-					SellLevel = BuildLevels(item, new string[5] { "f39", "f37", "f35", "f33", "f31" }, new string[5] { "f40", "f38", "f36", "f34", "f32" }),
+					Amount = GetQuoteAmount(item),
+					Wp = GetFirstPositive(item, "f49", "f34"),
+					Np = GetFirstPositive(item, "f161", "f35"),
+					Turnover = GetDouble(item, "f8"),
+					Percent = GetDouble(item, "f3"),
+					BuyLevel = BuildUnavailableLevels(),
+					SellLevel = BuildUnavailableLevels(),
 					K = new
 					{
 						Close = ToMilli(close),
@@ -114,7 +120,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 
 	private async Task<StockDataResult> GetSingleQuoteAsync(StockDataRequest request, string code, CancellationToken cancellationToken)
 	{
-		string url = "https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=" + ToSecId(code) + "&fields=f57,f58,f43,f44,f45,f46,f47,f60,f19,f20,f21,f22,f23,f24,f25,f26,f27,f28,f31,f32,f33,f34,f35,f36,f37,f38,f39,f40";
+		string url = "https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=" + ToSecId(code) + "&fields=f57,f58,f43,f44,f45,f46,f47,f48,f49,f60,f161,f168,f170,f19,f20,f21,f22,f23,f24,f25,f26,f27,f28,f31,f32,f33,f34,f35,f36,f37,f38,f39,f40";
 		try
 		{
 			using JsonDocument document = JsonDocument.Parse(await SendGetWithRetryAsync(url, cancellationToken));
@@ -127,29 +133,18 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			object[] buyLevels = BuildLevels(item, new string[5] { "f19", "f21", "f23", "f25", "f27" }, new string[5] { "f20", "f22", "f24", "f26", "f28" });
 			object[] sellLevels = BuildLevels(item, new string[5] { "f39", "f37", "f35", "f33", "f31" }, new string[5] { "f40", "f38", "f36", "f34", "f32" });
 			string depthUrl = "";
-			if (!HasAnyLevel(item, new string[5] { "f19", "f21", "f23", "f25", "f27" }, new string[5] { "f20", "f22", "f24", "f26", "f28" }) || !HasAnyLevel(item, new string[5] { "f39", "f37", "f35", "f33", "f31" }, new string[5] { "f40", "f38", "f36", "f34", "f32" }))
-			{
-				depthUrl = "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f19,f20,f21,f22,f23,f24,f25,f26,f27,f28,f31,f32,f33,f34,f35,f36,f37,f38,f39,f40&secids=" + ToSecId(code);
-				try
-				{
-					using JsonDocument depthDocument = JsonDocument.Parse(await SendGetWithRetryAsync(depthUrl, cancellationToken));
-					if (depthDocument.RootElement.TryGetProperty("data", out var depthData) && depthData.ValueKind == JsonValueKind.Object && depthData.TryGetProperty("diff", out var depthRows) && depthRows.ValueKind == JsonValueKind.Array && depthRows.GetArrayLength() > 0)
-					{
-						JsonElement depth = depthRows[0];
-						buyLevels = BuildLevels(depth, new string[5] { "f19", "f21", "f23", "f25", "f27" }, new string[5] { "f20", "f22", "f24", "f26", "f28" });
-						sellLevels = BuildLevels(depth, new string[5] { "f39", "f37", "f35", "f33", "f31" }, new string[5] { "f40", "f38", "f36", "f34", "f32" });
-					}
-				}
-				catch (Exception depthException)
-				{
-					StockDataLog.Write(request.Path, code, depthUrl, depthException, false, "depth supplement failed; basic quote retained");
-				}
-			}
+			// EastMoney no longer exposes reliable five-level depth in these public quote responses.
+			// Keep the fixed shape and mark levels unavailable instead of rendering mismatched fields.
 			var row = new
 			{
 				Code = GetString(item, "f57"),
 				Name = GetString(item, "f58"),
 				TotalHand = GetDouble(item, "f47"),
+				Amount = GetDouble(item, "f48"),
+				Wp = GetDouble(item, "f49"),
+				Np = GetDouble(item, "f161"),
+				Turnover = GetDouble(item, "f168"),
+				Percent = GetDouble(item, "f170"),
 				BuyLevel = buyLevels,
 				SellLevel = sellLevels,
 				K = new
@@ -415,6 +410,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 				try
 				{
 					using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url);
+					request.Version = HttpVersion.Version11;
 					request.Headers.Referrer = new Uri("https://quote.eastmoney.com/");
 					using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 					timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
@@ -446,6 +442,11 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			levels.Add(new { Price = ToMilli(price), Number = volume, Available = price > 0 || volume > 0 });
 		}
 		return levels.ToArray();
+	}
+
+	private static object[] BuildUnavailableLevels()
+	{
+		return Enumerable.Range(0, 5).Select(_ => new { Price = 0, Number = 0.0, Available = false }).ToArray<object>();
 	}
 
 	private static bool HasAnyLevel(JsonElement item, string[] priceFields, string[] volumeFields)
@@ -519,6 +520,27 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		if (!item.TryGetProperty(name, out var value)) return 0;
 		if (value.ValueKind == JsonValueKind.Number) return value.GetDouble();
 		return value.ValueKind == JsonValueKind.String ? ParseDouble(value.GetString()) : 0;
+	}
+
+	private static double GetFirstPositive(JsonElement item, params string[] names)
+	{
+		foreach (string name in names)
+		{
+			double value = GetDouble(item, name);
+			if (value > 0) return value;
+		}
+		return 0;
+	}
+
+	private static double GetQuoteAmount(JsonElement item)
+	{
+		double amount = GetDouble(item, "f48");
+		if (amount > 10000) return amount;
+		amount = GetDouble(item, "f6");
+		if (amount > 10000) return amount;
+		double volumeHands = GetDouble(item, "f5");
+		double price = GetDouble(item, "f2");
+		return volumeHands > 0 && price > 0 ? volumeHands * price * 100 : 0;
 	}
 
 	private static string GetString(JsonElement item, string name)

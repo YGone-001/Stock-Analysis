@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Markup;
+using AIHelper.Helpers;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
@@ -28,9 +29,9 @@ public class LiveChartWindow : Window, IComponentConnector
 	public LiveChartWindow(string code, string name)
 	{
 		InitializeComponent();
-		_code = code;
+		_code = StockNavigationHelper.NormalizeCode(code);
 		_name = name;
-		TxtInfo.Text = name + " (" + code + ") - 东方财富行情";
+		TxtInfo.Text = name + " (" + _code + ") - 东方财富行情";
 		base.Closed += delegate
 		{
 			WebView.Dispose();
@@ -43,8 +44,7 @@ public class LiveChartWindow : Window, IComponentConnector
 		try
 		{
 			await WebView.EnsureCoreWebView2Async(null);
-			string text = (_code.StartsWith("6") ? "sh" : "sz");
-			string uri = "https://quote.eastmoney.com/" + text + _code + ".html#fullScreenChart";
+			string uri = StockNavigationHelper.BuildEastMoneyQuoteUrl(_code);
 			WebView.CoreWebView2.Navigate(uri);
 			WebView.NavigationCompleted += delegate(object? s, CoreWebView2NavigationCompletedEventArgs e)
 			{

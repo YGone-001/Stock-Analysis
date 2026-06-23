@@ -68,6 +68,9 @@ public class AppConfig
 	public string ChatServerUrl { get; set; } = "";
 
 
+	public string AkServerUrl { get; set; } = "";
+
+
 	public bool ExportIsSingleFile { get; set; } = true;
 
 

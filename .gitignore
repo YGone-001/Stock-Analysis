@@ -24,6 +24,12 @@ StockNameMap.json
 GPSJ/
 logs/
 *.log
+market-data-server/.cache/
+market-data-server/.env
+market-data-server/.venv/
+market-data-server/venv/
+__pycache__/
+*.pyc
 
 # OS/editor files
 Thumbs.db

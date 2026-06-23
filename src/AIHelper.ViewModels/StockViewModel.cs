@@ -29,6 +29,15 @@ public class StockViewModel : INotifyPropertyChanged
 
 	private const string NameMapCacheFile = "StockNameMap.json";
 
+	private static readonly (string Code, string Name)[] DefaultBlueChipStocks = new (string Code, string Name)[]
+	{
+		("000001", "平安银行"),
+		("600519", "贵州茅台"),
+		("601318", "中国平安"),
+		("600036", "招商银行"),
+		("601398", "工商银行")
+	};
+
 	private readonly string _filePath;
 
 	private ObservableCollection<StockModel> _searchResults = new ObservableCollection<StockModel>();
@@ -180,9 +189,11 @@ public class StockViewModel : INotifyPropertyChanged
 
 	public ICommand OpenChartCommand => new RelayCommand(delegate(object o)
 	{
-		if (o is StockModel stockModel)
+		string code = StockNavigationHelper.GetCode(o);
+		if (!string.IsNullOrEmpty(code))
 		{
-			new ChartWindow("https://www.iwencai.com/unifiedwap/result?w=" + stockModel.Code, stockModel.Code ?? "").Show();
+			string name = StockNavigationHelper.GetName(o);
+			new ChartWindow(StockNavigationHelper.BuildEastMoneyQuoteUrl(code, fullScreenChart: true), name + " (" + code + ") 图表").Show();
 		}
 	});
 
@@ -496,13 +507,20 @@ public class StockViewModel : INotifyPropertyChanged
 			{
 				Header = "我的自选"
 			};
-			stockGroupModel.Stocks.Add(new StockModel
+			foreach (var stock in DefaultBlueChipStocks)
 			{
-				Code = "000001",
-				Name = "平安银行",
-				IsChecked = true
-			});
+				stockGroupModel.Stocks.Add(new StockModel
+				{
+					Code = stock.Code,
+					Name = stock.Name,
+					IsChecked = true
+				});
+			}
 			StockGroups.Add(stockGroupModel);
+			SaveLocalData();
+		}
+		if (NormalizeLocalStockNames())
+		{
 			SaveLocalData();
 		}
 		RebuildGlobalCacheAndOverview();
@@ -616,6 +634,7 @@ public class StockViewModel : INotifyPropertyChanged
 			}
 			if (StockNameMap.Count > 0)
 			{
+				NormalizeKnownStockNameMap();
 				try
 				{
 					SaveNameMapCache(cachePath);
@@ -657,6 +676,7 @@ public class StockViewModel : INotifyPropertyChanged
 		if (stockResult.Success) ParseCodeNameJson(stockResult.Json);
 		if (etfResult.Success) ParseEtfJson(etfResult.Json);
 		if (StockNameMap.Count == 0) LoadSeedNameMap();
+		NormalizeKnownStockNameMap();
 		await NetworkHelper.MergeStockNameCacheAsync(StockNameMap, forceRefresh ? "ManualRefresh" : "StockViewModel");
 		RefreshAllNames();
 		Application.Current.Dispatcher.Invoke(delegate
@@ -692,6 +712,7 @@ public class StockViewModel : INotifyPropertyChanged
 			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				if (result.Endpoint.StartsWith("/api/etf")) ParseEtfJson(result.Json); else ParseCodeNameJson(result.Json);
+				NormalizeKnownStockNameMap();
 				RefreshAllNames();
 				LogAction?.Invoke("✅ 后台代码表同步完成。");
 			});
@@ -737,16 +758,74 @@ public class StockViewModel : INotifyPropertyChanged
 
 	private void LoadSeedNameMap()
 	{
-		StockNameMap["000001"] = "Ping An Bank";
-		StockNameMap["000002"] = "Vanke A";
-		StockNameMap["000300"] = "CSI 300";
-		StockNameMap["399001"] = "SZSE Component";
-		StockNameMap["399006"] = "ChiNext Index";
-		StockNameMap["510300"] = "CSI 300 ETF";
-		StockNameMap["600000"] = "SPD Bank";
-		StockNameMap["600519"] = "Kweichow Moutai";
-		StockNameMap["601318"] = "Ping An Insurance";
-		StockNameMap["601398"] = "ICBC";
+		StockNameMap["000001"] = "平安银行";
+		StockNameMap["000002"] = "万科A";
+		StockNameMap["000300"] = "沪深300";
+		StockNameMap["399001"] = "深证成指";
+		StockNameMap["399006"] = "创业板指";
+		StockNameMap["510300"] = "沪深300ETF";
+		StockNameMap["600000"] = "浦发银行";
+		StockNameMap["600036"] = "招商银行";
+		StockNameMap["600519"] = "贵州茅台";
+		StockNameMap["601318"] = "中国平安";
+		StockNameMap["601398"] = "工商银行";
+	}
+
+	private void NormalizeKnownStockNameMap()
+	{
+		foreach (var stock in DefaultBlueChipStocks)
+		{
+			StockNameMap[stock.Code] = stock.Name;
+		}
+		StockNameMap["000002"] = "万科A";
+		StockNameMap["000300"] = "沪深300";
+		StockNameMap["399001"] = "深证成指";
+		StockNameMap["399006"] = "创业板指";
+		StockNameMap["510300"] = "沪深300ETF";
+		StockNameMap["600000"] = "浦发银行";
+	}
+
+	private bool NormalizeLocalStockNames()
+	{
+		bool changed = false;
+		foreach (StockGroupModel group in StockGroups.Skip(1))
+		{
+			foreach (StockModel stock in group.Stocks)
+			{
+				if (stock == null || string.IsNullOrWhiteSpace(stock.PureCode))
+				{
+					continue;
+				}
+				string name = GetSeedStockName(stock.PureCode);
+				if (!string.IsNullOrEmpty(name) && stock.Name != name)
+				{
+					stock.Name = name;
+					changed = true;
+				}
+			}
+		}
+		return changed;
+	}
+
+	private static string GetSeedStockName(string code)
+	{
+		foreach (var stock in DefaultBlueChipStocks)
+		{
+			if (stock.Code == code)
+			{
+				return stock.Name;
+			}
+		}
+		return code switch
+		{
+			"000002" => "万科A",
+			"000300" => "沪深300",
+			"399001" => "深证成指",
+			"399006" => "创业板指",
+			"510300" => "沪深300ETF",
+			"600000" => "浦发银行",
+			_ => ""
+		};
 	}
 
 	private void ParseCodeNameJson(string json)
