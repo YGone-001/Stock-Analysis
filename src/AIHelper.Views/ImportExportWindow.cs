@@ -125,18 +125,11 @@ public class ImportExportWindow : Window, IComponentConnector
 				num++;
 			}
 		}
-		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(29, 2);
-		defaultInterpolatedStringHandler.AppendLiteral("解析与导入完成！\n成功导入: ");
-		defaultInterpolatedStringHandler.AppendFormatted(num2);
-		defaultInterpolatedStringHandler.AppendLiteral(" 只股票\n格式错误/忽略: ");
-		defaultInterpolatedStringHandler.AppendFormatted(num);
-		MessageBox.Show(defaultInterpolatedStringHandler.ToStringAndClear(), "导入结果");
+		MessageBox.Show($"解析与导入完成！\n成功导入: {num2} 只股票\n格式错误/忽略: {num}", "导入结果");
 		AnalyticsService.Log("4", "9");
 		Close();
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	public void InitializeComponent()
 	{
 		if (!_contentLoaded)
@@ -147,8 +140,6 @@ public class ImportExportWindow : Window, IComponentConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	[EditorBrowsable(EditorBrowsableState.Never)]
 	void IComponentConnector.Connect(int connectionId, object target)
 	{

@@ -101,19 +101,12 @@ public class ExportControl : UserControl, IComponentConnector
 			if (netToday.Date != value.Date)
 			{
 				ExportControl exportControl = this;
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(32, 1);
-				defaultInterpolatedStringHandler.AppendLiteral("\ud83d\udcc5 开机自检：服务器显示今日非交易日，已自动定位至有效交易日 ");
-				defaultInterpolatedStringHandler.AppendFormatted(value, "yyyy-MM-dd");
-				exportControl.Log(defaultInterpolatedStringHandler.ToStringAndClear());
+				exportControl.Log($"\ud83d\udcc5 开机自检：服务器显示今日非交易日，已自动定位至有效交易日 {value:yyyy-MM-dd}");
 			}
 			else
 			{
 				ExportControl exportControl2 = this;
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(23, 1);
-				defaultInterpolatedStringHandler.AppendLiteral("\ud83d\udcc5 开机自检：服务器日历已同步 (");
-				defaultInterpolatedStringHandler.AppendFormatted(value, "yyyy-MM-dd");
-				defaultInterpolatedStringHandler.AppendLiteral(" 交易日)");
-				exportControl2.Log(defaultInterpolatedStringHandler.ToStringAndClear());
+				exportControl2.Log($"\ud83d\udcc5 开机自检：服务器日历已同步 ({value:yyyy-MM-dd} 交易日)");
 			}
 		}
 		catch (System.Exception ex) { Serilog.Log.Error(ex, "Swallowed exception"); }
@@ -140,12 +133,7 @@ public class ExportControl : UserControl, IComponentConnector
 				DpTargetDate.SelectedDate = value;
 				_isUpdatingDate = false;
 				ExportControl exportControl = this;
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(24, 2);
-				defaultInterpolatedStringHandler.AppendLiteral("⚠\ufe0f 选定日期 ");
-				defaultInterpolatedStringHandler.AppendFormatted(target, "yyyy-MM-dd");
-				defaultInterpolatedStringHandler.AppendLiteral(" 非交易日，日历已自动对齐至: ");
-				defaultInterpolatedStringHandler.AppendFormatted(value, "yyyy-MM-dd");
-				exportControl.Log(defaultInterpolatedStringHandler.ToStringAndClear());
+				exportControl.Log($"⚠\ufe0f 选定日期 {target:yyyy-MM-dd} 非交易日，日历已自动对齐至: {value:yyyy-MM-dd}");
 			}
 		}
 		catch (System.Exception ex) { Serilog.Log.Error(ex, "Swallowed exception"); }
@@ -240,15 +228,7 @@ public class ExportControl : UserControl, IComponentConnector
 			Log("⚠️ 复合模式下，至少需要勾选一项取数维度！");
 			return;
 		}
-		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(3, 4);
-		defaultInterpolatedStringHandler.AppendFormatted(valueOrDefault);
-		defaultInterpolatedStringHandler.AppendLiteral(",");
-		defaultInterpolatedStringHandler.AppendFormatted(valueOrDefault2);
-		defaultInterpolatedStringHandler.AppendLiteral(",");
-		defaultInterpolatedStringHandler.AppendFormatted(valueOrDefault3);
-		defaultInterpolatedStringHandler.AppendLiteral(",");
-		defaultInterpolatedStringHandler.AppendFormatted(valueOrDefault4);
-		AnalyticsService.Log("4", defaultInterpolatedStringHandler.ToStringAndClear());
+		AnalyticsService.Log("4", $"{valueOrDefault},{valueOrDefault2},{valueOrDefault3},{valueOrDefault4}");
 		await ExecuteExportTaskAsync((Button)sender, valueOrDefault, valueOrDefault2, valueOrDefault3, valueOrDefault4);
 	}
 
@@ -283,10 +263,7 @@ public class ExportControl : UserControl, IComponentConnector
 
 		Log("==================================================");
 		ExportControl exportControl = this;
-		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
-		defaultInterpolatedStringHandler.AppendLiteral("取数任务开始... 目标标的数量: ");
-		defaultInterpolatedStringHandler.AppendFormatted(list.Count);
-		exportControl.Log(defaultInterpolatedStringHandler.ToStringAndClear());
+		exportControl.Log($"取数任务开始... 目标标的数量: {list.Count}");
 		try
 		{
 			int result;
@@ -370,8 +347,6 @@ public class ExportControl : UserControl, IComponentConnector
 		DpTargetDate.IsEnabled = isEnabled;
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	public void InitializeComponent()
 	{
 		if (!_contentLoaded)
@@ -382,8 +357,6 @@ public class ExportControl : UserControl, IComponentConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	[EditorBrowsable(EditorBrowsableState.Never)]
 	void IComponentConnector.Connect(int connectionId, object target)
 	{

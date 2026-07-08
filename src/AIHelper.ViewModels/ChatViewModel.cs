@@ -138,11 +138,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
 	public List<string> EmojiList { get; } = Enumerable.Range(1, 47).Select(delegate(int i)
 	{
-		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(40, 1);
-		defaultInterpolatedStringHandler.AppendLiteral("pack://application:,,,/Assets/emoji/");
-		defaultInterpolatedStringHandler.AppendFormatted(i, "D2");
-		defaultInterpolatedStringHandler.AppendLiteral(".png");
-		return defaultInterpolatedStringHandler.ToStringAndClear();
+		return $"pack://application:,,,/Assets/emoji/{i:D2}.png";
 	}).ToList();
 
 
@@ -275,11 +271,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 			int num = (int)msgIdObj;
 			try
 			{
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(28, 1);
-				defaultInterpolatedStringHandler.AppendLiteral("[系统] 正在向服务器发送物理抹除指令 (ID:");
-				defaultInterpolatedStringHandler.AppendFormatted(num);
-				defaultInterpolatedStringHandler.AppendLiteral(")...");
-				Growl.Info(defaultInterpolatedStringHandler.ToStringAndClear());
+				Growl.Info($"[系统] 正在向服务器发送物理抹除指令 (ID:{num})...");
 				await _connection.InvokeAsync("AdminDeleteMessage", _myNickName, num);
 			}
 			catch (Exception ex)
@@ -300,13 +292,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 			else
 			{
 				string arg = (string.IsNullOrWhiteSpace(InputText) ? "管理员执法封禁" : InputText.Trim());
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(23, 2);
-				defaultInterpolatedStringHandler.AppendLiteral("确定要将 [");
-				defaultInterpolatedStringHandler.AppendFormatted(chatMessageModel.SenderName);
-				defaultInterpolatedStringHandler.AppendLiteral("] (IP: ");
-				defaultInterpolatedStringHandler.AppendFormatted(chatMessageModel.SenderIp);
-				defaultInterpolatedStringHandler.AppendLiteral(") 封禁 7 天吗？");
-				if (System.Windows.MessageBox.Show(defaultInterpolatedStringHandler.ToStringAndClear(), "执法确认", MessageBoxButton.YesNo, MessageBoxImage.Exclamation) == MessageBoxResult.Yes)
+				if (System.Windows.MessageBox.Show($"确定要将 [{chatMessageModel.SenderName}] (IP: {chatMessageModel.SenderIp}) 封禁 7 天吗？", "执法确认", MessageBoxButton.YesNo, MessageBoxImage.Exclamation) == MessageBoxResult.Yes)
 				{
 					try
 					{
@@ -696,11 +682,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 					this.InitialHistoryLoaded?.Invoke();
 					if (num > 0)
 					{
-						DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(23, 1);
-						defaultInterpolatedStringHandler.AppendLiteral("\ud83d\udd14 您不在的时候，有 ");
-						defaultInterpolatedStringHandler.AppendFormatted(num);
-						defaultInterpolatedStringHandler.AppendLiteral(" 条新消息 @ 了您！");
-						Growl.Warning(defaultInterpolatedStringHandler.ToStringAndClear(), "ChatRoomGrowl");
+						Growl.Warning($"\ud83d\udd14 您不在的时候，有 {num} 条新消息 @ 了您！", "ChatRoomGrowl");
 					}
 				}
 			});

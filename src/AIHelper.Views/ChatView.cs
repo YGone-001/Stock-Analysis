@@ -111,11 +111,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 				return;
 			}
 			string tempPath = Path.GetTempPath();
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(13, 1);
-			defaultInterpolatedStringHandler.AppendLiteral("chat_img_");
-			defaultInterpolatedStringHandler.AppendFormatted(chatMessageModel.Id);
-			defaultInterpolatedStringHandler.AppendLiteral(".png");
-			string text = Path.Combine(tempPath, defaultInterpolatedStringHandler.ToStringAndClear());
+			string text = Path.Combine(tempPath, $"chat_img_{chatMessageModel.Id}.png");
 			if (!File.Exists(text))
 			{
 				byte[] bytes = Convert.FromBase64String(chatMessageModel.Content);
@@ -192,11 +188,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 		{
 			if (int.TryParse(Path.GetFileNameWithoutExtension(path), out var result))
 			{
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(8, 1);
-				defaultInterpolatedStringHandler.AppendLiteral("[emoji:");
-				defaultInterpolatedStringHandler.AppendFormatted(result, "D2");
-				defaultInterpolatedStringHandler.AppendLiteral("]");
-				string text = defaultInterpolatedStringHandler.ToStringAndClear();
+				string text = $"[emoji:{result:D2}]";
 				chatViewModel.InputText = (string.IsNullOrEmpty(chatViewModel.InputText) ? text : (chatViewModel.InputText + text));
 				TxtInput.Focus();
 				TxtInput.CaretIndex = TxtInput.Text.Length;
@@ -425,11 +417,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 		List<string> list = new List<string>();
 		for (int i = 1; i <= 25; i++)
 		{
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(39, 1);
-			defaultInterpolatedStringHandler.AppendLiteral("pack://application:,,,/Assets/face/");
-			defaultInterpolatedStringHandler.AppendFormatted(i, "D2");
-			defaultInterpolatedStringHandler.AppendLiteral(".png");
-			list.Add(defaultInterpolatedStringHandler.ToStringAndClear());
+			list.Add($"pack://application:,,,/Assets/face/{i:D2}.png");
 		}
 		AvatarItemsControl.ItemsSource = list;
 	}
@@ -469,8 +457,6 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	public void InitializeComponent()
 	{
 		if (!_contentLoaded)
@@ -481,8 +467,6 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	[EditorBrowsable(EditorBrowsableState.Never)]
 	void IComponentConnector.Connect(int connectionId, object target)
 	{
@@ -532,8 +516,6 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	[EditorBrowsable(EditorBrowsableState.Never)]
 	void IStyleConnector.Connect(int connectionId, object target)
 	{

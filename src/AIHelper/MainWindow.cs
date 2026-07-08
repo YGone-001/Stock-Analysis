@@ -155,8 +155,6 @@ public class MainWindow : HandyControl.Controls.Window, IComponentConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	public void InitializeComponent()
 	{
 		if (!_contentLoaded)
@@ -167,15 +165,11 @@ public class MainWindow : HandyControl.Controls.Window, IComponentConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	internal Delegate _CreateDelegate(Type delegateType, string handler)
 	{
 		return Delegate.CreateDelegate(delegateType, this, handler);
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	[EditorBrowsable(EditorBrowsableState.Never)]
 	void IComponentConnector.Connect(int connectionId, object target)
 	{

@@ -28,13 +28,7 @@ public class WenCaiWindow : System.Windows.Window, IComponentConnector
 	{
 		InitializeComponent();
 		_stockCode = StockNavigationHelper.NormalizeCode(stockCode);
-		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(12, 2);
-		defaultInterpolatedStringHandler.AppendLiteral("问财智能分析 - ");
-		defaultInterpolatedStringHandler.AppendFormatted(stockName);
-		defaultInterpolatedStringHandler.AppendLiteral(" (");
-		defaultInterpolatedStringHandler.AppendFormatted(_stockCode);
-		defaultInterpolatedStringHandler.AppendLiteral(")");
-		base.Title = defaultInterpolatedStringHandler.ToStringAndClear();
+		base.Title = $"问财智能分析 - {stockName} ({_stockCode})";
 		base.Loaded += WenCaiWindow_Loaded;
 		base.Closed += delegate
 		{
@@ -74,8 +68,6 @@ public class WenCaiWindow : System.Windows.Window, IComponentConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	public void InitializeComponent()
 	{
 		if (!_contentLoaded)
@@ -86,8 +78,6 @@ public class WenCaiWindow : System.Windows.Window, IComponentConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	[EditorBrowsable(EditorBrowsableState.Never)]
 	void IComponentConnector.Connect(int connectionId, object target)
 	{

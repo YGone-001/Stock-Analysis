@@ -53,11 +53,7 @@ public class LiveChartWindow : Window, IComponentConnector
 				if (!e.IsSuccess)
 				{
 					TextBlock txtInfo = TxtInfo;
-					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(15, 1);
-					defaultInterpolatedStringHandler.AppendLiteral("❌ 状态码: ");
-					defaultInterpolatedStringHandler.AppendFormatted(e.WebErrorStatus);
-					defaultInterpolatedStringHandler.AppendLiteral("，页面加载失败。");
-					txtInfo.Text = defaultInterpolatedStringHandler.ToStringAndClear();
+					txtInfo.Text = $"❌ 状态码: {e.WebErrorStatus}，页面加载失败。";
 				}
 			};
 		}
@@ -73,8 +69,6 @@ public class LiveChartWindow : Window, IComponentConnector
 		LoadProgress.Visibility = Visibility.Visible;
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	public void InitializeComponent()
 	{
 		if (!_contentLoaded)
@@ -85,8 +79,6 @@ public class LiveChartWindow : Window, IComponentConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	[EditorBrowsable(EditorBrowsableState.Never)]
 	void IComponentConnector.Connect(int connectionId, object target)
 	{

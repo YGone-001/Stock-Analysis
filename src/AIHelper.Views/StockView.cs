@@ -66,8 +66,6 @@ public class StockView : UserControl, IComponentConnector, IStyleConnector
 		contextMenu.IsOpen = true;
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	public void InitializeComponent()
 	{
 		if (!_contentLoaded)
@@ -78,8 +76,6 @@ public class StockView : UserControl, IComponentConnector, IStyleConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	[EditorBrowsable(EditorBrowsableState.Never)]
 	void IComponentConnector.Connect(int connectionId, object target)
 	{
@@ -97,8 +93,6 @@ public class StockView : UserControl, IComponentConnector, IStyleConnector
 		}
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	[EditorBrowsable(EditorBrowsableState.Never)]
 	void IStyleConnector.Connect(int connectionId, object target)
 	{

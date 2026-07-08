@@ -33,12 +33,7 @@ public static class DataExportEngine
 		DateTime actualEndDate = await GetActualTradingDateAsync(config.TargetDate, ct);
 		if (actualEndDate.Date != config.TargetDate.Date)
 		{
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(26, 2);
-			defaultInterpolatedStringHandler.AppendLiteral("⚠\ufe0f 选定日期 ");
-			defaultInterpolatedStringHandler.AppendFormatted(config.TargetDate, "yyyy-MM-dd");
-			defaultInterpolatedStringHandler.AppendLiteral(" 非交易日或无数据，已自动回推至: ");
-			defaultInterpolatedStringHandler.AppendFormatted(actualEndDate, "yyyy-MM-dd");
-			logCallback(defaultInterpolatedStringHandler.ToStringAndClear());
+			logCallback($"⚠\ufe0f 选定日期 {config.TargetDate:yyyy-MM-dd} 非交易日或无数据，已自动回推至: {actualEndDate:yyyy-MM-dd}");
 		}
 		string dateStr = actualEndDate.ToString("yyyyMMdd");
 		string randomSuffix = new Random().Next(1000, 9999).ToString();
@@ -88,15 +83,7 @@ public static class DataExportEngine
 			foreach (string selectedIndex in config.SelectedIndices)
 			{
 				currentIndex++;
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(24, 3);
-				defaultInterpolatedStringHandler.AppendLiteral("⬇\ufe0f 正在预拉取指数 [");
-				defaultInterpolatedStringHandler.AppendFormatted(selectedIndex);
-				defaultInterpolatedStringHandler.AppendLiteral("]... (进度: ");
-				defaultInterpolatedStringHandler.AppendFormatted(currentIndex);
-				defaultInterpolatedStringHandler.AppendLiteral("/");
-				defaultInterpolatedStringHandler.AppendFormatted(totalIndices);
-				defaultInterpolatedStringHandler.AppendLiteral(")");
-				logCallback(defaultInterpolatedStringHandler.ToStringAndClear());
+				logCallback($"⬇\ufe0f 正在预拉取指数 [{selectedIndex}]... (进度: {currentIndex}/{totalIndices})");
 				StringBuilder stringBuilder2 = idxSb;
 				stringBuilder2.AppendLine(await FetchIndexDataStringAsync(selectedIndex, actualEndDate, config.IndexDays, config.EnableAiCompression, ct));
 			}
@@ -118,45 +105,19 @@ public static class DataExportEngine
 		{
 			ct.ThrowIfCancellationRequested();
 			currentStock++;
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(28, 4);
-			defaultInterpolatedStringHandler.AppendLiteral("⬇\ufe0f 正在拉取 [");
-			defaultInterpolatedStringHandler.AppendFormatted(stock.Name);
-			defaultInterpolatedStringHandler.AppendLiteral(" - ");
-			defaultInterpolatedStringHandler.AppendFormatted(stock.Code);
-			defaultInterpolatedStringHandler.AppendLiteral("] 的数据... (进度: ");
-			defaultInterpolatedStringHandler.AppendFormatted(currentStock);
-			defaultInterpolatedStringHandler.AppendLiteral("/");
-			defaultInterpolatedStringHandler.AppendFormatted(totalStocks);
-			defaultInterpolatedStringHandler.AppendLiteral(")");
-			logCallback(defaultInterpolatedStringHandler.ToStringAndClear());
+			logCallback($"⬇\ufe0f 正在拉取 [{stock.Name} - {stock.Code}] 的数据... (进度: {currentStock}/{totalStocks})");
 			StreamWriter writer = mergedWriter;
 			bool isPerStockWriter = !config.IsSingleFileMode;
 			try
 			{
 				if (isPerStockWriter)
 				{
-					defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(7, 4);
-					defaultInterpolatedStringHandler.AppendFormatted(prefix);
-					defaultInterpolatedStringHandler.AppendLiteral("_");
-					defaultInterpolatedStringHandler.AppendFormatted(stock.Code);
-					defaultInterpolatedStringHandler.AppendLiteral("_");
-					defaultInterpolatedStringHandler.AppendFormatted(dateStr);
-					defaultInterpolatedStringHandler.AppendLiteral("_");
-					defaultInterpolatedStringHandler.AppendFormatted(randomSuffix);
-					defaultInterpolatedStringHandler.AppendLiteral(".txt");
-					string path = defaultInterpolatedStringHandler.ToStringAndClear();
+					string path = $"{prefix}_{stock.Code}_{dateStr}_{randomSuffix}.txt";
 					writer = new StreamWriter(Path.Combine(exportDir, path), append: false, Encoding.UTF8);
 					await WriteFileHeaderAsync(writer, config, actualEndDate, ct);
 				}
 			await writer.WriteLineAsync("\n=======================================================");
-			StreamWriter streamWriter = writer;
-			defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(12, 2);
-			defaultInterpolatedStringHandler.AppendLiteral("【当前标的】:");
-			defaultInterpolatedStringHandler.AppendFormatted(stock.Name);
-			defaultInterpolatedStringHandler.AppendLiteral("(代码:");
-			defaultInterpolatedStringHandler.AppendFormatted(stock.Code);
-			defaultInterpolatedStringHandler.AppendLiteral(")");
-			await streamWriter.WriteLineAsync(defaultInterpolatedStringHandler.ToStringAndClear());
+			await writer.WriteLineAsync($"【当前标的】:{stock.Name}(代码:{stock.Code})");
 			if (config.IncludeHoldingPrompt)
 			{
 				HoldingInfo holding = HoldingsManager.GetHolding(stock.Code);
@@ -167,14 +128,7 @@ public static class DataExportEngine
 				}
 				else
 				{
-					StreamWriter streamWriter2 = writer;
-					defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(29, 2);
-					defaultInterpolatedStringHandler.AppendLiteral("【我的实际持仓】: 当前持有数量 ");
-					defaultInterpolatedStringHandler.AppendFormatted(holding.Volume);
-					defaultInterpolatedStringHandler.AppendLiteral(" 股，买入成本价 ");
-					defaultInterpolatedStringHandler.AppendFormatted(holding.CostPrice, "F3");
-					defaultInterpolatedStringHandler.AppendLiteral(" 元。");
-					await streamWriter2.WriteLineAsync(defaultInterpolatedStringHandler.ToStringAndClear());
+					await writer.WriteLineAsync($"【我的实际持仓】: 当前持有数量 {holding.Volume} 股，买入成本价 {holding.CostPrice:F3} 元。");
 					await writer.WriteLineAsync("【系统强制指令】: AI 请务必结合我的实际持仓成本与数量，测算盈亏比例。并据此给出极具针对性的【加仓、减仓、割肉止损、或落袋为安】的操作建议！并给出理论支撑。");
 				}
 			}
@@ -513,10 +467,7 @@ public static class DataExportEngine
 			{
 				int value = days2 + days + 30;
 				string text = url;
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(7, 1);
-				defaultInterpolatedStringHandler.AppendLiteral("&limit=");
-				defaultInterpolatedStringHandler.AppendFormatted(value);
-				url = text + defaultInterpolatedStringHandler.ToStringAndClear();
+				url = text + $"&limit={value}";
 			}
 			string json = null;
 			Exception lastEx = null;
@@ -636,10 +587,7 @@ public static class DataExportEngine
 			{
 				int value = days2 + days + 30;
 				string text2 = url;
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(7, 1);
-				defaultInterpolatedStringHandler.AppendLiteral("&limit=");
-				defaultInterpolatedStringHandler.AppendFormatted(value);
-				url = text2 + defaultInterpolatedStringHandler.ToStringAndClear();
+				url = text2 + $"&limit={value}";
 			}
 			string json = null;
 			Exception lastEx = null;
@@ -670,13 +618,7 @@ public static class DataExportEngine
 			}
 			if (lastEx != null)
 			{
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(32, 2);
-				defaultInterpolatedStringHandler.AppendLiteral("⚠\ufe0f取数异常: [大盘指数] ");
-				defaultInterpolatedStringHandler.AppendFormatted(formattedCode);
-				defaultInterpolatedStringHandler.AppendLiteral(" 网络请求尝试3次后失败。原因:");
-				defaultInterpolatedStringHandler.AppendFormatted(lastEx.Message);
-				defaultInterpolatedStringHandler.AppendLiteral("\n");
-				return defaultInterpolatedStringHandler.ToStringAndClear();
+				return $"⚠\ufe0f取数异常: [大盘指数] {formattedCode} 网络请求尝试3次后失败。原因:{lastEx.Message}\n";
 			}
 			StringBuilder stringBuilder = new StringBuilder();
 			StringBuilder stringBuilder2 = stringBuilder;
@@ -762,10 +704,7 @@ public static class DataExportEngine
 		{
 			try
 			{
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
-				defaultInterpolatedStringHandler.AppendLiteral("/api/workday?date=");
-				defaultInterpolatedStringHandler.AppendFormatted(target, "yyyyMMdd");
-				using JsonDocument jsonDocument = JsonDocument.Parse(await NetworkHelper.GetDataAsync(defaultInterpolatedStringHandler.ToStringAndClear(), ct));
+				using JsonDocument jsonDocument = JsonDocument.Parse(await NetworkHelper.GetDataAsync($"/api/workday?date={target:yyyyMMdd}", ct));
 				if (jsonDocument.RootElement.TryGetProperty("data", out var value))
 				{
 					if (value.TryGetProperty("is_workday", out var value2) && value2.GetBoolean())
@@ -795,10 +734,7 @@ public static class DataExportEngine
 	{
 		await writer.WriteLineAsync("***********************************************************************************");
 		await writer.WriteLineAsync("*【AI语料系统说明与单位映射表】");
-		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(8, 1);
-		defaultInterpolatedStringHandler.AppendLiteral("*基准取数日期:");
-		defaultInterpolatedStringHandler.AppendFormatted(actualDate, "yyyy-MM-dd");
-		await writer.WriteLineAsync(defaultInterpolatedStringHandler.ToStringAndClear());
+		await writer.WriteLineAsync($"*基准取数日期:{actualDate:yyyy-MM-dd}");
 		await writer.WriteLineAsync("*系统已开启自动单位换算规则，所有JSON脏数据已被物理清洗为标准量级:");
 		await writer.WriteLineAsync("*1.价格单位:统一换算为【元】");
 		await writer.WriteLineAsync("*2.成交量单位:个股统一强行回归为【手】");

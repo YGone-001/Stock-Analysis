@@ -275,10 +275,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		string text = o as string;
 		if (string.IsNullOrWhiteSpace(text))
 		{
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(3, 1);
-			defaultInterpolatedStringHandler.AppendLiteral("分组 ");
-			defaultInterpolatedStringHandler.AppendFormatted(StockGroups.Count);
-			text = defaultInterpolatedStringHandler.ToStringAndClear();
+			text = $"分组 {StockGroups.Count}";
 		}
 		StockGroupModel stockGroupModel = new StockGroupModel
 		{
@@ -294,13 +291,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 	{
 		if (o is StockGroupModel stockGroupModel && !stockGroupModel.IsOverview)
 		{
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(32, 2);
-			defaultInterpolatedStringHandler.AppendLiteral("确定要删除分组 [");
-			defaultInterpolatedStringHandler.AppendFormatted(stockGroupModel.Header);
-			defaultInterpolatedStringHandler.AppendLiteral("] 及其下包含的 ");
-			defaultInterpolatedStringHandler.AppendFormatted(stockGroupModel.Stocks.Count);
-			defaultInterpolatedStringHandler.AppendLiteral(" 只股票吗？\n此操作不可逆！");
-			if (HandyControl.Controls.MessageBox.Show(defaultInterpolatedStringHandler.ToStringAndClear(), "删组确认", MessageBoxButton.YesNo, MessageBoxImage.Exclamation) == MessageBoxResult.Yes)
+			if (HandyControl.Controls.MessageBox.Show($"确定要删除分组 [{stockGroupModel.Header}] 及其下包含的 {stockGroupModel.Stocks.Count} 只股票吗？\n此操作不可逆！", "删组确认", MessageBoxButton.YesNo, MessageBoxImage.Exclamation) == MessageBoxResult.Yes)
 			{
 				List<StockModel> list = stockGroupModel.Stocks.ToList();
 				StockGroups.Remove(stockGroupModel);
@@ -388,13 +379,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 				Action<string>? logAction = LogAction;
 				if (logAction != null)
 				{
-					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(12, 2);
-					defaultInterpolatedStringHandler.AppendLiteral("\ud83d\ude9a 已移动 ");
-					defaultInterpolatedStringHandler.AppendFormatted(stockToMove.Name);
-					defaultInterpolatedStringHandler.AppendLiteral(" 到 [");
-					defaultInterpolatedStringHandler.AppendFormatted(targetGroup.Header);
-					defaultInterpolatedStringHandler.AppendLiteral("]");
-					logAction!(defaultInterpolatedStringHandler.ToStringAndClear());
+					logAction!($"\ud83d\ude9a 已移动 {stockToMove.Name} 到 [{targetGroup.Header}]");
 				}
 			});
 		}
@@ -611,11 +596,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 						Action<string>? logAction = LogAction;
 						if (logAction != null)
 						{
-							DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(23, 1);
-							defaultInterpolatedStringHandler.AppendLiteral("✅ 代码表更新完成 (股票+ETF 共 ");
-							defaultInterpolatedStringHandler.AppendFormatted(StockNameMap.Count);
-							defaultInterpolatedStringHandler.AppendLiteral(" 条)");
-							logAction!(defaultInterpolatedStringHandler.ToStringAndClear());
+							logAction!($"✅ 代码表更新完成 (股票+ETF 共 {StockNameMap.Count} 条)");
 						}
 					});
 				}

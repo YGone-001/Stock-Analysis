@@ -46,10 +46,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 	{
 		if (!IsLoading)
 		{
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
-			defaultInterpolatedStringHandler.AppendLiteral("⚙\ufe0f 设置更改：自动打开目录 -> ");
-			defaultInterpolatedStringHandler.AppendFormatted(value);
-			AppendLog(defaultInterpolatedStringHandler.ToStringAndClear());
+			AppendLog($"⚙\ufe0f 设置更改：自动打开目录 -> {value}");
 		}
 	}
 
@@ -135,10 +132,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		Application.Current?.Dispatcher.Invoke(delegate
 		{
 			MainViewModel mainViewModel = this;
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(11, 1);
-			defaultInterpolatedStringHandler.AppendLiteral("聊天室活跃摸鱼人数: ");
-			defaultInterpolatedStringHandler.AppendFormatted(count);
-			mainViewModel.StatusRight = defaultInterpolatedStringHandler.ToStringAndClear();
+			mainViewModel.StatusRight = $"聊天室活跃摸鱼人数: {count}";
 		});
 	}
 
@@ -184,38 +178,22 @@ public partial class MainViewModel : ObservableObject, IDisposable
 				if (ms < 5)
 				{
 					MainViewModel mainViewModel = this;
-					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(11, 1);
-					defaultInterpolatedStringHandler.AppendLiteral("⚡ 本地缓存 (");
-					defaultInterpolatedStringHandler.AppendFormatted(ms);
-					defaultInterpolatedStringHandler.AppendLiteral("ms)");
-					mainViewModel.LatencyText = defaultInterpolatedStringHandler.ToStringAndClear();
+					mainViewModel.LatencyText = $"⚡ 本地缓存 ({ms}ms)";
 				}
 				else if (ms < 500)
 				{
 					MainViewModel mainViewModel2 = this;
-					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(12, 1);
-					defaultInterpolatedStringHandler.AppendLiteral("\ud83d\udfe2 API延迟: ");
-					defaultInterpolatedStringHandler.AppendFormatted(ms);
-					defaultInterpolatedStringHandler.AppendLiteral("ms");
-					mainViewModel2.LatencyText = defaultInterpolatedStringHandler.ToStringAndClear();
+					mainViewModel2.LatencyText = $"\ud83d\udfe2 API延迟: {ms}ms";
 				}
 				else if (ms < 2000)
 				{
 					MainViewModel mainViewModel3 = this;
-					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(12, 1);
-					defaultInterpolatedStringHandler.AppendLiteral("\ud83d\udfe1 API延迟: ");
-					defaultInterpolatedStringHandler.AppendFormatted(ms);
-					defaultInterpolatedStringHandler.AppendLiteral("ms");
-					mainViewModel3.LatencyText = defaultInterpolatedStringHandler.ToStringAndClear();
+					mainViewModel3.LatencyText = $"\ud83d\udfe1 API延迟: {ms}ms";
 				}
 				else
 				{
 					MainViewModel mainViewModel4 = this;
-					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(12, 1);
-					defaultInterpolatedStringHandler.AppendLiteral("\ud83d\udd34 API延迟: ");
-					defaultInterpolatedStringHandler.AppendFormatted(ms);
-					defaultInterpolatedStringHandler.AppendLiteral("ms");
-					mainViewModel4.LatencyText = defaultInterpolatedStringHandler.ToStringAndClear();
+					mainViewModel4.LatencyText = $"\ud83d\udd34 API延迟: {ms}ms";
 				}
 			});
 		};
@@ -236,10 +214,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 			{
 				Application.Current?.Dispatcher.Invoke(delegate
 				{
-					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(10, 1);
-					defaultInterpolatedStringHandler.AppendLiteral("\ud83d\udd52 时间已校准: ");
-					defaultInterpolatedStringHandler.AppendFormatted(TimeHelper.BeijingNow, "HH:mm:ss");
-					AppendLog(defaultInterpolatedStringHandler.ToStringAndClear());
+					AppendLog($"\ud83d\udd52 时间已校准: {TimeHelper.BeijingNow:HH:mm:ss}");
 				});
 			}
 		}).SafeFireAndForget();
@@ -289,13 +264,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 				string value = StockNavigationHelper.GetName(obj);
 				if (!string.IsNullOrEmpty(text8))
 				{
-					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler2 = new DefaultInterpolatedStringHandler(16, 2);
-					defaultInterpolatedStringHandler2.AppendLiteral("\ud83d\udcc8 正在提取五日分时图: ");
-					defaultInterpolatedStringHandler2.AppendFormatted(value);
-					defaultInterpolatedStringHandler2.AppendLiteral("(");
-					defaultInterpolatedStringHandler2.AppendFormatted(text8);
-					defaultInterpolatedStringHandler2.AppendLiteral(")");
-					AppendLog(defaultInterpolatedStringHandler2.ToStringAndClear());
+					AppendLog($"\ud83d\udcc8 正在提取五日分时图: {value}({text8})");
 					AnalyticsService.Log("2", "5");
 					imageUrl = StockNavigationHelper.BuildEastMoneyFiveDayImageUrl(text8);
 					Application.Current?.Dispatcher.Invoke(delegate
@@ -434,11 +403,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 					{
 						File.Delete(item);
 					}
-					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
-					defaultInterpolatedStringHandler.AppendLiteral("✅ 清理完成，共剿灭 ");
-					defaultInterpolatedStringHandler.AppendFormatted(list.Count);
-					defaultInterpolatedStringHandler.AppendLiteral(" 个缓存文件！");
-					AppendLog(defaultInterpolatedStringHandler.ToStringAndClear());
+					AppendLog($"✅ 清理完成，共剿灭 {list.Count} 个缓存文件！");
 				}
 			}
 			catch (Exception ex)

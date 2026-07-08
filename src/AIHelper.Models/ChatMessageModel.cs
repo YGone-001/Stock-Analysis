@@ -84,11 +84,7 @@ public class ChatMessageModel : INotifyPropertyChanged
 	{
 		get
 		{
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(1, 2);
-			defaultInterpolatedStringHandler.AppendFormatted(SenderName);
-			defaultInterpolatedStringHandler.AppendLiteral(" ");
-			defaultInterpolatedStringHandler.AppendFormatted(SendTime, "HH:mm:ss");
-			return defaultInterpolatedStringHandler.ToStringAndClear();
+			return $"{SenderName} {SendTime:HH:mm:ss}";
 		}
 	}
 
