@@ -1,7 +1,6 @@
 using System;
 using System.Diagnostics;
 using System.Net.Http;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
@@ -21,32 +20,24 @@ public static class UpdateHelper
 		{
 			using HttpClient client = new HttpClient();
 			client.Timeout = TimeSpan.FromSeconds(3.0);
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(3, 2);
-			defaultInterpolatedStringHandler.AppendFormatted("https://www.ooppp.com/soft/aihelper.json");
-			defaultInterpolatedStringHandler.AppendLiteral("?t=");
-			defaultInterpolatedStringHandler.AppendFormatted(DateTime.Now.Ticks);
-			string requestUri = defaultInterpolatedStringHandler.ToStringAndClear();
+			string requestUri = $"{UPDATE_API_URL}?t={DateTime.Now.Ticks}";
 			UpdateInfoModel updateInfo = JsonSerializer.Deserialize<UpdateInfoModel>(await client.GetStringAsync(requestUri));
-			if (updateInfo == null || !IsNewerVersion(updateInfo.version, "1.4.5"))
+			if (updateInfo == null || !IsNewerVersion(updateInfo.Version, CurrentVersion))
 			{
 				return;
 			}
 			Application.Current.Dispatcher.Invoke(delegate
 			{
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler2 = new DefaultInterpolatedStringHandler(27, 2);
-				defaultInterpolatedStringHandler2.AppendLiteral("发现新版本：V");
-				defaultInterpolatedStringHandler2.AppendFormatted(updateInfo.version);
-				defaultInterpolatedStringHandler2.AppendLiteral("\n\n【更新内容】\n");
-				defaultInterpolatedStringHandler2.AppendFormatted(updateInfo.description);
-				defaultInterpolatedStringHandler2.AppendLiteral("\n\n是否立即前往下载？");
-				if (HandyControl.Controls.MessageBox.Show(defaultInterpolatedStringHandler2.ToStringAndClear(), "\ud83c\udf89 发现新版本", MessageBoxButton.YesNo, MessageBoxImage.Asterisk) == MessageBoxResult.Yes)
+				string prompt = $"发现新版本：V{updateInfo.Version}\n\n【更新内容】\n{updateInfo.Description}\n\n是否立即前往下载？";
+				if (HandyControl.Controls.MessageBox.Show(prompt, "\ud83c\udf89 发现新版本", MessageBoxButton.YesNo, MessageBoxImage.Asterisk) == MessageBoxResult.Yes)
 				{
-					OpenUrl(updateInfo.url);
+					OpenUrl(updateInfo.Url);
 				}
 			});
 		}
-		catch (Exception)
+		catch (Exception ex)
 		{
+			System.Diagnostics.Trace.WriteLine($"Swallowed exception in UpdateHelper.cs : {ex}");
 		}
 	}
 
@@ -67,7 +58,7 @@ public static class UpdateHelper
 			{
 				FileName = url,
 				UseShellExecute = true
-			});
+			})?.Dispose();
 		}
 		catch (Exception ex)
 		{

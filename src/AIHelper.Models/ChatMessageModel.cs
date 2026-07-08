@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.ComponentModel;
 using System.IO;
@@ -15,39 +16,37 @@ namespace AIHelper.Models;
 
 public class ChatMessageModel : INotifyPropertyChanged
 {
-	private string _avatar;
+	private string _avatar = string.Empty;
 
-	private string _content;
+	private string _content = string.Empty;
+
 
 	private bool _isWithdrawn;
 
-	private ImageSource _loadedImage;
+	private ImageSource? _loadedImage;
 
 	private bool _isDownloading;
 
-	private static readonly HttpClient _httpClient = new HttpClient(new HttpClientHandler
-	{
-		ServerCertificateCustomValidationCallback = (HttpRequestMessage message, X509Certificate2? cert, X509Chain? chain, SslPolicyErrors errors) => true
-	})
+	private static readonly HttpClient _httpClient = new HttpClient
 	{
 		Timeout = TimeSpan.FromSeconds(30.0)
 	};
 
 	public int Id { get; set; }
 
-	public string SenderName { get; set; }
+	public string SenderName { get; set; } = string.Empty;
 
-	public string SenderIp { get; set; }
+	public string SenderIp { get; set; } = string.Empty;
 
-	public string MsgType { get; set; }
+	public string MsgType { get; set; } = string.Empty;
 
 	public DateTime SendTime { get; set; }
 
 	public bool IsSelf { get; set; }
 
-	public string QuoteContent { get; set; }
+	public string QuoteContent { get; set; } = string.Empty;
 
-	public string QuoteSender { get; set; }
+	public string QuoteSender { get; set; } = string.Empty;
 
 	public bool HasQuote => !string.IsNullOrEmpty(QuoteContent);
 
@@ -60,15 +59,15 @@ public class ChatMessageModel : INotifyPropertyChanged
 		set
 		{
 			_avatar = value;
-			OnPropertyChanged("Avatar");
-			OnPropertyChanged("HasLocalAvatar");
-			OnPropertyChanged("LocalAvatarPath");
+			OnPropertyChanged(nameof(Avatar));
+			OnPropertyChanged(nameof(HasLocalAvatar));
+			OnPropertyChanged(nameof(LocalAvatarPath));
 		}
 	}
 
 	public bool HasLocalAvatar => !string.IsNullOrEmpty(Avatar);
 
-	public string LocalAvatarPath
+	public string? LocalAvatarPath
 	{
 		get
 		{
@@ -109,8 +108,8 @@ public class ChatMessageModel : INotifyPropertyChanged
 			if (_content != value)
 			{
 				_content = value;
-				OnPropertyChanged("Content");
-				OnPropertyChanged("ImageSource");
+				OnPropertyChanged(nameof(Content));
+				OnPropertyChanged(nameof(ImageSource));
 			}
 		}
 	}
@@ -124,7 +123,7 @@ public class ChatMessageModel : INotifyPropertyChanged
 		set
 		{
 			_isWithdrawn = value;
-			OnPropertyChanged("IsWithdrawn");
+			OnPropertyChanged(nameof(IsWithdrawn));
 		}
 	}
 
@@ -137,11 +136,11 @@ public class ChatMessageModel : INotifyPropertyChanged
 		set
 		{
 			_isDownloading = value;
-			OnPropertyChanged("IsDownloading");
+			OnPropertyChanged(nameof(IsDownloading));
 		}
 	}
 
-	public ImageSource ImageSource
+	public ImageSource? ImageSource
 	{
 		get
 		{
@@ -157,17 +156,16 @@ public class ChatMessageModel : INotifyPropertyChanged
 		}
 	}
 
-	public event PropertyChangedEventHandler PropertyChanged;
+	public event PropertyChangedEventHandler? PropertyChanged = null;
 
 	private void PrepareImageWithSafeCache()
 	{
-		byte[] imageBytes;
+		byte[]? imageBytes = null;
 		Task.Run(async delegate
 		{
 			_ = 2;
 			try
 			{
-				imageBytes = null;
 				if (Content.StartsWith("/uploads") || Content.StartsWith("http"))
 				{
 					string fullUrl = Content.StartsWith("http") ? Content : ChatServiceConfig.BuildUrl(Content);
@@ -191,21 +189,17 @@ public class ChatMessageModel : INotifyPropertyChanged
 							await fs.CopyToAsync(ms);
 							imageBytes = ms.ToArray();
 						}
-						catch
-						{
-						}
+						catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatMessageModel.cs : {ex}"); }
 					}
 					if (imageBytes == null || imageBytes.Length == 0)
 					{
-						Application.Current.Dispatcher.Invoke(() => IsDownloading = true);
+						Application.Current?.Dispatcher.Invoke(() => IsDownloading = true);
 						imageBytes = await _httpClient.GetByteArrayAsync(fullUrl);
 						try
 						{
 							await File.WriteAllBytesAsync(localFilePath, imageBytes);
 						}
-						catch
-						{
-						}
+						catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatMessageModel.cs : {ex}"); }
 					}
 				}
 				else
@@ -214,7 +208,7 @@ public class ChatMessageModel : INotifyPropertyChanged
 				}
 				if (imageBytes != null && imageBytes.Length != 0)
 				{
-					Application.Current.Dispatcher.Invoke(delegate
+					Application.Current?.Dispatcher.Invoke(delegate
 					{
 						try
 						{
@@ -228,25 +222,21 @@ public class ChatMessageModel : INotifyPropertyChanged
 							}
 							bitmapImage.Freeze();
 							_loadedImage = bitmapImage;
-							OnPropertyChanged("ImageSource");
+							OnPropertyChanged(nameof(ImageSource));
 						}
-						catch
-						{
-						}
+						catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatMessageModel.cs : {ex}"); }
 					});
 				}
 			}
-			catch (Exception)
-			{
-			}
+			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatMessageModel.cs : {ex}"); }
 			finally
 			{
-				Application.Current.Dispatcher.Invoke(() => IsDownloading = false);
+				Application.Current?.Dispatcher.Invoke(() => IsDownloading = false);
 			}
 		});
 	}
 
-	protected void OnPropertyChanged([CallerMemberName] string name = null)
+	protected void OnPropertyChanged([CallerMemberName] string? name = null)
 	{
 		this.PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 	}

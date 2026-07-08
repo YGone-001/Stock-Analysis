@@ -42,6 +42,11 @@ class EastMoneyProvider:
         if cached is not None:
             return cached
 
+        if len(normalized) == 1:
+            result = await self._single_quote(normalized[0])
+            if result.get("data"):
+                return self.memory_cache.set(cache_key, result, ttl_seconds=2)
+
         secids = ",".join(to_secid(code) for code in normalized)
         fields = ",".join(
             [
@@ -55,6 +60,9 @@ class EastMoneyProvider:
                 "f16",
                 "f17",
                 "f18",
+                "f8",
+                "f49",
+                "f161",
             ]
         )
         payload = await self._get_json(
@@ -75,8 +83,10 @@ class EastMoneyProvider:
                     "TotalHand": as_float(item.get("f5")),
                     "Amount": amount,
                     "TotalAmount": amount,
-                    "Wp": 0,
-                    "Np": 0,
+                    "Wp": as_float(item.get("f49")),
+                    "Np": as_float(item.get("f161")),
+                    "Turnover": as_float(item.get("f8")),
+                    "Percent": as_float(item.get("f3")),
                     "BuyLevel": [],
                     "SellLevel": [],
                     "K": {
@@ -93,6 +103,51 @@ class EastMoneyProvider:
         if data:
             return self.memory_cache.set(cache_key, result, ttl_seconds=2)
         return result
+
+    async def _single_quote(self, code: str) -> dict[str, Any]:
+        payload = await self._get_json(
+            "https://push2.eastmoney.com/api/qt/stock/get",
+            params={
+                "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+                "fltt": "2",
+                "invt": "2",
+                "secid": to_secid(code),
+                "fields": (
+                    "f57,f58,f43,f44,f45,f46,f47,f48,f49,f60,f161,"
+                    "f168,f170"
+                ),
+            },
+        )
+        item = payload.get("data") or {}
+        if not item:
+            return {"data": []}
+        close = as_float(item.get("f43"))
+        preclose = as_float(item.get("f60"))
+        return {
+            "data": [
+                {
+                    "Code": str(item.get("f57") or code),
+                    "Name": str(item.get("f58") or ""),
+                    "TotalHand": as_float(item.get("f47")),
+                    "Amount": as_float(item.get("f48")),
+                    "TotalAmount": as_float(item.get("f48")),
+                    "Wp": as_float(item.get("f49")),
+                    "Np": as_float(item.get("f161")),
+                    "Turnover": as_float(item.get("f168")),
+                    "Percent": as_float(item.get("f170")),
+                    "BuyLevel": [],
+                    "SellLevel": [],
+                    "K": {
+                        "Close": to_milli(close),
+                        "Last": to_milli(preclose),
+                        "PreClose": to_milli(preclose),
+                        "Open": to_milli(as_float(item.get("f46"))),
+                        "High": to_milli(as_float(item.get("f44"))),
+                        "Low": to_milli(as_float(item.get("f45"))),
+                    },
+                }
+            ]
+        }
 
     async def kline(self, code: str, limit: int = 120) -> dict[str, Any]:
         normalized = normalize_code(code)

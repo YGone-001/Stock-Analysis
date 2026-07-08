@@ -47,7 +47,7 @@ public static class RichTextHelper
 		{
 			return;
 		}
-		MatchCollection matchCollection = new Regex("\\[emoji:(\\d{2})\\]").Matches(text);
+		MatchCollection matchCollection = EmojiRegex.Matches(text);
 		int num = 0;
 		foreach (Match item in matchCollection)
 		{
@@ -83,10 +83,13 @@ public static class RichTextHelper
 		}
 	}
 
+	private static readonly Regex EmojiRegex = new Regex("\\[emoji:(\\d{2})\\]", RegexOptions.Compiled);
+	private static readonly Regex StockCodeRegex = new Regex("\\b(60\\d{4}|00\\d{4}|30\\d{4}|43\\d{4}|83\\d{4}|87\\d{4}|688\\d{3})\\b", RegexOptions.Compiled);
+
 	private static void ParseStocks(TextBlock textBlock, string text)
 	{
 		TextBlock textBlock2 = textBlock;
-		MatchCollection matchCollection = new Regex("(60\\d{4}|00\\d{4}|30\\d{4})").Matches(text);
+		MatchCollection matchCollection = StockCodeRegex.Matches(text);
 		int num = 0;
 		foreach (Match match in matchCollection)
 		{

@@ -148,7 +148,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 
 	private void ScrollToBottom()
 	{
-		Application.Current.Dispatcher.InvokeAsync(delegate
+		Application.Current?.Dispatcher.InvokeAsync(delegate
 		{
 			if (_messageScrollViewer == null)
 			{
@@ -262,7 +262,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 				}
 				else
 				{
-					chatViewModel2.SendDirectImageAsync(Convert.ToBase64String(array));
+					_ = chatViewModel2.SendDirectImageAsync(Convert.ToBase64String(array));
 				}
 			}
 		}
@@ -332,9 +332,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 				mainViewModel.ChatVM = chatVM;
 			}
 		}
-		catch
-		{
-		}
+		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatView.cs : {ex}"); }
 	}
 
 	private string Unprotect(string encryptedText)
@@ -399,7 +397,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 		{
 			chatViewModel.ScrollToBottomRequested -= Vm_ScrollToBottomRequested;
 			chatViewModel.InitialHistoryLoaded -= Vm_InitialHistoryLoaded;
-			chatViewModel.DisconnectAsync();
+			_ = chatViewModel.DisconnectAsync();
 		}
 		if (e.NewValue is ChatViewModel chatViewModel2)
 		{

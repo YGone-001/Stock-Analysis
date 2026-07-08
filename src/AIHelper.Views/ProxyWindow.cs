@@ -95,22 +95,12 @@ public class ProxyWindow : HandyControl.Controls.Window, IComponentConnector
 			HttpResponseMessage httpResponseMessage = await client.SendAsync(request);
 			if (httpResponseMessage.IsSuccessStatusCode)
 			{
-				TextBlock txtTestResult = TxtTestResult;
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(15, 1);
-				defaultInterpolatedStringHandler.AppendLiteral("✅ 连接成功! (HTTP ");
-				defaultInterpolatedStringHandler.AppendFormatted(httpResponseMessage.StatusCode);
-				defaultInterpolatedStringHandler.AppendLiteral(")");
-				txtTestResult.Text = defaultInterpolatedStringHandler.ToStringAndClear();
+				TxtTestResult.Text = $"✅ 连接成功! (HTTP {httpResponseMessage.StatusCode})";
 				TxtTestResult.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
 			}
 			else
 			{
-				TextBlock txtTestResult2 = TxtTestResult;
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(14, 1);
-				defaultInterpolatedStringHandler.AppendLiteral("❌ 目标拒绝 (HTTP ");
-				defaultInterpolatedStringHandler.AppendFormatted(httpResponseMessage.StatusCode);
-				defaultInterpolatedStringHandler.AppendLiteral(")");
-				txtTestResult2.Text = defaultInterpolatedStringHandler.ToStringAndClear();
+				TxtTestResult.Text = $"❌ 目标拒绝 (HTTP {httpResponseMessage.StatusCode})";
 				TxtTestResult.Foreground = new SolidColorBrush(Colors.Red);
 			}
 		}
@@ -135,7 +125,7 @@ public class ProxyWindow : HandyControl.Controls.Window, IComponentConnector
 		AppConfig appConfig = ConfigManager.Load();
 		appConfig.IsProxyEnabled = TglEnableProxy.IsChecked.GetValueOrDefault();
 		appConfig.ProxyAddress = TxtAddress.Text.Trim();
-		appConfig.ProxyPort = (int.TryParse(TxtPort.Text.Trim(), out var result2) ? result2 : 7890);
+		appConfig.ProxyPort = TxtPort.Text.Trim();
 		appConfig.ProxyUserName = TxtUsername.Text.Trim();
 		appConfig.ProxyPassword = TxtPassword.Password;
 		ConfigManager.Save(appConfig);

@@ -1,5 +1,4 @@
 fastapi>=0.111
 httpx>=0.27
 uvicorn[standard]>=0.30
-# Optional: install when you want AkShare extension endpoints.
-# akshare>=1.15
+akshare>=1.15

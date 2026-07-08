@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.CodeDom.Compiler;
 using System.Diagnostics;
@@ -15,12 +16,16 @@ public class App : Application
 	{
 		base.DispatcherUnhandledException += delegate(object sender, DispatcherUnhandledExceptionEventArgs args)
 		{
-			MessageBox.Show("UI线程发生致命崩溃！\n\n【错误信息】: " + args.Exception.Message + "\n\n【堆栈跟踪】:\n" + args.Exception.StackTrace, "\ud83d\udea8 赛博警报 (UI)", MessageBoxButton.OK, MessageBoxImage.Hand);
-			args.Handled = true;
+			Trace.WriteLine($"[FATAL UI EXCEPTION] {args.Exception}");
+			MessageBoxResult result = MessageBox.Show("UI线程发生未捕获异常，继续运行可能会导致程序处于不稳定状态。是否要继续尝试运行？\n\n【错误信息】: " + args.Exception.Message, "赛博警报 (UI)", MessageBoxButton.YesNo, MessageBoxImage.Error);
+			if (result == MessageBoxResult.Yes)
+			{
+				args.Handled = true;
+			}
 		};
 		AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs args)
 		{
-			Exception ex = args.ExceptionObject as Exception;
+			Exception? ex = args.ExceptionObject as Exception;
 			MessageBox.Show("后台线程发生致命崩溃！\n\n【错误信息】: " + ex?.Message + "\n\n【堆栈跟踪】:\n" + ex?.StackTrace, "\ud83d\udea8 赛博警报 (后台)", MessageBoxButton.OK, MessageBoxImage.Hand);
 		};
 		TaskScheduler.UnobservedTaskException += delegate(object? sender, UnobservedTaskExceptionEventArgs args)
@@ -31,8 +36,6 @@ public class App : Application
 		base.OnStartup(e);
 	}
 
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	public void InitializeComponent()
 	{
 		if (!_contentLoaded)
@@ -45,8 +48,6 @@ public class App : Application
 	}
 
 	[STAThread]
-	[DebuggerNonUserCode]
-	[GeneratedCode("PresentationBuildTasks", "8.0.6.0")]
 	public static void Main()
 	{
 		App app = new App();

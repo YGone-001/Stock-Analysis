@@ -5,13 +5,15 @@ using System.Threading.Tasks;
 
 namespace AIHelper.Services.StockData;
 
-public sealed class FallbackStockDataProvider : IStockDataProvider
+public sealed class FallbackStockDataProvider : IStockDataProvider, IDisposable
 {
 	private readonly IStockDataProvider _publicProvider;
 
 	private readonly LocalStockCacheProvider _cacheProvider;
 
 	private readonly ConcurrentDictionary<string, byte> _backgroundRefreshes = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+	
+	private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
 	public event Action<StockDataResult> StatusChanged;
 
@@ -95,7 +97,7 @@ public sealed class FallbackStockDataProvider : IStockDataProvider
 		{
 			try
 			{
-				StockDataResult result = await GetPublicWithBudgetAsync(refreshRequest, CancellationToken.None);
+				StockDataResult result = await GetPublicWithBudgetAsync(refreshRequest, _cts.Token);
 				StockDataResult backgroundResult = new StockDataResult
 				{
 					Endpoint = result.Endpoint,
@@ -110,11 +112,25 @@ public sealed class FallbackStockDataProvider : IStockDataProvider
 				};
 				StatusChanged?.Invoke(backgroundResult);
 			}
+			catch (OperationCanceledException)
+			{
+				// Ignore
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Trace.WriteLine($"Background refresh failed: {ex}");
+			}
 			finally
 			{
 				_backgroundRefreshes.TryRemove(request.Path, out _);
 			}
 		});
+	}
+
+	public void Dispose()
+	{
+		_cts.Cancel();
+		_cts.Dispose();
 	}
 
 	private async Task<StockDataResult> GetPublicWithBudgetAsync(StockDataRequest request, CancellationToken cancellationToken)

@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -23,8 +25,20 @@ using HandyControl.Controls;
 
 namespace AIHelper.ViewModels;
 
-public class StockViewModel : INotifyPropertyChanged
+public class StockViewModel : INotifyPropertyChanged, IDisposable
 {
+	private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+	private ICommand? _openChartCommand;
+	private ICommand? _confirmAddStockCommand;
+	private ICommand? _quickAddStockCommand;
+	private ICommand? _removeStockCommand;
+	private ICommand? _addGroupCommand;
+	private ICommand? _removeGroupCommand;
+	private ICommand? _renameGroupCommand;
+	private ICommand? _manualRefreshCommand;
+	private ICommand? _refreshCodeTableCommand;
+	private ICommand? _moveStockToGroupCommand;
+
 	private const string DataFileName = "StockGroups.json";
 
 	private const string NameMapCacheFile = "StockNameMap.json";
@@ -75,10 +89,9 @@ public class StockViewModel : INotifyPropertyChanged
 	public ObservableCollection<StockGroupModel> StockGroups { get; set; } = new ObservableCollection<StockGroupModel>();
 
 
-	public Dictionary<string, string> StockNameMap { get; set; } = new Dictionary<string, string>();
+	public ConcurrentDictionary<string, string> StockNameMap { get; set; } = new ConcurrentDictionary<string, string>();
 
-
-	public Dictionary<string, StockModel> GlobalStockCache { get; set; } = new Dictionary<string, StockModel>();
+	public ConcurrentDictionary<string, StockModel> GlobalStockCache { get; set; } = new ConcurrentDictionary<string, StockModel>();
 
 
 	public ObservableCollection<StockModel> SearchResults
@@ -90,7 +103,7 @@ public class StockViewModel : INotifyPropertyChanged
 		set
 		{
 			_searchResults = value;
-			OnPropertyChanged("SearchResults");
+			OnPropertyChanged(nameof(SearchResults));
 		}
 	}
 
@@ -103,7 +116,7 @@ public class StockViewModel : INotifyPropertyChanged
 		set
 		{
 			_isSearchPopupOpen = value;
-			OnPropertyChanged("IsSearchPopupOpen");
+			OnPropertyChanged(nameof(IsSearchPopupOpen));
 		}
 	}
 
@@ -116,7 +129,7 @@ public class StockViewModel : INotifyPropertyChanged
 		set
 		{
 			_searchText = value;
-			OnPropertyChanged("SearchText");
+			OnPropertyChanged(nameof(SearchText));
 			DoHybridSearch(value);
 		}
 	}
@@ -136,7 +149,7 @@ public class StockViewModel : INotifyPropertyChanged
 				return;
 			}
 			_isAllStocksSelected = value;
-			OnPropertyChanged("IsAllStocksSelected");
+			OnPropertyChanged(nameof(IsAllStocksSelected));
 			if (SelectedGroup == null || SelectedGroup.Stocks == null)
 			{
 				return;
@@ -161,9 +174,9 @@ public class StockViewModel : INotifyPropertyChanged
 				return;
 			}
 			_selectedGroup = value;
-			OnPropertyChanged("SelectedGroup");
+			OnPropertyChanged(nameof(SelectedGroup));
 			_isAllStocksSelected = (_selectedGroup?.Stocks?.All((StockModel s) => s.IsChecked)).GetValueOrDefault();
-			OnPropertyChanged("IsAllStocksSelected");
+			OnPropertyChanged(nameof(IsAllStocksSelected));
 			if (_selectedGroup != null && !_selectedGroup.IsOverview)
 			{
 				Task.Run(async delegate
@@ -183,11 +196,11 @@ public class StockViewModel : INotifyPropertyChanged
 		set
 		{
 			_currentSelectedStock = value;
-			OnPropertyChanged("CurrentSelectedStock");
+			OnPropertyChanged(nameof(CurrentSelectedStock));
 		}
 	}
 
-	public ICommand OpenChartCommand => new RelayCommand(delegate(object o)
+	public ICommand OpenChartCommand => _openChartCommand ??= new RelayCommand(delegate(object o)
 	{
 		string code = StockNavigationHelper.GetCode(o);
 		if (!string.IsNullOrEmpty(code))
@@ -197,7 +210,7 @@ public class StockViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand ConfirmAddStockCommand => new RelayCommand(delegate(object o)
+	public ICommand ConfirmAddStockCommand => _confirmAddStockCommand ??= new RelayCommand(delegate(object o)
 	{
 		if (o is StockModel stockModel)
 		{
@@ -207,7 +220,7 @@ public class StockViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand QuickAddStockCommand => new RelayCommand(delegate
+	public ICommand QuickAddStockCommand => _quickAddStockCommand ??= new RelayCommand(delegate
 	{
 		if (SearchResults != null && SearchResults.Count > 0)
 		{
@@ -230,7 +243,7 @@ public class StockViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand RemoveStockCommand => new RelayCommand(delegate(object o)
+	public ICommand RemoveStockCommand => _removeStockCommand ??= new RelayCommand(delegate(object o)
 	{
 		StockModel stock = o as StockModel;
 		if (stock != null && SelectedGroup != null && !SelectedGroup.IsOverview)
@@ -243,10 +256,10 @@ public class StockViewModel : INotifyPropertyChanged
 				{
 					StockGroups[0].Stocks.Remove(stockModel);
 				}
-				GlobalStockCache.Remove(stock.Code);
+				GlobalStockCache.TryRemove(stock.Code, out _);
 			}
 			SaveLocalData();
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				LogAction?.Invoke("\ud83d\uddd1\ufe0f 已删除: " + stock.Name);
 			});
@@ -254,7 +267,7 @@ public class StockViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand AddGroupCommand => new RelayCommand(delegate(object o)
+	public ICommand AddGroupCommand => _addGroupCommand ??= new RelayCommand(delegate(object o)
 	{
 		string text = o as string;
 		if (string.IsNullOrWhiteSpace(text))
@@ -274,7 +287,7 @@ public class StockViewModel : INotifyPropertyChanged
 		SaveLocalData();
 	});
 
-	public ICommand RemoveGroupCommand => new RelayCommand(delegate(object o)
+	public ICommand RemoveGroupCommand => _removeGroupCommand ??= new RelayCommand(delegate(object o)
 	{
 		if (o is StockGroupModel stockGroupModel && !stockGroupModel.IsOverview)
 		{
@@ -297,7 +310,7 @@ public class StockViewModel : INotifyPropertyChanged
 						{
 							StockGroups[0].Stocks.Remove(stockModel);
 						}
-						GlobalStockCache.Remove(stock.Code);
+						GlobalStockCache.TryRemove(stock.Code, out _);
 					}
 				}
 				if (StockGroups.Count > 0)
@@ -310,78 +323,37 @@ public class StockViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand RenameGroupCommand => new RelayCommand(delegate(object o)
+	public Func<string, string, string> ShowInputDialogFunc { get; set; }
+
+	public ICommand RenameGroupCommand => _renameGroupCommand ??= new RelayCommand(delegate(object o)
 	{
 		StockGroupModel group = o as StockGroupModel;
 		if (group == null || group.IsOverview)
 		{
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				LogAction?.Invoke("⚠\ufe0f 总览页属于系统层，无法重命名。");
 			});
 		}
 		else
 		{
-			System.Windows.Window inputWin = new System.Windows.Window
-			{
-				Title = "重命名分组",
-				Width = 300.0,
-				Height = 180.0,
-				WindowStartupLocation = WindowStartupLocation.CenterScreen,
-				ResizeMode = ResizeMode.NoResize,
-				Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F3F4F6"))
-			};
-			StackPanel stackPanel = new StackPanel
-			{
-				Margin = new Thickness(15.0)
-			};
-			System.Windows.Controls.TextBox tb = new System.Windows.Controls.TextBox
-			{
-				Text = group.Header,
-				FontSize = 14.0,
-				Padding = new Thickness(5.0),
-				Margin = new Thickness(0.0, 0.0, 0.0, 15.0)
-			};
-			Button button = new Button
-			{
-				Content = "确定",
-				Width = 80.0,
-				Height = 30.0,
-				IsDefault = true,
-				Cursor = Cursors.Hand
-			};
-			button.Click += delegate
-			{
-				if (!string.IsNullOrWhiteSpace(tb.Text))
-				{
-					group.Header = tb.Text.Trim();
-					SaveLocalData();
-					Application.Current.Dispatcher.Invoke(delegate
-					{
-						LogAction?.Invoke("✏\ufe0f 分组已重命名为: " + group.Header);
-					});
-				}
-				inputWin.Close();
-			};
-			stackPanel.Children.Add(new TextBlock
-			{
-				Text = "请输入新的分组名称：",
-				Margin = new Thickness(0.0, 0.0, 0.0, 5.0),
-				FontWeight = FontWeights.Bold
-			});
-			stackPanel.Children.Add(tb);
-			stackPanel.Children.Add(button);
-			inputWin.Content = stackPanel;
-			tb.SelectAll();
-			tb.Focus();
 			AnalyticsService.Log("0", "1");
-			inputWin.ShowDialog();
+			string result = ShowInputDialogFunc?.Invoke("重命名分组", group.Header);
+			if (!string.IsNullOrWhiteSpace(result))
+			{
+				group.Header = result.Trim();
+				SaveLocalData();
+				Application.Current?.Dispatcher.Invoke(delegate
+				{
+					LogAction?.Invoke("✏\ufe0f 分组已重命名为: " + group.Header);
+				});
+			}
 		}
 	});
 
-	public ICommand ManualRefreshCommand => new RelayCommand(async delegate
+	public ICommand ManualRefreshCommand => _manualRefreshCommand ??= new RelayCommand(async delegate
 	{
-		Application.Current.Dispatcher.Invoke(delegate
+		Application.Current?.Dispatcher.Invoke(delegate
 		{
 			LogAction?.Invoke("\ud83d\udd04 手动刷新数据...");
 		});
@@ -390,12 +362,12 @@ public class StockViewModel : INotifyPropertyChanged
 		await RefreshAll();
 	});
 
-	public ICommand RefreshCodeTableCommand => new RelayCommand(async delegate
+	public ICommand RefreshCodeTableCommand => _refreshCodeTableCommand ??= new RelayCommand(async delegate
 	{
 		await RefreshCodeNameCacheAsync(forceRefresh: true);
 	});
 
-	public ICommand MoveStockToGroupCommand => new RelayCommand(delegate(object o)
+	public ICommand MoveStockToGroupCommand => _moveStockToGroupCommand ??= new RelayCommand(delegate(object o)
 	{
 		StockGroupModel targetGroup = o as StockGroupModel;
 		StockModel stockToMove = CurrentSelectedStock;
@@ -408,7 +380,7 @@ public class StockViewModel : INotifyPropertyChanged
 			SelectedGroup.Stocks.Remove(stockToMove);
 			SaveLocalData();
 			AnalyticsService.Log("8", "0");
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				Action<string>? logAction = LogAction;
 				if (logAction != null)
@@ -462,7 +434,7 @@ public class StockViewModel : INotifyPropertyChanged
 			StockGroups[0].Stocks.Add(stock);
 			newGroup.Stocks.Add(stock);
 		}
-		Application.Current.Dispatcher.Invoke(delegate
+		Application.Current?.Dispatcher.Invoke(delegate
 		{
 			StockGroups.Add(newGroup);
 			SelectedGroup = newGroup;
@@ -497,9 +469,7 @@ public class StockViewModel : INotifyPropertyChanged
 					}
 				}
 			}
-			catch
-			{
-			}
+			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
 		}
 		if (StockGroups.Count == 1)
 		{
@@ -545,7 +515,7 @@ public class StockViewModel : INotifyPropertyChanged
 						stockGroupModel2.Stocks[j] = value;
 						continue;
 					}
-					GlobalStockCache.Add(pureCode, stockModel);
+					GlobalStockCache[pureCode] = stockModel;
 					stockGroupModel.Stocks.Add(stockModel);
 				}
 			}
@@ -561,17 +531,11 @@ public class StockViewModel : INotifyPropertyChanged
 		List<StockGroupModel> value = StockGroups.Skip(1).ToList();
 		try
 		{
-			JsonSerializerOptions options = new JsonSerializerOptions
-			{
-				WriteIndented = true,
-				Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-			};
+			JsonSerializerOptions options = _jsonOptions;
 			string contents = JsonSerializer.Serialize(value, options);
 			File.WriteAllText(_filePath, contents);
 		}
-		catch
-		{
-		}
+		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
 	}
 
 	public async Task LoadBaseCodeNameTable()
@@ -581,10 +545,10 @@ public class StockViewModel : INotifyPropertyChanged
 		bool flag = false;
 		if (TryLoadNameMapCache(cachePath))
 		{
-			flag = false;
-			Application.Current.Dispatcher.Invoke(delegate
+			flag = true;
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
-				LogAction?.Invoke("\ud83d\udcc2 读取今日代码表缓存...");
+				LogAction?.Invoke("📂 读取今日代码表缓存...");
 			});
 		}
 		else
@@ -594,13 +558,14 @@ public class StockViewModel : INotifyPropertyChanged
 				if (TryLoadNameMapCache(fallbackPath))
 				{
 					SaveNameMapCache(cachePath);
+					flag = true;
 					break;
 				}
 			}
 		}
 		if (!flag)
 		{
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				LogAction?.Invoke("\ud83c\udf10 同步全量代码 & ETF列表...");
 			});
@@ -615,7 +580,7 @@ public class StockViewModel : INotifyPropertyChanged
 			catch (Exception ex3)
 			{
 				Exception ex2 = ex3;
-				Application.Current.Dispatcher.Invoke(delegate
+				Application.Current?.Dispatcher.Invoke(delegate
 				{
 					LogAction?.Invoke("⚠\ufe0f 股票表获取失败: " + ex2.Message);
 				});
@@ -627,7 +592,7 @@ public class StockViewModel : INotifyPropertyChanged
 			catch (Exception ex4)
 			{
 				Exception ex = ex4;
-				Application.Current.Dispatcher.Invoke(delegate
+				Application.Current?.Dispatcher.Invoke(delegate
 				{
 					LogAction?.Invoke("⚠\ufe0f ETF表获取失败: " + ex.Message);
 				});
@@ -638,7 +603,7 @@ public class StockViewModel : INotifyPropertyChanged
 				try
 				{
 					SaveNameMapCache(cachePath);
-					Application.Current.Dispatcher.Invoke(delegate
+					Application.Current?.Dispatcher.Invoke(delegate
 					{
 						Action<string>? logAction = LogAction;
 						if (logAction != null)
@@ -651,9 +616,7 @@ public class StockViewModel : INotifyPropertyChanged
 						}
 					});
 				}
-				catch
-				{
-				}
+				catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
 			}
 		}
 		watch.Stop();
@@ -663,7 +626,7 @@ public class StockViewModel : INotifyPropertyChanged
 
 	public async Task RefreshCodeNameCacheAsync(bool forceRefresh)
 	{
-		Application.Current.Dispatcher.Invoke(delegate
+		Application.Current?.Dispatcher.Invoke(delegate
 		{
 			LogAction?.Invoke(forceRefresh ? "🔄 正在手动刷新股票代码表..." : "🌐 正在同步股票代码表...");
 		});
@@ -679,7 +642,7 @@ public class StockViewModel : INotifyPropertyChanged
 		NormalizeKnownStockNameMap();
 		await NetworkHelper.MergeStockNameCacheAsync(StockNameMap, forceRefresh ? "ManualRefresh" : "StockViewModel");
 		RefreshAllNames();
-		Application.Current.Dispatcher.Invoke(delegate
+		Application.Current?.Dispatcher.Invoke(delegate
 		{
 			if (stockResult.UsedCache || etfResult.UsedCache)
 			{
@@ -727,7 +690,7 @@ public class StockViewModel : INotifyPropertyChanged
 			{
 				return false;
 			}
-			Dictionary<string, string> dictionary = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(cachePath));
+			ConcurrentDictionary<string, string> dictionary = JsonSerializer.Deserialize<ConcurrentDictionary<string, string>>(File.ReadAllText(cachePath));
 			if (dictionary == null || dictionary.Count == 0)
 			{
 				return false;
@@ -747,7 +710,7 @@ public class StockViewModel : INotifyPropertyChanged
 		string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
 		if (!string.IsNullOrWhiteSpace(desktop))
 		{
-			yield return Path.Combine(desktop, "strock", "strock", "StockNameMap.json");
+			yield return Path.Combine(desktop, "stock", "stock", "StockNameMap.json");
 		}
 	}
 
@@ -862,9 +825,7 @@ public class StockViewModel : INotifyPropertyChanged
 				}
 			}
 		}
-		catch
-		{
-		}
+		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
 	}
 
 	private void ParseEtfJson(string json)
@@ -901,14 +862,12 @@ public class StockViewModel : INotifyPropertyChanged
 				}
 			}
 		}
-		catch
-		{
-		}
+		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
 	}
 
 	private void RefreshAllNames()
 	{
-		Application.Current.Dispatcher.Invoke(delegate
+		Application.Current?.Dispatcher.Invoke(delegate
 		{
 			foreach (StockModel value2 in GlobalStockCache.Values)
 			{
@@ -924,6 +883,8 @@ public class StockViewModel : INotifyPropertyChanged
 	{
 		string keyword2 = keyword;
 		_searchCts?.Cancel();
+		_searchCts?.Cancel();
+		_searchCts?.Dispose();
 		_searchCts = new CancellationTokenSource();
 		CancellationToken token = _searchCts!.Token;
 		if (string.IsNullOrWhiteSpace(keyword2))
@@ -940,7 +901,7 @@ public class StockViewModel : INotifyPropertyChanged
 					Code = kvp.Key,
 					Name = kvp.Value
 				}).ToList();
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				SearchResults.Clear();
 				foreach (StockModel item in localResults)
@@ -980,7 +941,7 @@ public class StockViewModel : INotifyPropertyChanged
 							});
 						}
 					}
-					Application.Current.Dispatcher.Invoke(delegate
+					Application.Current?.Dispatcher.Invoke(delegate
 					{
 						foreach (StockModel netItem in onlineResults)
 						{
@@ -994,9 +955,7 @@ public class StockViewModel : INotifyPropertyChanged
 					SaveNameMapCache(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StockNameMap.json"));
 				}
 			}
-			catch
-			{
-			}
+			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
 		}, token);
 	}
 
@@ -1006,7 +965,7 @@ public class StockViewModel : INotifyPropertyChanged
 		string name2 = name;
 		if (SelectedGroup == null || SelectedGroup.IsOverview)
 		{
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				LogAction?.Invoke("⚠\ufe0f 请先选择一个具体分组。");
 			});
@@ -1014,7 +973,7 @@ public class StockViewModel : INotifyPropertyChanged
 		}
 		if (SelectedGroup.Stocks.Any((StockModel s) => s.PureCode == code2))
 		{
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				LogAction?.Invoke("⚠\ufe0f " + name2 + " 已在当前组中。");
 			});
@@ -1042,7 +1001,7 @@ public class StockViewModel : INotifyPropertyChanged
 		{
 			await RefreshSelectedStocks();
 		});
-		Application.Current.Dispatcher.Invoke(delegate
+		Application.Current?.Dispatcher.Invoke(delegate
 		{
 			LogAction?.Invoke("✅ 已添加: " + name2);
 		});
@@ -1064,7 +1023,7 @@ public class StockViewModel : INotifyPropertyChanged
 			{
 				return false;
 			}
-			Application.Current.Dispatcher.Invoke(() => SelectedGroup = StockGroups[1]);
+			Application.Current?.Dispatcher.Invoke(() => SelectedGroup = StockGroups[1]);
 		}
 		if (SelectedGroup.Stocks.Any((StockModel s) => s.PureCode == code2))
 		{
@@ -1122,7 +1081,7 @@ public class StockViewModel : INotifyPropertyChanged
 			{
 				Header = "聊天室"
 			};
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				StockGroups.Add(targetGroup);
 			});
@@ -1182,7 +1141,7 @@ public class StockViewModel : INotifyPropertyChanged
 			_consecutiveRefreshFailures = 0;
 			_quoteBackoffUntil = DateTime.MinValue;
 			_quoteBackoffLogged = false;
-			if (recovered) Application.Current.Dispatcher.Invoke(delegate { LogAction?.Invoke("✅ 行情公开源已恢复，刷新间隔恢复为 3 秒。"); });
+			if (recovered) Application.Current?.Dispatcher.Invoke(delegate { LogAction?.Invoke("✅ 行情公开源已恢复，刷新间隔恢复为 3 秒。"); });
 		}
 		else
 		{
@@ -1193,7 +1152,7 @@ public class StockViewModel : INotifyPropertyChanged
 				if (!_quoteBackoffLogged)
 				{
 					_quoteBackoffLogged = true;
-					Application.Current.Dispatcher.Invoke(delegate { LogAction?.Invoke("⚠️ 行情连续失败，暂停自动请求 30 秒。"); });
+					Application.Current?.Dispatcher.Invoke(delegate { LogAction?.Invoke("⚠️ 行情连续失败，暂停自动请求 30 秒。"); });
 				}
 			}
 		}
@@ -1268,7 +1227,7 @@ public class StockViewModel : INotifyPropertyChanged
 			{
 				return 0;
 			}
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				foreach (var item6 in updates)
 				{
@@ -1304,6 +1263,8 @@ public class StockViewModel : INotifyPropertyChanged
 		{
 			return;
 		}
+		_cts?.Cancel();
+		_cts?.Dispose();
 		_cts = new CancellationTokenSource();
 		CancellationToken token = _cts!.Token;
 		Task.Run(async delegate
@@ -1329,7 +1290,7 @@ public class StockViewModel : INotifyPropertyChanged
 				{
 					if (!_isSleepingLogged)
 					{
-						Application.Current.Dispatcher.Invoke(delegate
+						Application.Current?.Dispatcher.Invoke(delegate
 						{
 							LogAction?.Invoke("\ud83d\udca4 非交易时间，暂停自动刷新...");
 						});
@@ -1365,6 +1326,24 @@ public class StockViewModel : INotifyPropertyChanged
 			return false;
 		}
 		return true;
+	}
+
+	public void Dispose()
+	{
+		NetworkHelper.StockDataStatusChanged -= OnStockDataStatusChanged;
+		if (_searchCts != null)
+		{
+			_searchCts.Cancel();
+			_searchCts.Dispose();
+			_searchCts = null;
+		}
+		if (_cts != null)
+		{
+			_cts.Cancel();
+			_cts.Dispose();
+			_cts = null;
+		}
+		_refreshGate?.Dispose();
 	}
 
 	protected void OnPropertyChanged([CallerMemberName] string? name = null)

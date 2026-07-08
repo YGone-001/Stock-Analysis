@@ -6,14 +6,17 @@ the desktop app.
 
 ## Priority
 
-1. East Money realtime quote, daily K-line, search, code list, ETF list.
-2. East Money intraday minute data and recent tick details.
-3. Tushare Pro for trading calendar, historical K-line, and financial data.
-4. AkShare for non-core research data such as industries, concepts, and macro.
+1. AkShare for A-share realtime quote and daily K-line core screening data.
+2. East Money as realtime quote supplement for fields AkShare does not expose,
+   such as inner/outer volume, and as the fallback public source.
+3. East Money intraday minute data, recent tick details, search, code list, and
+   ETF list.
+4. Tushare Pro for trading calendar and optional historical K-line fallback.
+5. AkShare extension data such as industries, concepts, and macro.
 
-East Money is the default realtime path. Tushare is wired as an optional source
-for trading calendar and daily K-line data. AkShare extension endpoints are
-available when the optional package is installed.
+AkShare is the default core screening path when installed. East Money remains
+the compatibility and supplement path so the WPF client keeps receiving stable
+fields like `Wp`, `Np`, `Amount`, and `K.Close`.
 
 ## Run
 
@@ -50,8 +53,9 @@ AkShare:
 python -m pip install akshare
 ```
 
-If AkShare is not installed, extension endpoints return an empty data array with
-`error=akshare_not_installed`.
+AkShare is installed by `requirements.txt`. If it is unavailable at runtime,
+core endpoints fall back to East Money and extension endpoints return an empty
+data array with `error=akshare_not_installed`.
 
 ## Endpoints
 
@@ -59,6 +63,7 @@ If AkShare is not installed, extension endpoints return an empty data array with
 GET /health
 GET /api/quote?code=000001
 GET /api/kline-all?code=000001&type=day&limit=120
+GET /api/kline-all?code=000001&type=day&limit=120&source=akshare
 GET /api/kline-all?code=000001&type=day&limit=120&source=tushare
 GET /api/kline-all?code=000001&type=day&limit=120&source=cache
 GET /api/index?code=000001&type=day&limit=120

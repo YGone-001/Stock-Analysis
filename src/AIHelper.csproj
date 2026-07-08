@@ -10,6 +10,7 @@
   <PropertyGroup>
     <LangVersion>Preview</LangVersion>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationIcon>app.ico</ApplicationIcon>
@@ -206,30 +207,10 @@
     <Resource Include="views\imageviewerwindow.baml" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="HandyControl">
-      <HintPath>..\recovered-bundle\HandyControl.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Web.WebView2.Wpf">
-      <HintPath>..\recovered-bundle\Microsoft.Web.WebView2.Wpf.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Web.WebView2.Core">
-      <HintPath>..\recovered-bundle\Microsoft.Web.WebView2.Core.dll</HintPath>
-    </Reference>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\recovered-bundle\WebView2Loader.dll">
-      <Link>WebView2Loader.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </None>
-    <None Include="..\recovered-bundle\runtimes\win-x64\native\WebView2Loader.dll">
-      <Link>runtimes\win-x64\native\WebView2Loader.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </None>
-  </ItemGroup>
-  <ItemGroup>
+    <PackageReference Include="HandyControl" Version="3.5.1" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.28" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3800.47" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.9" />
   </ItemGroup>
 </Project>
 

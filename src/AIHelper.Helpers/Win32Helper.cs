@@ -23,7 +23,7 @@ public static class Win32Helper
 		IntPtr intPtr = FindWindow("CabinetWClass", folderName);
 		if (intPtr != IntPtr.Zero)
 		{
-			ShowWindow(intPtr, 9);
+			ShowWindow(intPtr, SW_RESTORE);
 			SetForegroundWindow(intPtr);
 			return true;
 		}

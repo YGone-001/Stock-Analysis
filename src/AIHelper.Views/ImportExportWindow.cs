@@ -99,13 +99,13 @@ public class ImportExportWindow : Window, IComponentConnector
 					if (g.Header == currentGroupName)
 					{
 						flag = true;
-						Application.Current.Dispatcher.Invoke(() => stockVm.SelectedGroup = g);
+						Application.Current?.Dispatcher.Invoke(() => stockVm.SelectedGroup = g);
 						break;
 					}
 				}
 				if (!flag && stockVm.AddGroupCommand.CanExecute(currentGroupName))
 				{
-					Application.Current.Dispatcher.Invoke(delegate
+					Application.Current?.Dispatcher.Invoke(delegate
 					{
 						stockVm.AddGroupCommand.Execute(currentGroupName);
 					});

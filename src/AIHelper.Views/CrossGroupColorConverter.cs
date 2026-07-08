@@ -10,17 +10,21 @@ namespace AIHelper.Views;
 
 public class CrossGroupColorConverter : IMultiValueConverter
 {
+	private static readonly SolidColorBrush DefaultBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9CA3AF"));
+	private static readonly SolidColorBrush RedBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#EF4444"));
+	private static readonly SolidColorBrush GoldBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#DAA520"));
+	private static readonly SolidColorBrush BlueBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#3B82F6"));
+
 	public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
 	{
-		SolidColorBrush result = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9CA3AF"));
 		if (values.Length < 2 || values[0] == null || values[1] == null)
 		{
-			return result;
+			return DefaultBrush;
 		}
 		string pureCode = values[0].ToString();
 		if (!(values[1] is IEnumerable<StockGroupModel> enumerable) || string.IsNullOrEmpty(pureCode))
 		{
-			return result;
+			return DefaultBrush;
 		}
 		int num = 0;
 		bool flag = false;
@@ -44,15 +48,15 @@ public class CrossGroupColorConverter : IMultiValueConverter
 		{
 			if (flag2)
 			{
-				return new SolidColorBrush((Color)ColorConverter.ConvertFromString("#EF4444"));
+				return RedBrush;
 			}
 			if (flag)
 			{
-				return new SolidColorBrush((Color)ColorConverter.ConvertFromString("#DAA520"));
+				return GoldBrush;
 			}
-			return new SolidColorBrush((Color)ColorConverter.ConvertFromString("#3B82F6"));
+			return BlueBrush;
 		}
-		return result;
+		return DefaultBrush;
 	}
 
 	public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)

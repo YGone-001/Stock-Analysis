@@ -24,12 +24,23 @@ public sealed class PreferredStockDataProvider : IStockDataProvider
 	{
 		if (_primary.CanHandle(request))
 		{
-			StockDataResult primaryResult = await _primary.GetDataAsync(request, cancellationToken);
-			if (primaryResult.Success)
+			StockDataResult? primaryResult = null;
+			try
+			{
+				primaryResult = await _primary.GetDataAsync(request, cancellationToken);
+			}
+			catch (System.Exception ex)
+			{
+				System.Diagnostics.Trace.WriteLine($"PreferredStockDataProvider: Primary provider threw exception: {ex}");
+			}
+
+			if (primaryResult != null && primaryResult.Success)
 			{
 				return primaryResult;
 			}
-			StockDataLog.Write(request.Path, request.Get("code"), "-", null, false, "primary=" + primaryResult.Source + ", error=" + primaryResult.Error + "; falling back");
+			string err = primaryResult?.Error ?? "Exception occurred";
+			string source = primaryResult?.Source ?? "Primary";
+			StockDataLog.Write(request.Path, request.Get("code"), "-", null, false, "primary=" + source + ", error=" + err + "; falling back");
 		}
 
 		return _fallback.CanHandle(request)

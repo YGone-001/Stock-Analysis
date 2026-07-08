@@ -9,13 +9,18 @@ namespace AIHelper.Services.StockData;
 internal static class StockDataLog
 {
 	private static readonly object SyncRoot = new object();
+	private static bool _directoryInitialized;
 
 	public static void Write(string endpoint, string code, string url, Exception exception, bool cacheUsed, string note = null)
 	{
 		try
 		{
 			string directory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
-			Directory.CreateDirectory(directory);
+			if (!_directoryInitialized)
+			{
+				Directory.CreateDirectory(directory);
+				_directoryInitialized = true;
+			}
 			string path = Path.Combine(directory, "network-" + TimeHelper.BeijingNow.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + ".log");
 			string exceptionSummary = exception == null ? "-" : exception.GetType().Name + ": " + exception.Message;
 			string line = TimeHelper.BeijingNow.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)
@@ -31,9 +36,7 @@ internal static class StockDataLog
 				File.AppendAllText(path, line, Encoding.UTF8);
 			}
 		}
-		catch
-		{
-		}
+		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockDataLog.cs : {ex}"); }
 	}
 
 	private static string Clean(string value)

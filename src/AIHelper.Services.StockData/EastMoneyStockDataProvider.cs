@@ -12,7 +12,7 @@ using AIHelper.Helpers;
 namespace AIHelper.Services.StockData;
 
 public sealed class EastMoneyStockDataProvider : IStockDataProvider
-{
+, IDisposable {
 	private const int CodePageSize = 100;
 
 	private readonly HttpClient _client;
@@ -69,53 +69,72 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		{
 			return await GetSingleQuoteAsync(request, codes[0], cancellationToken);
 		}
-		string url = "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f14,f2,f3,f5,f6,f8,f15,f16,f17,f18,f19,f20,f21,f22,f23,f24,f25,f26,f27,f28,f31,f32,f33,f34,f35,f36,f37,f38,f39,f40&secids=" + string.Join(",", codes.Select(ToSecId));
-		try
+
+		var rows = new List<object>();
+		string lastUrl = "";
+		int batchSize = 50;
+
+		for (int i = 0; i < codes.Count; i += batchSize)
 		{
-			using JsonDocument document = JsonDocument.Parse(await SendGetWithRetryAsync(url, cancellationToken));
-			if (!document.RootElement.TryGetProperty("data", out var dataElement) || !dataElement.TryGetProperty("diff", out var diffElement) || diffElement.ValueKind != JsonValueKind.Array)
+			var batchCodes = codes.Skip(i).Take(batchSize).ToList();
+			string url = "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f14,f2,f3,f5,f6,f8,f15,f16,f17,f18,f19,f20,f21,f22,f23,f24,f25,f26,f27,f28,f31,f32,f33,f34,f35,f36,f37,f38,f39,f40&secids=" + string.Join(",", batchCodes.Select(ToSecId));
+			lastUrl = url;
+			try
 			{
-				return Failure(request, "{\"data\":[]}", "Unexpected quote response schema", url);
-			}
-			var rows = new List<object>();
-			foreach (JsonElement item in diffElement.EnumerateArray())
-			{
-				string code = GetString(item, "f12");
-				if (string.IsNullOrWhiteSpace(code))
+				using JsonDocument document = JsonDocument.Parse(await SendGetWithRetryAsync(url, cancellationToken));
+				if (!document.RootElement.TryGetProperty("data", out var dataElement) || !dataElement.TryGetProperty("diff", out var diffElement) || diffElement.ValueKind != JsonValueKind.Array)
 				{
 					continue;
 				}
-				double close = GetDouble(item, "f2");
-				double previousClose = GetDouble(item, "f18");
-				rows.Add(new
+				foreach (JsonElement item in diffElement.EnumerateArray())
 				{
-					Code = code,
-					Name = GetString(item, "f14"),
-					TotalHand = GetDouble(item, "f5"),
-					Amount = GetQuoteAmount(item),
-					Wp = GetFirstPositive(item, "f49", "f34"),
-					Np = GetFirstPositive(item, "f161", "f35"),
-					Turnover = GetDouble(item, "f8"),
-					Percent = GetDouble(item, "f3"),
-					BuyLevel = BuildUnavailableLevels(),
-					SellLevel = BuildUnavailableLevels(),
-					K = new
+					string code = GetString(item, "f12");
+					if (string.IsNullOrWhiteSpace(code))
 					{
-						Close = ToMilli(close),
-						Last = ToMilli(previousClose),
-						PreClose = ToMilli(previousClose),
-						Open = ToMilli(GetDouble(item, "f17")),
-						High = ToMilli(GetDouble(item, "f15")),
-						Low = ToMilli(GetDouble(item, "f16"))
+						continue;
 					}
-				});
+					double close = GetDouble(item, "f2");
+					double previousClose = GetDouble(item, "f18");
+					rows.Add(new
+					{
+						Code = code,
+						Name = GetString(item, "f14"),
+						TotalHand = GetDouble(item, "f5"),
+						Amount = GetQuoteAmount(item),
+						Wp = GetFirstPositive(item, "f49", "f34"),
+						Np = GetFirstPositive(item, "f161", "f35"),
+						Turnover = GetDouble(item, "f8"),
+						Percent = GetDouble(item, "f3"),
+						BuyLevel = BuildUnavailableLevels(),
+						SellLevel = BuildUnavailableLevels(),
+						K = new
+						{
+							Close = ToMilli(close),
+							Last = ToMilli(previousClose),
+							PreClose = ToMilli(previousClose),
+							Open = ToMilli(GetDouble(item, "f17")),
+							High = ToMilli(GetDouble(item, "f15")),
+							Low = ToMilli(GetDouble(item, "f16"))
+						}
+					});
+				}
 			}
-			return Success(request, JsonSerializer.Serialize(new { data = rows }), url, string.Join(",", codes), "rows=" + rows.Count);
+			catch (OperationCanceledException)
+		{
+			throw;
 		}
 		catch (Exception ex)
 		{
-			return Failure(request, "{\"data\":[]}", ex.Message, url, ex, string.Join(",", codes));
+				System.Diagnostics.Trace.WriteLine($"EastMoney GetQuoteAsync batch failed: {ex.Message}");
+			}
 		}
+
+		if (rows.Count == 0)
+		{
+			return Failure(request, "{\"data\":[]}", "Unexpected quote response schema or all batches failed", lastUrl, null, string.Join(",", codes));
+		}
+
+		return Success(request, JsonSerializer.Serialize(new { data = rows }), lastUrl, string.Join(",", codes), "rows=" + rows.Count);
 	}
 
 	private async Task<StockDataResult> GetSingleQuoteAsync(StockDataRequest request, string code, CancellationToken cancellationToken)
@@ -132,7 +151,6 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			double previousClose = GetDouble(item, "f60");
 			object[] buyLevels = BuildLevels(item, new string[5] { "f19", "f21", "f23", "f25", "f27" }, new string[5] { "f20", "f22", "f24", "f26", "f28" });
 			object[] sellLevels = BuildLevels(item, new string[5] { "f39", "f37", "f35", "f33", "f31" }, new string[5] { "f40", "f38", "f36", "f34", "f32" });
-			string depthUrl = "";
 			// EastMoney no longer exposes reliable five-level depth in these public quote responses.
 			// Keep the fixed shape and mark levels unavailable instead of rendering mismatched fields.
 			var row = new
@@ -157,7 +175,11 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 					Low = ToMilli(GetDouble(item, "f45"))
 				}
 			};
-			return Success(request, JsonSerializer.Serialize(new { data = new object[] { row } }), string.IsNullOrWhiteSpace(depthUrl) ? url : depthUrl, code, "rows=1, buyLevels=" + buyLevels.Length + ", sellLevels=" + sellLevels.Length);
+			return Success(request, JsonSerializer.Serialize(new { data = new object[] { row } }), url, code, "rows=1, buyLevels=" + buyLevels.Length + ", sellLevels=" + sellLevels.Length);
+		}
+		catch (OperationCanceledException)
+		{
+			throw;
 		}
 		catch (Exception ex)
 		{
@@ -198,6 +220,10 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			}
 			return Success(request, JsonSerializer.Serialize(new { data = rows }), url, code, "rows=" + rows.Count);
 		}
+		catch (OperationCanceledException)
+		{
+			throw;
+		}
 		catch (Exception ex)
 		{
 			return Failure(request, "{\"data\":[]}", ex.Message, url, ex, code);
@@ -229,6 +255,10 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 				}
 			}
 			return Success(request, JsonSerializer.Serialize(new { data = new { List = rows } }), url, code, "rows=" + rows.Count);
+		}
+		catch (OperationCanceledException)
+		{
+			throw;
 		}
 		catch (Exception ex)
 		{
@@ -272,6 +302,10 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			}
 			return Success(request, JsonSerializer.Serialize(new { data = new { List = rows } }), detailsUrl, code, "rows=" + rows.Count + ", dateCheckUrl=" + quoteUrl);
 		}
+		catch (OperationCanceledException)
+		{
+			throw;
+		}
 		catch (Exception ex)
 		{
 			return Failure(request, "{\"data\":{\"List\":[]}}", ex.Message, detailsUrl, ex, code);
@@ -310,6 +344,10 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			var rows = items.Select(item => new { code = item.Key, name = item.Value }).ToList();
 			return Success(request, JsonSerializer.Serialize(new { code = 0, data = rows }), url, keyword, "rows=" + rows.Count);
 		}
+		catch (OperationCanceledException)
+		{
+			throw;
+		}
 		catch (Exception ex)
 		{
 			return Failure(request, "{\"code\":0,\"data\":[]}", ex.Message, url, ex, keyword);
@@ -333,6 +371,10 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			string json = kind == "etf" ? JsonSerializer.Serialize(new { data = new { list = rows } }) : JsonSerializer.Serialize(new { data = new { codes = rows } });
 			return Success(request, json, currentUrl, "-", "rows=" + rows.Count + ", paged=true");
 		}
+		catch (OperationCanceledException)
+		{
+			throw;
+		}
 		catch (Exception ex)
 		{
 			string empty = kind == "etf" ? "{\"data\":{\"list\":[]}}" : "{\"data\":{\"codes\":[]}}";
@@ -344,11 +386,12 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 	{
 		StockMarketCache state = await _cache.GetMarketStateAsync(market.Key, cancellationToken);
 		bool stateIsToday = state.UpdatedAt != default && state.UpdatedAt.ToOffset(TimeSpan.FromHours(8)).Date == TimeHelper.BeijingNow.Date;
-		if (forceRefresh || state.Completed || !stateIsToday || !string.Equals(state.Filter, market.Filter, StringComparison.Ordinal))
+		if (forceRefresh || !stateIsToday || !string.Equals(state.Filter, market.Filter, StringComparison.Ordinal))
 		{
 			await _cache.ResetMarketAsync(market.Key, market.Kind, market.Filter, cancellationToken);
 			state = await _cache.GetMarketStateAsync(market.Key, cancellationToken);
 		}
+		if (state.Completed) return;
 		for (int page = Math.Max(1, state.NextPage); page <= 100; page++)
 		{
 			string url = "https://push2.eastmoney.com/api/qt/clist/get?po=1&np=1&fltt=2&invt=2&fid=f12&fields=f12,f14&pn=" + page + "&pz=" + CodePageSize + "&fs=" + Uri.EscapeDataString(market.Filter);
@@ -392,6 +435,10 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			bool isWorkday = actual == date;
 			var previous = string.IsNullOrWhiteSpace(actual) ? Array.Empty<object>() : new object[] { new { numeric = actual } };
 			return Success(request, JsonSerializer.Serialize(new { data = new { is_workday = isWorkday, previous } }), url, "000001", "target=" + date + ", actual=" + actual);
+		}
+		catch (OperationCanceledException)
+		{
+			throw;
 		}
 		catch (Exception ex)
 		{
@@ -447,15 +494,6 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 	private static object[] BuildUnavailableLevels()
 	{
 		return Enumerable.Range(0, 5).Select(_ => new { Price = 0, Number = 0.0, Available = false }).ToArray<object>();
-	}
-
-	private static bool HasAnyLevel(JsonElement item, string[] priceFields, string[] volumeFields)
-	{
-		for (int index = 0; index < priceFields.Length; index++)
-		{
-			if (GetDouble(item, priceFields[index]) > 0 || GetDouble(item, volumeFields[index]) > 0) return true;
-		}
-		return false;
 	}
 
 	private static List<KlineRow> ParseKlineRows(string json, int limit)
@@ -569,4 +607,9 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		public long Low { get; init; }
 		public double Volume { get; init; }
 	}
+
+    public void Dispose()
+    {
+        _requestThrottle?.Dispose();
+    }
 }

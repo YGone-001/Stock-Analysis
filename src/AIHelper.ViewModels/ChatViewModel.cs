@@ -20,8 +20,22 @@ using Microsoft.Win32;
 
 namespace AIHelper.ViewModels;
 
-public class ChatViewModel : INotifyPropertyChanged
+public class ChatViewModel : INotifyPropertyChanged, IDisposable
 {
+	private ICommand? _changeRoomCommand;
+	private ICommand? _replyCommand;
+	private ICommand? _cancelReplyCommand;
+	private ICommand? _atUserCommand;
+	private ICommand? _increaseFontCommand;
+	private ICommand? _decreaseFontCommand;
+	private ICommand? _adminDeleteCommand;
+	private ICommand? _adminBanCommand;
+	private ICommand? _adminBanAccountCommand;
+	private ICommand? _sendMessageCommand;
+	private ICommand? _recallCommand;
+	private ICommand? _shareMarketCommand;
+	private ICommand? _clickStockCodeCommand;
+	private ICommand? _sendImageCommand;
 	public HubConnection _connection;
 
 	private readonly MainViewModel _mainVm;
@@ -42,7 +56,7 @@ public class ChatViewModel : INotifyPropertyChanged
 
 	private int _chatFontSize = 14;
 
-	private bool _isSending;
+	private volatile bool _isSending;
 
 	private const int PAGE_SIZE = 50;
 
@@ -57,7 +71,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		set
 		{
 			_isAdmin = value;
-			OnPropertyChanged("IsAdmin");
+			OnPropertyChanged(nameof(IsAdmin));
 		}
 	}
 
@@ -105,13 +119,13 @@ public class ChatViewModel : INotifyPropertyChanged
 				_selectedGroup.IsSelected = true;
 				_selectedGroup.UnreadCount = 0;
 			}
-			OnPropertyChanged("SelectedGroup");
+			OnPropertyChanged(nameof(SelectedGroup));
 			if (_selectedGroup != null && !_selectedGroup.IsInitialLoaded)
 			{
 				HubConnection connection = _connection;
 				if (connection != null && connection.State == HubConnectionState.Connected)
 				{
-					LoadInitialHistoryAsync(_selectedGroup);
+					LoadInitialHistoryAsync(_selectedGroup).SafeFireAndForget();
 					return;
 				}
 			}
@@ -138,7 +152,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		set
 		{
 			_inputText = value;
-			OnPropertyChanged("InputText");
+			OnPropertyChanged(nameof(InputText));
 		}
 	}
 
@@ -151,8 +165,8 @@ public class ChatViewModel : INotifyPropertyChanged
 		set
 		{
 			_replyingMessage = value;
-			OnPropertyChanged("ReplyingMessage");
-			OnPropertyChanged("IsReplying");
+			OnPropertyChanged(nameof(ReplyingMessage));
+			OnPropertyChanged(nameof(IsReplying));
 		}
 	}
 
@@ -167,7 +181,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		set
 		{
 			_systemNoticeText = value;
-			OnPropertyChanged("SystemNoticeText");
+			OnPropertyChanged(nameof(SystemNoticeText));
 		}
 	}
 
@@ -180,7 +194,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		set
 		{
 			_chatFontSize = value;
-			OnPropertyChanged("ChatFontSize");
+			OnPropertyChanged(nameof(ChatFontSize));
 		}
 	}
 
@@ -193,11 +207,11 @@ public class ChatViewModel : INotifyPropertyChanged
 		set
 		{
 			_isUploadingImage = value;
-			OnPropertyChanged("IsUploadingImage");
+			OnPropertyChanged(nameof(IsUploadingImage));
 		}
 	}
 
-	public ICommand ChangeRoomCommand => new RelayCommand(delegate(object o)
+	public ICommand ChangeRoomCommand => _changeRoomCommand ??= new RelayCommand(delegate(object o)
 	{
 		if (o is ChatRoomModel chatRoomModel && chatRoomModel != SelectedGroup)
 		{
@@ -205,7 +219,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand ReplyCommand => new RelayCommand(delegate(object msgObj)
+	public ICommand ReplyCommand => _replyCommand ??= new RelayCommand(delegate(object msgObj)
 	{
 		if (msgObj is ChatMessageModel replyingMessage)
 		{
@@ -214,12 +228,12 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand CancelReplyCommand => new RelayCommand(delegate
+	public ICommand CancelReplyCommand => _cancelReplyCommand ??= new RelayCommand(delegate
 	{
 		ReplyingMessage = null;
 	});
 
-	public ICommand AtUserCommand => new RelayCommand(delegate(object msgObj)
+	public ICommand AtUserCommand => _atUserCommand ??= new RelayCommand(delegate(object msgObj)
 	{
 		if (msgObj is ChatMessageModel chatMessageModel)
 		{
@@ -235,7 +249,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand IncreaseFontCommand => new RelayCommand(delegate
+	public ICommand IncreaseFontCommand => _increaseFontCommand ??= new RelayCommand(delegate
 	{
 		if (ChatFontSize < 24)
 		{
@@ -243,7 +257,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand DecreaseFontCommand => new RelayCommand(delegate
+	public ICommand DecreaseFontCommand => _decreaseFontCommand ??= new RelayCommand(delegate
 	{
 		if (ChatFontSize > 10)
 		{
@@ -251,7 +265,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand AdminDeleteCommand => new RelayCommand(async delegate(object msgIdObj)
+	public ICommand AdminDeleteCommand => _adminDeleteCommand ??= new RelayCommand(async delegate(object msgIdObj)
 	{
 		if (msgIdObj is int)
 		{
@@ -272,7 +286,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand AdminBanCommand => new RelayCommand(async delegate(object msgObj)
+	public ICommand AdminBanCommand => _adminBanCommand ??= new RelayCommand(async delegate(object msgObj)
 	{
 		if (msgObj is ChatMessageModel chatMessageModel)
 		{
@@ -305,7 +319,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand AdminBanAccountCommand => new RelayCommand(async delegate(object msgObj)
+	public ICommand AdminBanAccountCommand => _adminBanAccountCommand ??= new RelayCommand(async delegate(object msgObj)
 	{
 		if (msgObj is ChatMessageModel chatMessageModel)
 		{
@@ -325,7 +339,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand SendMessageCommand => new RelayCommand(async delegate
+	public ICommand SendMessageCommand => _sendMessageCommand ??= new RelayCommand(async delegate
 	{
 		if (!_isSending && !string.IsNullOrWhiteSpace(InputText))
 		{
@@ -370,7 +384,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand RecallCommand => new RelayCommand(async delegate(object msgIdObj)
+	public ICommand RecallCommand => _recallCommand ??= new RelayCommand(async delegate(object msgIdObj)
 	{
 		if (msgIdObj is int)
 		{
@@ -386,22 +400,12 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand ShareMarketCommand => new RelayCommand(delegate
+	public ICommand ShareMarketCommand => _shareMarketCommand ??= new RelayCommand(delegate
 	{
 		StockModel stockModel = _mainVm?.StockVM?.CurrentSelectedStock;
 		if (stockModel != null)
 		{
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(15, 4);
-			defaultInterpolatedStringHandler.AppendLiteral("【行情】");
-			defaultInterpolatedStringHandler.AppendFormatted(stockModel.Name);
-			defaultInterpolatedStringHandler.AppendLiteral("(");
-			defaultInterpolatedStringHandler.AppendFormatted(stockModel.Code);
-			defaultInterpolatedStringHandler.AppendLiteral(") 现价:");
-			defaultInterpolatedStringHandler.AppendFormatted(stockModel.Price, "F2");
-			defaultInterpolatedStringHandler.AppendLiteral(" 涨幅:");
-			defaultInterpolatedStringHandler.AppendFormatted(stockModel.Percent, "F2");
-			defaultInterpolatedStringHandler.AppendLiteral("%");
-			string text = defaultInterpolatedStringHandler.ToStringAndClear();
+			string text = $"【行情】{stockModel.Name}({stockModel.Code}) 现价:{stockModel.Price:F2} 涨幅:{stockModel.Percent:F2}%";
 			InputText = (string.IsNullOrEmpty(InputText) ? text : (InputText + "\n" + text));
 		}
 		else
@@ -410,7 +414,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand ClickStockCodeCommand => new RelayCommand(delegate(object codeObj)
+	public ICommand ClickStockCodeCommand => _clickStockCodeCommand ??= new RelayCommand(delegate(object codeObj)
 	{
 		if (codeObj is string text)
 		{
@@ -419,7 +423,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand SendImageCommand => new RelayCommand(async delegate
+	public ICommand SendImageCommand => _sendImageCommand ??= new RelayCommand(async delegate
 	{
 		OpenFileDialog openFileDialog = new OpenFileDialog
 		{
@@ -446,10 +450,6 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand OpenEmojiCommand => new RelayCommand(delegate
-	{
-	});
-
 	public event Action<int> OnlineCountUpdated;
 
 	public event Action InitialHistoryLoaded;
@@ -464,10 +464,10 @@ public class ChatViewModel : INotifyPropertyChanged
 		_myNickName = username;
 		_token = token;
 		SelectedGroup = Groups[0];
-		InitializeSignalR();
+		InitializeSignalR().SafeFireAndForget();
 	}
 
-	private async void InitializeSignalR()
+	private async Task InitializeSignalR()
 	{
 		_connection = ((IHubConnectionBuilder)new HubConnectionBuilder()).WithUrl(ChatServiceConfig.BuildUrl("/chatHub"), (Action<HttpConnectionOptions>)delegate(HttpConnectionOptions options)
 		{
@@ -476,7 +476,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		_connection.On("ReceiveMessage", delegate(ServerChatMessage serverMsg)
 		{
 			ServerChatMessage serverMsg2 = serverMsg;
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				string safeServerGroup = serverMsg2.GroupName?.Trim().ToLower() ?? "";
 				ChatRoomModel chatRoomModel = Groups.FirstOrDefault((ChatRoomModel g) => g.Name.Trim().ToLower() == safeServerGroup);
@@ -520,7 +520,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		});
 		_connection.On("UpdateOnlineCount", delegate(int count)
 		{
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				this.OnlineCountUpdated?.Invoke(count);
 			});
@@ -528,7 +528,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		_connection.On("SystemNotice", delegate(string notice)
 		{
 			string notice3 = notice;
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				Growl.Warning(notice3, "ChatRoomGrowl");
 			});
@@ -536,14 +536,14 @@ public class ChatViewModel : INotifyPropertyChanged
 		_connection.On("ReceiveNotice", delegate(string notice)
 		{
 			string notice2 = notice;
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				SystemNoticeText = notice2;
 			});
 		});
 		_connection.On("AdminMessageDeleted", delegate(int msgId)
 		{
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				foreach (ChatRoomModel group in Groups)
 				{
@@ -558,7 +558,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		});
 		_connection.On("MessageRecalled", delegate(int msgId)
 		{
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				foreach (ChatRoomModel group2 in Groups)
 				{
@@ -587,7 +587,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		{
 			if (targetName == _myNickName)
 			{
-				Application.Current.Dispatcher.Invoke(delegate
+				Application.Current?.Dispatcher.Invoke(delegate
 				{
 					Growl.Fatal("\ud83d\udea8 您的账号已被强制踢出！", "ChatRoomGrowl");
 				});
@@ -598,7 +598,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		{
 			string targetUserName2 = targetUserName;
 			string newAvatarCode2 = newAvatarCode;
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				foreach (ChatRoomModel group3 in Groups)
 				{
@@ -628,7 +628,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		catch (Exception ex2)
 		{
 			Exception ex = ex2;
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				Growl.Error("❌ 聊天室连接失败: " + ex.Message, "ChatRoomGrowl");
 			});
@@ -646,11 +646,12 @@ public class ChatViewModel : INotifyPropertyChanged
 		{
 			room2.CurrentSkip = 0;
 			List<ServerChatMessage> history = await _connection.InvokeAsync<List<ServerChatMessage>>("GetHistory", room2.Name, room2.CurrentSkip, 50);
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				room2.Messages.Clear();
 				int num = 0;
 				int lastReadId = GetLastReadId();
+
 				int num2 = lastReadId;
 				if (history != null)
 				{
@@ -704,7 +705,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		catch (Exception ex2)
 		{
 			Exception ex = ex2;
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				Growl.Error("⚠\ufe0f 历史记录拉取失败: " + ex.Message, "ChatRoomGrowl");
 			});
@@ -720,7 +721,7 @@ public class ChatViewModel : INotifyPropertyChanged
 		}
 		if (_connection == null || _connection.State != HubConnectionState.Connected)
 		{
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				Growl.Warning("网络已断开，无法加载历史记录", "ChatRoomGrowl");
 			});
@@ -734,7 +735,7 @@ public class ChatViewModel : INotifyPropertyChanged
 				room.HasMoreHistory = false;
 				return;
 			}
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				for (int num = history.Count - 1; num >= 0; num--)
 				{
@@ -769,14 +770,14 @@ public class ChatViewModel : INotifyPropertyChanged
 			Exception ex = ex2;
 			if (ex is InvalidOperationException || ex.Message.Contains("not active"))
 			{
-				Application.Current.Dispatcher.Invoke(delegate
+				Application.Current?.Dispatcher.Invoke(delegate
 				{
 					Growl.Info("网络发生波动，获取历史记录失败，请稍后再试", "ChatRoomGrowl");
 				});
 			}
 			else
 			{
-				Application.Current.Dispatcher.Invoke(delegate
+				Application.Current?.Dispatcher.Invoke(delegate
 				{
 					Growl.Error("⚠\ufe0f 加载更多记录失败: " + ex.Message, "ChatRoomGrowl");
 				});
@@ -830,14 +831,14 @@ public class ChatViewModel : INotifyPropertyChanged
 		catch (Exception ex2)
 		{
 			Exception ex = ex2;
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				Growl.Error("图片发送失败: " + ex.Message);
 			});
 		}
 		finally
 		{
-			Application.Current.Dispatcher.Invoke(() => IsUploadingImage = false);
+			Application.Current?.Dispatcher.Invoke(() => IsUploadingImage = false);
 		}
 	}
 
@@ -866,9 +867,7 @@ public class ChatViewModel : INotifyPropertyChanged
 				await _connection.StopAsync();
 				await _connection.DisposeAsync();
 			}
-			catch
-			{
-			}
+			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatViewModel.cs : {ex}"); }
 		}
 	}
 
@@ -908,9 +907,7 @@ public class ChatViewModel : INotifyPropertyChanged
 				return result;
 			}
 		}
-		catch
-		{
-		}
+		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatViewModel.cs : {ex}"); }
 		return 0;
 	}
 
@@ -920,9 +917,12 @@ public class ChatViewModel : INotifyPropertyChanged
 		{
 			File.WriteAllText(Path.Combine(Path.GetTempPath(), "AIHelper_chat_" + _myNickName + ".txt"), id.ToString());
 		}
-		catch
-		{
-		}
+		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatViewModel.cs : {ex}"); }
+	}
+
+	public void Dispose()
+	{
+		_ = _connection?.DisposeAsync();
 	}
 
 	protected void OnPropertyChanged([CallerMemberName] string name = null)

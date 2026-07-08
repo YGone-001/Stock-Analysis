@@ -7,31 +7,28 @@ public static class StockNavigationHelper
 {
 	public static string GetCode(object source)
 	{
-		if (source == null)
+		if (source == null) return "";
+		if (source is string text) return NormalizeCode(text);
+		if (source is AIHelper.Models.StockModel stockModel)
 		{
-			return "";
+			string code = stockModel.Code;
+			if (string.IsNullOrWhiteSpace(code)) code = stockModel.PureCode;
+			return NormalizeCode(code);
 		}
-		if (source is string text)
-		{
-			return NormalizeCode(text);
-		}
-		string code = source.GetType().GetProperty("Code")?.GetValue(source)?.ToString() ?? "";
-		if (string.IsNullOrWhiteSpace(code))
-		{
-			code = source.GetType().GetProperty("PureCode")?.GetValue(source)?.ToString() ?? "";
-		}
-		return NormalizeCode(code);
+		return "";
 	}
 
 	public static string GetName(object source)
 	{
-		if (source == null)
+		if (source == null) return "未知股票";
+		if (source is AIHelper.Models.StockModel stockModel)
 		{
-			return "未知股票";
+			return string.IsNullOrWhiteSpace(stockModel.Name) ? "未知股票" : stockModel.Name;
 		}
-		string name = source.GetType().GetProperty("Name")?.GetValue(source)?.ToString() ?? "";
-		return string.IsNullOrWhiteSpace(name) ? "未知股票" : name;
+		return "未知股票";
 	}
+
+	private static readonly Regex CodeRegex = new Regex("\\d{6}", RegexOptions.Compiled);
 
 	public static string NormalizeCode(string code)
 	{
@@ -39,7 +36,7 @@ public static class StockNavigationHelper
 		{
 			return "";
 		}
-		Match match = Regex.Match(code, "\\d{6}");
+		Match match = CodeRegex.Match(code);
 		return match.Success ? match.Value : code.Trim();
 	}
 

@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -24,7 +25,7 @@ public class StockGroupModel : INotifyPropertyChanged
 			if (_header != value)
 			{
 				_header = value;
-				OnPropertyChanged("Header");
+				OnPropertyChanged(nameof(Header));
 			}
 		}
 	}
@@ -35,7 +36,7 @@ public class StockGroupModel : INotifyPropertyChanged
 	public ObservableCollection<StockModel> Stocks { get; set; } = new ObservableCollection<StockModel>();
 
 
-	public event PropertyChangedEventHandler? PropertyChanged;
+	public event PropertyChangedEventHandler? PropertyChanged = null;
 
 	protected void OnPropertyChanged([CallerMemberName] string? name = null)
 	{

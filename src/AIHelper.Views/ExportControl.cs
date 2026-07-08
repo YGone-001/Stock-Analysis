@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -114,9 +115,7 @@ public class ExportControl : UserControl, IComponentConnector
 				exportControl2.Log(defaultInterpolatedStringHandler.ToStringAndClear());
 			}
 		}
-		catch
-		{
-		}
+		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ExportControl.cs : {ex}"); }
 		finally
 		{
 			DpTargetDate.IsEnabled = true;
@@ -148,9 +147,7 @@ public class ExportControl : UserControl, IComponentConnector
 				exportControl.Log(defaultInterpolatedStringHandler.ToStringAndClear());
 			}
 		}
-		catch
-		{
-		}
+		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ExportControl.cs : {ex}"); }
 		finally
 		{
 			DpTargetDate.IsEnabled = true;
@@ -206,33 +203,40 @@ public class ExportControl : UserControl, IComponentConnector
 
 	private async void BtnFetchQuote_Click(object sender, RoutedEventArgs e)
 	{
-		await ExecuteExportTaskAsync(quote: true);
+		await ExecuteExportTaskAsync((Button)sender, quote: true);
 	}
 
 	private async void BtnFetchMinute_Click(object sender, RoutedEventArgs e)
 	{
-		await ExecuteExportTaskAsync(quote: false, minute: true);
+		await ExecuteExportTaskAsync((Button)sender, quote: false, minute: true);
 	}
 
 	private async void BtnFetchKline_Click(object sender, RoutedEventArgs e)
 	{
-		await ExecuteExportTaskAsync(quote: false, minute: false, kline: true);
+		await ExecuteExportTaskAsync((Button)sender, quote: false, minute: false, kline: true);
 	}
 
 	private async void BtnFetchTick_Click(object sender, RoutedEventArgs e)
 	{
-		await ExecuteExportTaskAsync(quote: false, minute: false, kline: false, tick: true);
+		await ExecuteExportTaskAsync((Button)sender, quote: false, minute: false, kline: false, tick: true);
 	}
 
 	private async void BtnFetchComposite_Click(object sender, RoutedEventArgs e)
 	{
+		if (_cts != null)
+		{
+			Log("⚠️ 正在中止导出任务，请稍候...");
+			_cts.Cancel();
+			return;
+		}
+
 		bool valueOrDefault = ChkComboQuote.IsChecked.GetValueOrDefault();
 		bool valueOrDefault2 = ChkComboMinute.IsChecked.GetValueOrDefault();
 		bool valueOrDefault3 = ChkComboKline.IsChecked.GetValueOrDefault();
 		bool valueOrDefault4 = ChkComboTick.IsChecked.GetValueOrDefault();
 		if (!valueOrDefault && !valueOrDefault2 && !valueOrDefault3 && !valueOrDefault4)
 		{
-			Log("⚠\ufe0f 复合模式下，至少需要勾选一项取数维度！");
+			Log("⚠️ 复合模式下，至少需要勾选一项取数维度！");
 			return;
 		}
 		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(3, 4);
@@ -244,11 +248,19 @@ public class ExportControl : UserControl, IComponentConnector
 		defaultInterpolatedStringHandler.AppendLiteral(",");
 		defaultInterpolatedStringHandler.AppendFormatted(valueOrDefault4);
 		AnalyticsService.Log("4", defaultInterpolatedStringHandler.ToStringAndClear());
-		await ExecuteExportTaskAsync(valueOrDefault, valueOrDefault2, valueOrDefault3, valueOrDefault4);
+		await ExecuteExportTaskAsync((Button)sender, valueOrDefault, valueOrDefault2, valueOrDefault3, valueOrDefault4);
 	}
 
-	private async Task ExecuteExportTaskAsync(bool quote = false, bool minute = false, bool kline = false, bool tick = false)
+	private CancellationTokenSource _cts;
+
+	private async Task ExecuteExportTaskAsync(Button sourceButton, bool quote = false, bool minute = false, bool kline = false, bool tick = false)
 	{
+		if (_cts != null)
+		{
+			Log("⚠️ 正在中止导出任务，请稍候...");
+			_cts.Cancel();
+			return;
+		}
 		if (GetSelectedStocksFunc == null)
 		{
 			Log("❌ 致命错误：未绑定数据源委托 (GetSelectedStocksFunc)。");
@@ -261,6 +273,13 @@ public class ExportControl : UserControl, IComponentConnector
 			return;
 		}
 		SetButtonsEnabled(isEnabled: false);
+		string originalContent = sourceButton.Content?.ToString();
+		sourceButton.Content = "⏹ 停止取数";
+		sourceButton.IsEnabled = true;
+		_cts?.Cancel();
+		_cts?.Dispose();
+		_cts = new CancellationTokenSource();
+
 		Log("==================================================");
 		ExportControl exportControl = this;
 		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
@@ -288,7 +307,11 @@ public class ExportControl : UserControl, IComponentConnector
 				IsSingleFileMode = RdoSingleFile.IsChecked.GetValueOrDefault(),
 				TabName = (GetCurrentTabNameFunc?.Invoke() ?? "默认分组"),
 				SelectedIndices = GetSelectedIndices()
-			}, Log);
+			}, Log, _cts.Token);
+		}
+		catch (OperationCanceledException)
+		{
+			Log("🛑 取数任务已被手动取消。");
 		}
 		catch (Exception ex)
 		{
@@ -296,6 +319,9 @@ public class ExportControl : UserControl, IComponentConnector
 		}
 		finally
 		{
+			_cts?.Dispose();
+			_cts = null;
+			sourceButton.Content = originalContent;
 			SetButtonsEnabled(isEnabled: true);
 			Log("==================================================");
 		}

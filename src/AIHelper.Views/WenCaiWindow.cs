@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.CodeDom.Compiler;
 using System.ComponentModel;
@@ -15,11 +16,11 @@ namespace AIHelper.Views;
 
 public class WenCaiWindow : System.Windows.Window, IComponentConnector
 {
-	private string _stockCode;
+	private string _stockCode = string.Empty;
 
-	internal TextBlock TxtStatus;
+	internal TextBlock TxtStatus = null!;
 
-	internal WebView2 WenCaiWebView;
+	internal WebView2 WenCaiWebView = null!;
 
 	private bool _contentLoaded;
 

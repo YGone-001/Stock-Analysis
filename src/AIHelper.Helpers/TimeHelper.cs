@@ -29,13 +29,10 @@ public static class TimeHelper
 	{
 		try
 		{
-			using HttpClient client = new HttpClient();
+			HttpClient client = AIHelper.Helpers.NetworkHelper.SharedHttpClient;
 			client.Timeout = TimeSpan.FromSeconds(3.0);
 			HttpMethod head = HttpMethod.Head;
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(24, 1);
-			defaultInterpolatedStringHandler.AppendLiteral("https://www.baidu.com?t=");
-			defaultInterpolatedStringHandler.AppendFormatted(DateTime.Now.Ticks);
-			HttpRequestMessage request = new HttpRequestMessage(head, defaultInterpolatedStringHandler.ToStringAndClear());
+			HttpRequestMessage request = new HttpRequestMessage(head, $"https://www.baidu.com?t={DateTime.Now.Ticks}");
 			HttpResponseMessage httpResponseMessage = await client.SendAsync(request);
 			if (httpResponseMessage.Headers.Date.HasValue)
 			{

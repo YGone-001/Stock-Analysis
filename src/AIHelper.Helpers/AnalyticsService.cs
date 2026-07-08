@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using AIHelper.Models;
 
 namespace AIHelper.Helpers;
 
@@ -31,7 +32,7 @@ public static class AnalyticsService
 
 		public const string Get = "10";
 
-		public const string Swich = "11";
+		public const string Switch = "11";
 
 		public const string Setting = "12";
 
@@ -59,21 +60,15 @@ public static class AnalyticsService
 		{
 			try
 			{
-				string value = Uri.EscapeDataString(infostr2);
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(17, 4);
-				defaultInterpolatedStringHandler.AppendFormatted("https://www.ooppp.com/soft/update.php");
-				defaultInterpolatedStringHandler.AppendLiteral("?a=");
-				defaultInterpolatedStringHandler.AppendFormatted(actionCode2);
-				defaultInterpolatedStringHandler.AppendLiteral("&i=");
-				defaultInterpolatedStringHandler.AppendFormatted(value);
-				defaultInterpolatedStringHandler.AppendLiteral("&timestamp=");
-				defaultInterpolatedStringHandler.AppendFormatted(DateTime.Now.Ticks);
-				string requestUri = defaultInterpolatedStringHandler.ToStringAndClear();
+				AppConfig config = ConfigManager.Load();
+				if (!config.IsTelemetryEnabled) return;
+
+				string value = Uri.EscapeDataString(infostr2 ?? "");
+				string action = Uri.EscapeDataString(actionCode2 ?? "");
+				string requestUri = $"{TRACKING_URL}?a={action}&i={value}&timestamp={DateTime.Now.Ticks}";
 				await _client.GetAsync(requestUri);
 			}
-			catch
-			{
-			}
+			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in AnalyticsService.cs : {ex}"); }
 		});
 	}
 }

@@ -5,7 +5,7 @@ Stock Analysis is a recovered and maintained C# / WPF stock analysis workspace b
 ## Current Status
 
 - The project source lives under `src/`.
-- Recovered runtime dependencies are stored under `recovered-bundle/` and are referenced by `src/AIHelper.csproj`.
+- Runtime dependencies are restored from NuGet packages referenced by `src/AIHelper.csproj`.
 - `NetworkHelper` routes every supported stock-data endpoint to East Money and rejects direct requests to other market-data hosts.
 - `StockViewModel` can load stale local stock-name cache, import a fallback local cache, and incrementally persist online search results.
 - Quotes, code tables, search, daily K-lines, minute bars, tick details, indices, and trading-day checks are all implemented through East Money.
@@ -21,7 +21,6 @@ Stock Analysis is a recovered and maintained C# / WPF stock analysis workspace b
 |   +-- AIHelper.ViewModels/      # Main, stock, chat, login, and log view models
 |   +-- AIHelper.Views/           # Recovered WPF views/code-behind
 |   +-- AIHelper.csproj
-+-- recovered-bundle/             # Recovered dependency DLLs used by the project
 +-- LICENSE
 +-- README.md
 ```

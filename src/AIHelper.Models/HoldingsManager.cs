@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -8,13 +9,15 @@ namespace AIHelper.Models;
 public static class HoldingsManager
 {
 	private static readonly string FilePath;
+	private static readonly object _lockObj = new object();
+	private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-	private static Dictionary<string, HoldingInfo> _holdings;
+	private static ConcurrentDictionary<string, HoldingInfo> _holdings;
 
 	static HoldingsManager()
 	{
 		FilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "holdings.json");
-		_holdings = new Dictionary<string, HoldingInfo>();
+		_holdings = new ConcurrentDictionary<string, HoldingInfo>();
 		Load();
 	}
 
@@ -24,12 +27,13 @@ public static class HoldingsManager
 		{
 			if (File.Exists(FilePath))
 			{
-				_holdings = JsonSerializer.Deserialize<Dictionary<string, HoldingInfo>>(File.ReadAllText(FilePath)) ?? new Dictionary<string, HoldingInfo>();
+				var dict = JsonSerializer.Deserialize<Dictionary<string, HoldingInfo>>(File.ReadAllText(FilePath));
+				_holdings = dict != null ? new ConcurrentDictionary<string, HoldingInfo>(dict) : new ConcurrentDictionary<string, HoldingInfo>();
 			}
 		}
 		catch
 		{
-			_holdings = new Dictionary<string, HoldingInfo>();
+			_holdings = new ConcurrentDictionary<string, HoldingInfo>();
 		}
 	}
 
@@ -37,15 +41,13 @@ public static class HoldingsManager
 	{
 		try
 		{
-			string contents = JsonSerializer.Serialize(_holdings, new JsonSerializerOptions
+			lock (_lockObj)
 			{
-				WriteIndented = true
-			});
-			File.WriteAllText(FilePath, contents);
+				string contents = JsonSerializer.Serialize(_holdings, _jsonOptions);
+				File.WriteAllText(FilePath, contents);
+			}
 		}
-		catch
-		{
-		}
+		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in HoldingsManager.cs : {ex}"); }
 	}
 
 	public static HoldingInfo GetHolding(string code)
@@ -61,7 +63,7 @@ public static class HoldingsManager
 	{
 		if (volume <= 0)
 		{
-			_holdings.Remove(code);
+			_holdings.TryRemove(code, out _);
 		}
 		else
 		{

@@ -21,11 +21,49 @@ public sealed class StockDataDiagnostics
 		results.Add(CreateArrayResult("股票搜索", search, "data"));
 
 		StockDataResult quote = await NetworkHelper.GetDataResultAsync("/api/quote?code=" + sampleCode, cancellationToken);
-		int quoteRows = CountArray(quote.Json, "data");
-		bool hasFiveLevels = HasFiveLevels(quote.Json);
-		bool hasDepthValues = HasAvailableDepth(quote.Json);
+		
+		int quoteRows = 0;
+		bool hasFiveLevels = false;
+		bool hasDepthValues = false;
+		StockDataDiagnosticItem sparrowQuoteResult = new StockDataDiagnosticItem("麻雀选股盘口字段", false, BuildMessage(quote, 0) + "；JSON 解析失败");
+		try
+		{
+			using JsonDocument document = JsonDocument.Parse(quote.Json);
+			if (document.RootElement.TryGetProperty("data", out JsonElement dataElement) && dataElement.ValueKind == JsonValueKind.Array)
+			{
+				quoteRows = dataElement.GetArrayLength();
+				if (quoteRows > 0)
+				{
+					JsonElement first = dataElement[0];
+					JsonElement sl = default;
+					hasFiveLevels = first.TryGetProperty("BuyLevel", out var bl) && bl.ValueKind == JsonValueKind.Array && bl.GetArrayLength() == 5 &&
+									first.TryGetProperty("SellLevel", out sl) && sl.ValueKind == JsonValueKind.Array && sl.GetArrayLength() == 5 &&
+									first.TryGetProperty("TotalHand", out _);
+					if (hasFiveLevels)
+					{
+						hasDepthValues = bl.EnumerateArray().Concat(sl.EnumerateArray()).Any(level => level.TryGetProperty("Available", out var available) && available.ValueKind == JsonValueKind.True);
+					}
+					
+					double amount = GetNumber(first, "Amount");
+					double outer = GetNumber(first, "Wp");
+					double inner = GetNumber(first, "Np");
+					double turnover = GetNumber(first, "Turnover");
+					bool ok = quote.Success && amount > 0 && outer > 0 && inner > 0;
+					string message = BuildMessage(quote, 1) + "；成交额 " + amount.ToString("F0", CultureInfo.InvariantCulture) + "；外盘 " + outer.ToString("F0", CultureInfo.InvariantCulture) + "；内盘 " + inner.ToString("F0", CultureInfo.InvariantCulture) + "；换手 " + turnover.ToString("F2", CultureInfo.InvariantCulture);
+					sparrowQuoteResult = new StockDataDiagnosticItem("麻雀选股盘口字段", ok, message);
+				}
+				else
+				{
+				    sparrowQuoteResult = new StockDataDiagnosticItem("麻雀选股盘口字段", false, BuildMessage(quote, 0) + "；缺少数据节点");
+				}
+			}
+		}
+		catch
+		{
+			sparrowQuoteResult = new StockDataDiagnosticItem("麻雀选股盘口字段", false, BuildMessage(quote, 0) + "；解析或字段缺失");
+		}
 		results.Add(new StockDataDiagnosticItem("实时行情/五档", quote.Success && quoteRows > 0 && hasFiveLevels, BuildMessage(quote, quoteRows) + (hasFiveLevels ? (hasDepthValues ? "；买卖五档完整且有值" : "；买卖五档结构完整，当前时段无档位值") : "；买卖五档不完整")));
-		results.Add(CreateSparrowQuoteResult(quote));
+		results.Add(sparrowQuoteResult);
 
 		StockDataResult kline = await NetworkHelper.GetDataResultAsync("/api/kline-all?code=" + sampleCode + "&type=day&limit=5", cancellationToken);
 		results.Add(CreateArrayResult("日 K", kline, "data"));
@@ -49,26 +87,6 @@ public sealed class StockDataDiagnostics
 	{
 		int count = CountArray(result.Json, parent, property);
 		return new StockDataDiagnosticItem(name, result.Success && count > 0, BuildMessage(result, count));
-	}
-
-	private static StockDataDiagnosticItem CreateSparrowQuoteResult(StockDataResult result)
-	{
-		try
-		{
-			using JsonDocument document = JsonDocument.Parse(result.Json);
-			JsonElement first = document.RootElement.GetProperty("data")[0];
-			double amount = GetNumber(first, "Amount");
-			double outer = GetNumber(first, "Wp");
-			double inner = GetNumber(first, "Np");
-			double turnover = GetNumber(first, "Turnover");
-			bool ok = result.Success && amount > 0 && outer > 0 && inner > 0;
-			string message = BuildMessage(result, 1) + "；成交额 " + amount.ToString("F0", CultureInfo.InvariantCulture) + "；外盘 " + outer.ToString("F0", CultureInfo.InvariantCulture) + "；内盘 " + inner.ToString("F0", CultureInfo.InvariantCulture) + "；换手 " + turnover.ToString("F2", CultureInfo.InvariantCulture);
-			return new StockDataDiagnosticItem("麻雀选股盘口字段", ok, message);
-		}
-		catch
-		{
-			return new StockDataDiagnosticItem("麻雀选股盘口字段", false, BuildMessage(result, 0) + "；缺少 Amount/Wp/Np");
-		}
 	}
 
 	private static double GetNumber(JsonElement item, string property)
@@ -115,34 +133,6 @@ public sealed class StockDataDiagnostics
 		catch
 		{
 			return null;
-		}
-	}
-
-	private static bool HasFiveLevels(string json)
-	{
-		try
-		{
-			using JsonDocument document = JsonDocument.Parse(json);
-			JsonElement first = document.RootElement.GetProperty("data")[0];
-			return first.GetProperty("BuyLevel").GetArrayLength() == 5 && first.GetProperty("SellLevel").GetArrayLength() == 5 && first.TryGetProperty("TotalHand", out _);
-		}
-		catch
-		{
-			return false;
-		}
-	}
-
-	private static bool HasAvailableDepth(string json)
-	{
-		try
-		{
-			using JsonDocument document = JsonDocument.Parse(json);
-			JsonElement first = document.RootElement.GetProperty("data")[0];
-			return first.GetProperty("BuyLevel").EnumerateArray().Concat(first.GetProperty("SellLevel").EnumerateArray()).Any(level => level.TryGetProperty("Available", out var available) && available.GetBoolean());
-		}
-		catch
-		{
-			return false;
 		}
 	}
 }

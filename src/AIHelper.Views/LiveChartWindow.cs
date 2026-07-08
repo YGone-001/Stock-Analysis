@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.CodeDom.Compiler;
 using System.ComponentModel;
@@ -14,15 +15,15 @@ namespace AIHelper.Views;
 
 public class LiveChartWindow : Window, IComponentConnector
 {
-	private string _code;
+	private string _code = string.Empty;
 
-	private string _name;
+	private string _name = string.Empty;
 
-	internal TextBlock TxtInfo;
+	internal TextBlock TxtInfo = null!;
 
-	internal ProgressBar LoadProgress;
+	internal ProgressBar LoadProgress = null!;
 
-	internal WebView2 WebView;
+	internal WebView2 WebView = null!;
 
 	private bool _contentLoaded;
 
@@ -34,7 +35,7 @@ public class LiveChartWindow : Window, IComponentConnector
 		TxtInfo.Text = name + " (" + _code + ") - 东方财富行情";
 		base.Closed += delegate
 		{
-			WebView.Dispose();
+			WebView?.Dispose();
 		};
 		InitializeWebView();
 	}

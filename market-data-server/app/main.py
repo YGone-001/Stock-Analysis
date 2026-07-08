@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from starlette.responses import Response
 
 from app.cache import JsonFileCache, TtlCache
@@ -23,6 +23,22 @@ etf_name_cache = JsonFileCache(settings.cache_dir / "EtfNameMap.json")
 store = MarketDataStore(settings.db_path)
 
 app = FastAPI(title="AIHelper Market Data Gateway", version="0.1.0")
+
+
+@app.get("/")
+async def root() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "name": "AIHelper Market Data Gateway",
+        "port": 8888,
+        "docs": "/docs",
+        "health": "/health",
+        "examples": {
+            "quote": "/api/quote?code=000001",
+            "kline": "/api/kline-all?code=000001&type=day&limit=120",
+            "akshare_kline": "/api/kline-all?code=000001&type=day&limit=120&source=akshare",
+        },
+    }
 
 
 @app.on_event("startup")
@@ -74,7 +90,15 @@ async def health() -> dict[str, Any]:
 
 @app.get("/api/quote")
 async def quote(code: str = Query("")) -> dict[str, Any]:
-    return await app.state.eastmoney.quote(code)
+    akshare_result = await app.state.akshare.quote(code)
+    if akshare_result is not None and akshare_result.get("data"):
+        await supplement_quote_depth_from_eastmoney(akshare_result, code)
+        if quote_has_depth(akshare_result):
+            return akshare_result
+    eastmoney_result = await app.state.eastmoney.quote(code)
+    if eastmoney_result.get("data"):
+        return eastmoney_result
+    raise HTTPException(status_code=503, detail="quote_source_unavailable")
 
 
 @app.get("/api/kline-all")
@@ -168,6 +192,16 @@ async def get_daily_kline(code: str, limit: int, source: str) -> dict[str, Any]:
     if source in {"cache", "local"}:
         return {"data": store.get_klines(normalized, limit)}
 
+    if source in {"auto", "akshare"}:
+        result = await app.state.akshare.daily_kline(code, limit)
+        if result is not None:
+            rows = result.get("data") or []
+            if rows:
+                store.save_klines(normalized, rows, source="akshare")
+                return result
+            if source == "akshare":
+                return {"data": []}
+
     if source in {"auto", "tushare"}:
         result = await app.state.tushare.daily_kline(code, limit)
         if result is not None:
@@ -185,3 +219,45 @@ async def get_daily_kline(code: str, limit: int, source: str) -> dict[str, Any]:
 
     cached = store.get_klines(normalized, limit)
     return {"data": cached}
+
+
+async def supplement_quote_depth_from_eastmoney(
+    akshare_result: dict[str, Any], code: str
+) -> None:
+    rows = akshare_result.get("data") or []
+    if not rows:
+        return
+    if all(as_float_like(row.get("Wp")) > 0 and as_float_like(row.get("Np")) > 0 for row in rows):
+        return
+    try:
+        eastmoney_result = await app.state.eastmoney.quote(code)
+    except Exception:
+        return
+    eastmoney_rows = {
+        str(row.get("Code") or ""): row for row in (eastmoney_result.get("data") or [])
+    }
+    for row in rows:
+        supplement = eastmoney_rows.get(str(row.get("Code") or ""))
+        if not supplement:
+            continue
+        for key in ("Wp", "Np", "Turnover", "Percent"):
+            if as_float_like(row.get(key)) <= 0 and as_float_like(supplement.get(key)) > 0:
+                row[key] = supplement.get(key)
+    akshare_result["supplement"] = "eastmoney"
+
+
+def as_float_like(value: Any) -> float:
+    try:
+        if value is None or value == "":
+            return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def quote_has_depth(result: dict[str, Any]) -> bool:
+    rows = result.get("data") or []
+    return bool(rows) and all(
+        as_float_like(row.get("Wp")) > 0 and as_float_like(row.get("Np")) > 0
+        for row in rows
+    )

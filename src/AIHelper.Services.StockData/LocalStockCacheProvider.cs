@@ -11,12 +11,12 @@ using AIHelper.Helpers;
 namespace AIHelper.Services.StockData;
 
 public sealed class LocalStockCacheProvider : IStockDataProvider
-{
+, IDisposable {
 	private readonly string _cachePath;
 
 	private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
 
-	private readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
+	private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
 	{
 		WriteIndented = true,
 		PropertyNameCaseInsensitive = true,
@@ -80,10 +80,10 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 		await _cacheLock.WaitAsync(cancellationToken);
 		try
 		{
-			StockNameCacheDocument document = LoadDocument();
+			StockNameCacheDocument document = await LoadDocumentAsync();
 			if (document.Source == "LegacyLocal")
 			{
-				SaveDocument(document);
+				await SaveDocumentAsync(document);
 			}
 			Dictionary<string, string> items = document.Items ?? new Dictionary<string, string>();
 			if (!string.IsNullOrWhiteSpace(kind))
@@ -122,7 +122,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 		await _cacheLock.WaitAsync(cancellationToken);
 		try
 		{
-			StockNameCacheDocument document = LoadDocument();
+			StockNameCacheDocument document = await LoadDocumentAsync();
 			if (!document.Markets.TryGetValue(marketKey, out var state))
 			{
 				return new StockMarketCache();
@@ -140,7 +140,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 		await _cacheLock.WaitAsync(cancellationToken);
 		try
 		{
-			StockNameCacheDocument document = LoadDocument();
+			StockNameCacheDocument document = await LoadDocumentAsync();
 			document.Markets[marketKey] = new StockMarketCache
 			{
 				Kind = kind,
@@ -149,7 +149,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 				Completed = false,
 				UpdatedAt = DateTimeOffset.UtcNow
 			};
-			SaveDocument(document);
+			await SaveDocumentAsync(document);
 		}
 		finally
 		{
@@ -162,7 +162,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 		await _cacheLock.WaitAsync(cancellationToken);
 		try
 		{
-			StockNameCacheDocument document = LoadDocument();
+			StockNameCacheDocument document = await LoadDocumentAsync();
 			if (!document.Markets.TryGetValue(marketKey, out var state))
 			{
 				state = new StockMarketCache();
@@ -181,7 +181,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 			document.Version = StockNameCacheDocument.CurrentVersion;
 			document.UpdatedAt = DateTimeOffset.UtcNow;
 			document.Source = "EastMoney";
-			SaveDocument(document);
+			await SaveDocumentAsync(document);
 		}
 		finally
 		{
@@ -198,7 +198,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 		await _cacheLock.WaitAsync(cancellationToken);
 		try
 		{
-			StockNameCacheDocument document = LoadDocument();
+			StockNameCacheDocument document = await LoadDocumentAsync();
 			foreach (var item in items)
 			{
 				document.Items[item.Key] = item.Value;
@@ -206,7 +206,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 			document.Version = StockNameCacheDocument.CurrentVersion;
 			document.UpdatedAt = DateTimeOffset.UtcNow;
 			document.Source = string.IsNullOrWhiteSpace(source) ? "Local" : source;
-			SaveDocument(document);
+			await SaveDocumentAsync(document);
 		}
 		finally
 		{
@@ -214,7 +214,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 		}
 	}
 
-	private StockNameCacheDocument LoadDocument()
+	private async Task<StockNameCacheDocument> LoadDocumentAsync()
 	{
 		foreach (string path in GetCandidatePaths())
 		{
@@ -224,7 +224,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 				{
 					continue;
 				}
-				string json = File.ReadAllText(path);
+				string json = await File.ReadAllTextAsync(path);
 				using JsonDocument parsed = JsonDocument.Parse(json);
 				StockNameCacheDocument document;
 				if (parsed.RootElement.ValueKind == JsonValueKind.Object && parsed.RootElement.TryGetProperty("Version", out _))
@@ -252,18 +252,17 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 					return document;
 				}
 			}
-			catch
-			{
-			}
+			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in LocalStockCacheProvider.cs : {ex}"); }
 		}
 		return new StockNameCacheDocument();
 	}
 
-	private void SaveDocument(StockNameCacheDocument document)
+	private async Task SaveDocumentAsync(StockNameCacheDocument document)
 	{
 		Directory.CreateDirectory(Path.GetDirectoryName(_cachePath) ?? AppDomain.CurrentDomain.BaseDirectory);
 		string temporaryPath = _cachePath + ".tmp";
-		File.WriteAllText(temporaryPath, JsonSerializer.Serialize(document, _jsonOptions));
+		document.Source = "Local";
+		await File.WriteAllTextAsync(temporaryPath, JsonSerializer.Serialize(document, _jsonOptions));
 		File.Move(temporaryPath, _cachePath, true);
 	}
 
@@ -278,7 +277,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 		string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
 		if (!string.IsNullOrWhiteSpace(desktop))
 		{
-			yield return Path.Combine(desktop, "strock", "strock", "StockNameMap.json");
+			yield return Path.Combine(desktop, "stock", "stock", "StockNameMap.json");
 		}
 	}
 
@@ -318,4 +317,9 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 			_ => "{\"data\":{\"codes\":[]}}"
 		};
 	}
+
+    public void Dispose()
+    {
+        _cacheLock?.Dispose();
+    }
 }

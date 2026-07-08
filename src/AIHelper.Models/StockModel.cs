@@ -1,3 +1,4 @@
+#nullable enable
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
@@ -37,7 +38,7 @@ public class StockModel : INotifyPropertyChanged
 		set
 		{
 			_code = value;
-			OnPropertyChanged("Code");
+			OnPropertyChanged(nameof(Code));
 		}
 	}
 
@@ -64,7 +65,7 @@ public class StockModel : INotifyPropertyChanged
 		set
 		{
 			_isChecked = value;
-			OnPropertyChanged("IsChecked");
+			OnPropertyChanged(nameof(IsChecked));
 		}
 	}
 
@@ -78,7 +79,7 @@ public class StockModel : INotifyPropertyChanged
 		set
 		{
 			_name = value;
-			OnPropertyChanged("Name");
+			OnPropertyChanged(nameof(Name));
 		}
 	}
 
@@ -92,8 +93,8 @@ public class StockModel : INotifyPropertyChanged
 		set
 		{
 			_price = value;
-			OnPropertyChanged("Price");
-			OnPropertyChanged("PriceColor");
+			OnPropertyChanged(nameof(Price));
+			OnPropertyChanged(nameof(PriceColor));
 		}
 	}
 
@@ -107,9 +108,9 @@ public class StockModel : INotifyPropertyChanged
 		set
 		{
 			_percent = value;
-			OnPropertyChanged("Percent");
-			OnPropertyChanged("PercentText");
-			OnPropertyChanged("PercentBgColor");
+			OnPropertyChanged(nameof(Percent));
+			OnPropertyChanged(nameof(PercentText));
+			OnPropertyChanged(nameof(PercentBgColor));
 		}
 	}
 
@@ -123,7 +124,7 @@ public class StockModel : INotifyPropertyChanged
 		set
 		{
 			_lastClose = value;
-			OnPropertyChanged("LastClose");
+			OnPropertyChanged(nameof(LastClose));
 		}
 	}
 
@@ -137,7 +138,7 @@ public class StockModel : INotifyPropertyChanged
 		set
 		{
 			_open = value;
-			OnPropertyChanged("Open");
+			OnPropertyChanged(nameof(Open));
 		}
 	}
 
@@ -151,7 +152,7 @@ public class StockModel : INotifyPropertyChanged
 		set
 		{
 			_high = value;
-			OnPropertyChanged("High");
+			OnPropertyChanged(nameof(High));
 		}
 	}
 
@@ -165,7 +166,7 @@ public class StockModel : INotifyPropertyChanged
 		set
 		{
 			_low = value;
-			OnPropertyChanged("Low");
+			OnPropertyChanged(nameof(Low));
 		}
 	}
 
@@ -179,7 +180,7 @@ public class StockModel : INotifyPropertyChanged
 		set
 		{
 			_turnover = value;
-			OnPropertyChanged("Turnover");
+			OnPropertyChanged(nameof(Turnover));
 		}
 	}
 
@@ -248,8 +249,8 @@ public class StockModel : INotifyPropertyChanged
 		set
 		{
 			_highlightLevel = value;
-			OnPropertyChanged("HighlightLevel");
-			OnPropertyChanged("CodeColor");
+			OnPropertyChanged(nameof(HighlightLevel));
+			OnPropertyChanged(nameof(CodeColor));
 		}
 	}
 
@@ -261,7 +262,7 @@ public class StockModel : INotifyPropertyChanged
 		_ => "#666666", 
 	};
 
-	public event PropertyChangedEventHandler? PropertyChanged;
+	public event PropertyChangedEventHandler? PropertyChanged = null;
 
 	protected void OnPropertyChanged([CallerMemberName] string? name = null)
 	{

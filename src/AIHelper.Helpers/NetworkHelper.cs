@@ -13,6 +13,7 @@ namespace AIHelper.Helpers;
 public static class NetworkHelper
 {
 	private static HttpClient _client;
+	public static readonly HttpClient SharedHttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
 
 	private static LocalStockCacheProvider _localCacheProvider;
 
@@ -22,25 +23,40 @@ public static class NetworkHelper
 
 	static NetworkHelper()
 	{
-		ReloadProxySettings();
+		try
+		{
+			ReloadProxySettings();
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Trace.WriteLine($"Failed to initialize NetworkHelper: {ex}");
+		}
+	}
+
+	public static WebProxy GetWebProxy(AppConfig config)
+	{
+		if (!config.IsProxyEnabled || string.IsNullOrWhiteSpace(config.ProxyAddress)) return null;
+		string address = config.ProxyAddress.Trim();
+		if (!address.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !address.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && !address.StartsWith("socks5://", StringComparison.OrdinalIgnoreCase))
+		{
+			address = "http://" + address;
+		}
+		string portStr = string.IsNullOrWhiteSpace(config.ProxyPort) ? "" : ":" + config.ProxyPort.Trim();
+		WebProxy proxy = new WebProxy(new Uri(address + portStr));
+		if (!string.IsNullOrEmpty(config.ProxyUserName))
+		{
+			proxy.Credentials = new NetworkCredential(config.ProxyUserName, config.ProxyPassword);
+		}
+		return proxy;
 	}
 
 	public static void ReloadProxySettings()
 	{
 		AppConfig config = ConfigManager.Load();
 		HttpClientHandler handler = new HttpClientHandler();
-		if (config.IsProxyEnabled)
+		WebProxy proxy = GetWebProxy(config);
+		if (proxy != null)
 		{
-			string address = config.ProxyAddress.Trim();
-			if (!address.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !address.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && !address.StartsWith("socks5://", StringComparison.OrdinalIgnoreCase))
-			{
-				address = "http://" + address;
-			}
-			WebProxy proxy = new WebProxy(new Uri(address + ":" + config.ProxyPort));
-			if (!string.IsNullOrEmpty(config.ProxyUserName))
-			{
-				proxy.Credentials = new NetworkCredential(config.ProxyUserName, config.ProxyPassword);
-			}
 			handler.Proxy = proxy;
 			handler.UseProxy = true;
 		}
@@ -56,17 +72,30 @@ public static class NetworkHelper
 		};
 		_client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
 		_localCacheProvider ??= new LocalStockCacheProvider();
+		
+		if (_stockDataProvider != null)
+		{
+			_stockDataProvider.StatusChanged -= OnStockDataProviderStatusChanged;
+		}
+		
 		var eastMoney = new EastMoneyStockDataProvider(_client, _localCacheProvider);
 		var externalGateway = new ExternalStockDataProvider(_client);
 		var publicProvider = new PreferredStockDataProvider(externalGateway, eastMoney);
 		_stockDataProvider = new FallbackStockDataProvider(publicProvider, _localCacheProvider);
-		_stockDataProvider.StatusChanged += result => StockDataStatusChanged?.Invoke(result);
-		previousClient?.Dispose();
+		_stockDataProvider.StatusChanged += OnStockDataProviderStatusChanged;
+		
+		// Remove previousClient?.Dispose(); to avoid race condition with in-flight requests.
+		// HttpClient will be safely cleaned up by the GC/Finalizer when requests complete.
 	}
 
-	public static async Task<string> GetDataAsync(string endpoint)
+	private static void OnStockDataProviderStatusChanged(StockDataResult result)
 	{
-		return (await GetDataResultAsync(endpoint)).Json;
+		StockDataStatusChanged?.Invoke(result);
+	}
+
+	public static async Task<string> GetDataAsync(string endpoint, CancellationToken cancellationToken = default)
+	{
+		return (await GetDataResultAsync(endpoint, cancellationToken)).Json;
 	}
 
 	public static async Task<StockDataResult> GetDataResultAsync(string endpoint, CancellationToken cancellationToken = default)
@@ -143,12 +172,9 @@ public static class NetworkHelper
 		{
 			AppConfig config = ConfigManager.Load();
 			HttpClientHandler handler = new HttpClientHandler { UseProxy = false };
-			if (config.IsProxyEnabled)
+			WebProxy proxy = GetWebProxy(config);
+			if (proxy != null)
 			{
-				string address = config.ProxyAddress.Trim();
-				if (!address.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !address.StartsWith("socks5", StringComparison.OrdinalIgnoreCase)) address = "http://" + address;
-				WebProxy proxy = new WebProxy(new Uri(address + ":" + config.ProxyPort));
-				if (!string.IsNullOrEmpty(config.ProxyUserName)) proxy.Credentials = new NetworkCredential(config.ProxyUserName, config.ProxyPassword);
 				handler.Proxy = proxy;
 				handler.UseProxy = true;
 			}

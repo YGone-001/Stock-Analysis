@@ -1,3 +1,4 @@
+#nullable enable
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -11,7 +12,20 @@ public class ChatRoomModel : INotifyPropertyChanged
 
 	private bool _isSelected;
 
-	public string Name { get; set; }
+	private string _name = string.Empty;
+
+	public string Name
+	{
+		get => _name;
+		set
+		{
+			if (_name != value)
+			{
+				_name = value;
+				OnPropertyChanged(nameof(Name));
+			}
+		}
+	}
 
 	public int UnreadCount
 	{
@@ -22,7 +36,7 @@ public class ChatRoomModel : INotifyPropertyChanged
 		set
 		{
 			_unreadCount = value;
-			OnPropertyChanged("UnreadCount");
+			OnPropertyChanged(nameof(UnreadCount));
 		}
 	}
 
@@ -35,7 +49,7 @@ public class ChatRoomModel : INotifyPropertyChanged
 		set
 		{
 			_isSelected = value;
-			OnPropertyChanged("IsSelected");
+			OnPropertyChanged(nameof(IsSelected));
 		}
 	}
 
@@ -49,9 +63,9 @@ public class ChatRoomModel : INotifyPropertyChanged
 	public bool HasMoreHistory { get; set; } = true;
 
 
-	public event PropertyChangedEventHandler PropertyChanged;
+	public event PropertyChangedEventHandler? PropertyChanged = null;
 
-	protected void OnPropertyChanged([CallerMemberName] string name = null)
+	protected void OnPropertyChanged([CallerMemberName] string? name = null)
 	{
 		this.PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 	}

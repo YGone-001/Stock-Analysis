@@ -46,7 +46,7 @@ public class ChartWindow : System.Windows.Window, IComponentConnector
 		catch (Exception ex2)
 		{
 			Exception ex = ex2;
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				HandyControl.Controls.MessageBox.Show("图表引擎加载失败！\n\n可能原因：\n1. 您的电脑未安装 WebView2 运行时。\n2. 杀毒软件拦截了组件。\n\n系统报错：" + ex.Message, "环境缺失拦截", MessageBoxButton.OK, MessageBoxImage.Hand);
 				Close();
@@ -59,7 +59,7 @@ public class ChartWindow : System.Windows.Window, IComponentConnector
 		if (e.TryGetWebMessageAsString() == "crop_done")
 		{
 			await Task.Delay(500);
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				LoadingMask.Visibility = Visibility.Collapsed;
 				MyWebView.Visibility = Visibility.Visible;
@@ -84,6 +84,19 @@ public class ChartWindow : System.Windows.Window, IComponentConnector
 		{
 			LoadingMask.Visibility = Visibility.Collapsed;
 			MyWebView.Visibility = Visibility.Visible;
+		}
+	}
+
+	protected override void OnClosed(EventArgs e)
+	{
+		base.OnClosed(e);
+		try
+		{
+			MyWebView?.Dispose();
+		}
+		catch (Exception ex)
+		{
+			Trace.WriteLine("Failed to dispose WebView2: " + ex.Message);
 		}
 	}
 

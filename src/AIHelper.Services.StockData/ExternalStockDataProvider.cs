@@ -27,6 +27,10 @@ public sealed class ExternalStockDataProvider : IStockDataProvider
 		return SupportedPaths.Contains(request.Path) && TryGetBaseUrl(out _);
 	}
 
+	private static string _cachedBaseUrl;
+	private static long _lastCacheTime;
+	private static readonly object _cacheLock = new object();
+
 	public async Task<StockDataResult> GetDataAsync(StockDataRequest request, CancellationToken cancellationToken = default)
 	{
 		if (!SupportedPaths.Contains(request.Path) || !TryGetBaseUrl(out string baseUrl))
@@ -37,10 +41,13 @@ public sealed class ExternalStockDataProvider : IStockDataProvider
 		string url = baseUrl + request.Endpoint;
 		try
 		{
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+			cts.CancelAfter(TimeSpan.FromSeconds(15));
+			
 			using HttpRequestMessage message = new HttpRequestMessage(HttpMethod.Get, url);
-			using HttpResponseMessage response = await _client.SendAsync(message, cancellationToken);
+			using HttpResponseMessage response = await _client.SendAsync(message, cts.Token);
 			response.EnsureSuccessStatusCode();
-			string json = await response.Content.ReadAsStringAsync(cancellationToken);
+			string json = await response.Content.ReadAsStringAsync(cts.Token);
 			StockDataLog.Write(request.Path, request.Get("code"), url, null, false, "external gateway");
 			return new StockDataResult { Endpoint = request.Endpoint, Handled = true, Success = true, Json = json, Source = "ExternalGateway" };
 		}
@@ -54,14 +61,33 @@ public sealed class ExternalStockDataProvider : IStockDataProvider
 
 	private static bool TryGetBaseUrl(out string baseUrl)
 	{
-		AppConfig config = ConfigManager.Load();
-		baseUrl = (config.AkServerUrl ?? "").Trim().TrimEnd('/');
-		if (string.IsNullOrWhiteSpace(baseUrl) || IsLegacy98daBaseUrl(baseUrl))
+		lock (_cacheLock)
 		{
-			baseUrl = "";
-			return false;
+			long now = Environment.TickCount64;
+			if (now - _lastCacheTime < 10000 && _cachedBaseUrl != null)
+			{
+				baseUrl = _cachedBaseUrl;
+				return !string.IsNullOrEmpty(baseUrl);
+			}
+
+			AppConfig config = ConfigManager.Load();
+			string url = (config.AkServerUrl ?? "").Trim().TrimEnd('/');
+			if (string.IsNullOrWhiteSpace(url) || IsLegacy98daBaseUrl(url))
+			{
+				_cachedBaseUrl = "";
+			}
+			else if (Uri.TryCreate(url, UriKind.Absolute, out Uri uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+			{
+				_cachedBaseUrl = url;
+			}
+			else
+			{
+				_cachedBaseUrl = "";
+			}
+			_lastCacheTime = now;
+			baseUrl = _cachedBaseUrl;
+			return !string.IsNullOrEmpty(baseUrl);
 		}
-		return Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 	}
 
 	private static bool IsLegacy98daBaseUrl(string url)

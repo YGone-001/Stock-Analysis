@@ -108,7 +108,7 @@ public class AppConfig
 	public string ProxyAddress { get; set; } = "127.0.0.1";
 
 
-	public int ProxyPort { get; set; } = 7890;
+	public string ProxyPort { get; set; } = "7890";
 
 
 	public string ProxyUserName { get; set; } = "";
@@ -124,4 +124,6 @@ public class AppConfig
 
 
 	public bool IsChatAutoLogin { get; set; }
+
+	public bool IsTelemetryEnabled { get; set; } = false;
 }

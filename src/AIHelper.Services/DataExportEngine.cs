@@ -15,9 +15,10 @@ namespace AIHelper.Services;
 
 public static class DataExportEngine
 {
+	private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 	private static readonly SemaphoreSlim _apiSemaphore = new SemaphoreSlim(3, 3);
 
-	public static async Task ExecuteExportAsync(ExportConfig config, Action<string> logCallback)
+	public static async Task ExecuteExportAsync(ExportConfig config, Action<string> logCallback, CancellationToken ct = default)
 	{
 		string exportDir = ConfigManager.Load().DataSavePath;
 		if (string.IsNullOrWhiteSpace(exportDir))
@@ -29,7 +30,7 @@ public static class DataExportEngine
 			Directory.CreateDirectory(exportDir);
 		}
 		logCallback("⏳ 开始初始化取数引擎...");
-		DateTime actualEndDate = await GetActualTradingDateAsync(config.TargetDate);
+		DateTime actualEndDate = await GetActualTradingDateAsync(config.TargetDate, ct);
 		if (actualEndDate.Date != config.TargetDate.Date)
 		{
 			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(26, 2);
@@ -97,31 +98,25 @@ public static class DataExportEngine
 				defaultInterpolatedStringHandler.AppendLiteral(")");
 				logCallback(defaultInterpolatedStringHandler.ToStringAndClear());
 				StringBuilder stringBuilder2 = idxSb;
-				stringBuilder2.AppendLine(await FetchIndexDataStringAsync(selectedIndex, actualEndDate, config.IndexDays, config.EnableAiCompression));
+				stringBuilder2.AppendLine(await FetchIndexDataStringAsync(selectedIndex, actualEndDate, config.IndexDays, config.EnableAiCompression, ct));
 			}
 			indexDataBlock = idxSb.ToString();
 		}
 		StreamWriter mergedWriter = null;
-		if (config.IsSingleFileMode)
+		try
 		{
-			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(7, 4);
-			defaultInterpolatedStringHandler.AppendFormatted(prefix);
-			defaultInterpolatedStringHandler.AppendLiteral("_");
-			defaultInterpolatedStringHandler.AppendFormatted(config.TabName);
-			defaultInterpolatedStringHandler.AppendLiteral("_");
-			defaultInterpolatedStringHandler.AppendFormatted(dateStr);
-			defaultInterpolatedStringHandler.AppendLiteral("_");
-			defaultInterpolatedStringHandler.AppendFormatted(randomSuffix);
-			defaultInterpolatedStringHandler.AppendLiteral(".txt");
-			string mergedFileName = defaultInterpolatedStringHandler.ToStringAndClear();
+			if (config.IsSingleFileMode)
+			{
+			string mergedFileName = $"{prefix}_{config.TabName}_{dateStr}_{randomSuffix}.txt";
 			mergedWriter = new StreamWriter(Path.Combine(exportDir, mergedFileName), append: false, Encoding.UTF8);
-			await WriteFileHeaderAsync(mergedWriter, config, actualEndDate);
+			await WriteFileHeaderAsync(mergedWriter, config, actualEndDate, ct);
 			logCallback("\ud83d\udcc4 采用聚合模式，输出文件: " + mergedFileName);
 		}
 		int totalStocks = config.SelectedStocks.Count;
 		int currentStock = 0;
 		foreach (var stock in config.SelectedStocks)
 		{
+			ct.ThrowIfCancellationRequested();
 			currentStock++;
 			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(28, 4);
 			defaultInterpolatedStringHandler.AppendLiteral("⬇\ufe0f 正在拉取 [");
@@ -135,21 +130,24 @@ public static class DataExportEngine
 			defaultInterpolatedStringHandler.AppendLiteral(")");
 			logCallback(defaultInterpolatedStringHandler.ToStringAndClear());
 			StreamWriter writer = mergedWriter;
-			if (!config.IsSingleFileMode)
+			bool isPerStockWriter = !config.IsSingleFileMode;
+			try
 			{
-				defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(7, 4);
-				defaultInterpolatedStringHandler.AppendFormatted(prefix);
-				defaultInterpolatedStringHandler.AppendLiteral("_");
-				defaultInterpolatedStringHandler.AppendFormatted(stock.Code);
-				defaultInterpolatedStringHandler.AppendLiteral("_");
-				defaultInterpolatedStringHandler.AppendFormatted(dateStr);
-				defaultInterpolatedStringHandler.AppendLiteral("_");
-				defaultInterpolatedStringHandler.AppendFormatted(randomSuffix);
-				defaultInterpolatedStringHandler.AppendLiteral(".txt");
-				string path = defaultInterpolatedStringHandler.ToStringAndClear();
-				writer = new StreamWriter(Path.Combine(exportDir, path), append: false, Encoding.UTF8);
-				await WriteFileHeaderAsync(writer, config, actualEndDate);
-			}
+				if (isPerStockWriter)
+				{
+					defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(7, 4);
+					defaultInterpolatedStringHandler.AppendFormatted(prefix);
+					defaultInterpolatedStringHandler.AppendLiteral("_");
+					defaultInterpolatedStringHandler.AppendFormatted(stock.Code);
+					defaultInterpolatedStringHandler.AppendLiteral("_");
+					defaultInterpolatedStringHandler.AppendFormatted(dateStr);
+					defaultInterpolatedStringHandler.AppendLiteral("_");
+					defaultInterpolatedStringHandler.AppendFormatted(randomSuffix);
+					defaultInterpolatedStringHandler.AppendLiteral(".txt");
+					string path = defaultInterpolatedStringHandler.ToStringAndClear();
+					writer = new StreamWriter(Path.Combine(exportDir, path), append: false, Encoding.UTF8);
+					await WriteFileHeaderAsync(writer, config, actualEndDate, ct);
+				}
 			await writer.WriteLineAsync("\n=======================================================");
 			StreamWriter streamWriter = writer;
 			defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(12, 2);
@@ -183,45 +181,51 @@ public static class DataExportEngine
 			await writer.WriteLineAsync("=======================================================\n");
 			if (config.FetchQuote)
 			{
-				await FetchAndWriteQuoteAsync(writer, stock.Code, config.EnableAiCompression);
+				await FetchAndWriteQuoteAsync(writer, stock.Code, config.EnableAiCompression, ct);
 			}
 			if (config.FetchMinute)
 			{
-				await FetchAndWriteMinuteAsync(writer, stock.Code, dateStr, config.EnableAiCompression);
+				await FetchAndWriteMinuteAsync(writer, stock.Code, dateStr, config.EnableAiCompression, ct);
 			}
 			if (config.FetchTick)
 			{
-				await FetchAndWriteTickAsync(writer, stock.Code, dateStr, config.EnableAiCompression);
+				await FetchAndWriteTickAsync(writer, stock.Code, dateStr, config.EnableAiCompression, ct);
 			}
 			if (config.FetchKline)
 			{
-				await FetchAndWriteKlineAsync(writer, stock.Code, dateStr, config.KlineDays, config.EnableAiCompression);
+				await FetchAndWriteKlineAsync(writer, stock.Code, dateStr, config.KlineDays, config.EnableAiCompression, ct);
 			}
-			if (!config.IsSingleFileMode)
+			if (isPerStockWriter && !string.IsNullOrEmpty(indexDataBlock))
 			{
-				if (!string.IsNullOrEmpty(indexDataBlock))
+				await writer.WriteAsync(indexDataBlock);
+			}
+			}
+			finally
+			{
+				if (isPerStockWriter && writer != null)
 				{
-					await writer.WriteAsync(indexDataBlock);
+					writer.Dispose();
 				}
-				writer.Close();
-				writer.Dispose();
 			}
 		}
-		if (config.IsSingleFileMode && mergedWriter != null)
+		if (config.IsSingleFileMode && mergedWriter != null && !string.IsNullOrEmpty(indexDataBlock))
 		{
-			if (!string.IsNullOrEmpty(indexDataBlock))
-			{
-				await mergedWriter.WriteAsync(indexDataBlock);
-			}
-			mergedWriter.Close();
-			mergedWriter.Dispose();
+			await mergedWriter.WriteAsync(indexDataBlock);
 		}
 		logCallback("✅ 所有数据拉取与 AI 语料预处理完成！文件已存入 " + exportDir + " 目录。");
+		}
+		finally
+		{
+			if (config.IsSingleFileMode && mergedWriter != null)
+			{
+				mergedWriter.Dispose();
+			}
+		}
 	}
 
-	private static async Task FetchAndWriteQuoteAsync(StreamWriter writer, string code, bool aiCompress)
+	private static async Task FetchAndWriteQuoteAsync(StreamWriter writer, string code, bool aiCompress, CancellationToken ct = default)
 	{
-		await _apiSemaphore.WaitAsync();
+		await _apiSemaphore.WaitAsync(ct);
 		try
 		{
 			string url = "/api/quote?code=" + code;
@@ -231,7 +235,7 @@ public static class DataExportEngine
 			{
 				try
 				{
-					json = await NetworkHelper.GetDataAsync(url);
+					json = await NetworkHelper.GetDataAsync(url, ct);
 					if (string.IsNullOrWhiteSpace(json))
 					{
 						throw new Exception("接口返回空值");
@@ -246,7 +250,7 @@ public static class DataExportEngine
 					lastEx = ex;
 					if (i < 3)
 					{
-						await Task.Delay(1000);
+						await Task.Delay(1000, ct);
 					}
 					continue;
 				}
@@ -319,9 +323,9 @@ public static class DataExportEngine
 		}
 	}
 
-	private static async Task FetchAndWriteMinuteAsync(StreamWriter writer, string code, string dateStr, bool aiCompress)
+	private static async Task FetchAndWriteMinuteAsync(StreamWriter writer, string code, string dateStr, bool aiCompress, CancellationToken ct = default)
 	{
-		await _apiSemaphore.WaitAsync();
+		await _apiSemaphore.WaitAsync(ct);
 		try
 		{
 			string text = TimeHelper.BeijingNow.ToString("yyyyMMdd");
@@ -336,7 +340,7 @@ public static class DataExportEngine
 			{
 				try
 				{
-					json = await NetworkHelper.GetDataAsync(url);
+					json = await NetworkHelper.GetDataAsync(url, ct);
 					if (string.IsNullOrWhiteSpace(json))
 					{
 						throw new Exception("接口返回空值");
@@ -351,7 +355,7 @@ public static class DataExportEngine
 					lastEx = ex;
 					if (i < 3)
 					{
-						await Task.Delay(1000);
+						await Task.Delay(1000, ct);
 					}
 					continue;
 				}
@@ -406,9 +410,9 @@ public static class DataExportEngine
 		}
 	}
 
-	private static async Task FetchAndWriteTickAsync(StreamWriter writer, string code, string dateStr, bool aiCompress)
+	private static async Task FetchAndWriteTickAsync(StreamWriter writer, string code, string dateStr, bool aiCompress, CancellationToken ct = default)
 	{
-		await _apiSemaphore.WaitAsync();
+		await _apiSemaphore.WaitAsync(ct);
 		try
 		{
 			string text = TimeHelper.BeijingNow.ToString("yyyyMMdd");
@@ -423,7 +427,7 @@ public static class DataExportEngine
 			{
 				try
 				{
-					json = await NetworkHelper.GetDataAsync(url);
+					json = await NetworkHelper.GetDataAsync(url, ct);
 					if (string.IsNullOrWhiteSpace(json))
 					{
 						throw new Exception("接口返回空值");
@@ -438,7 +442,7 @@ public static class DataExportEngine
 					lastEx = ex;
 					if (i < 3)
 					{
-						await Task.Delay(1000);
+						await Task.Delay(1000, ct);
 					}
 					continue;
 				}
@@ -469,7 +473,7 @@ public static class DataExportEngine
 			stringBuilder.AppendLine("[Header]:Time,Price(元),Volume(手),Status");
 			foreach (JsonElement item in value2.EnumerateArray())
 			{
-				DateTime value3 = DateTime.Parse(item.GetProperty("Time").GetString()).ToLocalTime();
+				DateTime value3 = DateTime.Parse(item.GetProperty("Time").GetString(), System.Globalization.CultureInfo.InvariantCulture).ToLocalTime();
 				double value4 = item.GetProperty("Price").GetDouble() / 1000.0;
 				int value5 = (int)item.GetProperty("Volume").GetDouble();
 				int @int = item.GetProperty("Status").GetInt32();
@@ -496,9 +500,9 @@ public static class DataExportEngine
 		}
 	}
 
-	private static async Task FetchAndWriteKlineAsync(StreamWriter writer, string code, string end, int days, bool aiCompress)
+	private static async Task FetchAndWriteKlineAsync(StreamWriter writer, string code, string end, int days, bool aiCompress, CancellationToken ct = default)
 	{
-		await _apiSemaphore.WaitAsync();
+		await _apiSemaphore.WaitAsync(ct);
 		try
 		{
 			DateTime endDate = DateTime.Now;
@@ -520,7 +524,7 @@ public static class DataExportEngine
 			{
 				try
 				{
-					json = await NetworkHelper.GetDataAsync(url);
+					json = await NetworkHelper.GetDataAsync(url, ct);
 					if (string.IsNullOrWhiteSpace(json))
 					{
 						throw new Exception("接口返回空值");
@@ -535,7 +539,7 @@ public static class DataExportEngine
 					lastEx = ex;
 					if (i < 3)
 					{
-						await Task.Delay(1000);
+						await Task.Delay(1000, ct);
 					}
 					continue;
 				}
@@ -582,7 +586,7 @@ public static class DataExportEngine
 				TryGetPropertyIgnoreCase(item, "Low", out var value6);
 				TryGetPropertyIgnoreCase(item, "Close", out var value7);
 				TryGetPropertyIgnoreCase(item, "Volume", out var value8);
-				DateTime value9 = DateTime.Parse(value3.GetString());
+				DateTime value9 = DateTime.Parse(value3.GetString(), System.Globalization.CultureInfo.InvariantCulture);
 				double value10 = value4.GetDouble() / 1000.0;
 				double value11 = value5.GetDouble() / 1000.0;
 				double value12 = value6.GetDouble() / 1000.0;
@@ -615,9 +619,9 @@ public static class DataExportEngine
 		}
 	}
 
-	private static async Task<string> FetchIndexDataStringAsync(string code, DateTime targetDate, int days, bool aiCompress)
+	private static async Task<string> FetchIndexDataStringAsync(string code, DateTime targetDate, int days, bool aiCompress, CancellationToken ct = default)
 	{
-		await _apiSemaphore.WaitAsync();
+		await _apiSemaphore.WaitAsync(ct);
 		try
 		{
 			string formattedCode = code.ToLower();
@@ -643,7 +647,7 @@ public static class DataExportEngine
 			{
 				try
 				{
-					json = await NetworkHelper.GetDataAsync(url);
+					json = await NetworkHelper.GetDataAsync(url, ct);
 					if (string.IsNullOrWhiteSpace(json))
 					{
 						throw new Exception("接口返回空值");
@@ -658,7 +662,7 @@ public static class DataExportEngine
 					lastEx = ex;
 					if (i < 3)
 					{
-						await Task.Delay(1000);
+						await Task.Delay(1000, ct);
 					}
 					continue;
 				}
@@ -710,7 +714,7 @@ public static class DataExportEngine
 				TryGetPropertyIgnoreCase(item2, "Low", out var value6);
 				TryGetPropertyIgnoreCase(item2, "Close", out var value7);
 				TryGetPropertyIgnoreCase(item2, "Volume", out var value8);
-				string value9 = DateTime.Parse(value3.GetString()).ToString("yyyy-MM-dd");
+				string value9 = DateTime.Parse(value3.GetString(), System.Globalization.CultureInfo.InvariantCulture).ToString("yyyy-MM-dd");
 				double value10 = value4.GetDouble() / 1000.0;
 				double value11 = value5.GetDouble() / 1000.0;
 				double value12 = value6.GetDouble() / 1000.0;
@@ -752,7 +756,7 @@ public static class DataExportEngine
 		}
 	}
 
-	public static async Task<DateTime> GetActualTradingDateAsync(DateTime target)
+	public static async Task<DateTime> GetActualTradingDateAsync(DateTime target, CancellationToken ct = default)
 	{
 		for (int i = 1; i <= 3; i++)
 		{
@@ -761,7 +765,7 @@ public static class DataExportEngine
 				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
 				defaultInterpolatedStringHandler.AppendLiteral("/api/workday?date=");
 				defaultInterpolatedStringHandler.AppendFormatted(target, "yyyyMMdd");
-				using JsonDocument jsonDocument = JsonDocument.Parse(await NetworkHelper.GetDataAsync(defaultInterpolatedStringHandler.ToStringAndClear()));
+				using JsonDocument jsonDocument = JsonDocument.Parse(await NetworkHelper.GetDataAsync(defaultInterpolatedStringHandler.ToStringAndClear(), ct));
 				if (jsonDocument.RootElement.TryGetProperty("data", out var value))
 				{
 					if (value.TryGetProperty("is_workday", out var value2) && value2.GetBoolean())
@@ -778,7 +782,7 @@ public static class DataExportEngine
 			{
 				if (i < 3)
 				{
-					await Task.Delay(1000);
+					await Task.Delay(1000, ct);
 				}
 				continue;
 			}
@@ -787,7 +791,7 @@ public static class DataExportEngine
 		return target;
 	}
 
-	private static async Task WriteFileHeaderAsync(StreamWriter writer, ExportConfig config, DateTime actualDate)
+	private static async Task WriteFileHeaderAsync(StreamWriter writer, ExportConfig config, DateTime actualDate, CancellationToken ct = default)
 	{
 		await writer.WriteLineAsync("***********************************************************************************");
 		await writer.WriteLineAsync("*【AI语料系统说明与单位映射表】");

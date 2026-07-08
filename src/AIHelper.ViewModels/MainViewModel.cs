@@ -16,7 +16,7 @@ using HandyControl.Controls;
 
 namespace AIHelper.ViewModels;
 
-public class MainViewModel : INotifyPropertyChanged
+public class MainViewModel : INotifyPropertyChanged, IDisposable
 {
 	private string _mainTitle = "股票数据助手";
 
@@ -47,7 +47,7 @@ public class MainViewModel : INotifyPropertyChanged
 		set
 		{
 			_mainTitle = value;
-			OnPropertyChanged("MainTitle");
+			OnPropertyChanged(nameof(MainTitle));
 		}
 	}
 
@@ -60,7 +60,7 @@ public class MainViewModel : INotifyPropertyChanged
 		set
 		{
 			_statusLeft = value;
-			OnPropertyChanged("StatusLeft");
+			OnPropertyChanged(nameof(StatusLeft));
 		}
 	}
 
@@ -73,7 +73,7 @@ public class MainViewModel : INotifyPropertyChanged
 		set
 		{
 			_latencyText = value;
-			OnPropertyChanged("LatencyText");
+			OnPropertyChanged(nameof(LatencyText));
 		}
 	}
 
@@ -86,7 +86,7 @@ public class MainViewModel : INotifyPropertyChanged
 		set
 		{
 			_statusRight = value;
-			OnPropertyChanged("StatusRight");
+			OnPropertyChanged(nameof(StatusRight));
 		}
 	}
 
@@ -99,11 +99,23 @@ public class MainViewModel : INotifyPropertyChanged
 		set
 		{
 			_selectedDate = value;
-			OnPropertyChanged("SelectedDate");
+			OnPropertyChanged(nameof(SelectedDate));
 		}
 	}
 
-	public bool IsLoading { get; set; }
+	private bool _isLoading;
+	public bool IsLoading
+	{
+		get => _isLoading;
+		set
+		{
+			if (_isLoading != value)
+			{
+				_isLoading = value;
+				OnPropertyChanged(nameof(IsLoading));
+			}
+		}
+	}
 
 	public bool IsAutoOpen
 	{
@@ -116,7 +128,7 @@ public class MainViewModel : INotifyPropertyChanged
 			if (_isAutoOpen != value)
 			{
 				_isAutoOpen = value;
-				OnPropertyChanged("IsAutoOpen");
+				OnPropertyChanged(nameof(IsAutoOpen));
 				if (!IsLoading)
 				{
 					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
@@ -139,7 +151,7 @@ public class MainViewModel : INotifyPropertyChanged
 			if (_isAiCompress != value)
 			{
 				_isAiCompress = value;
-				OnPropertyChanged("IsAiCompress");
+				OnPropertyChanged(nameof(IsAiCompress));
 				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler;
 				if (!IsLoading)
 				{
@@ -195,24 +207,29 @@ public class MainViewModel : INotifyPropertyChanged
 		}
 		set
 		{
-			_chatVM = value;
-			OnPropertyChanged("ChatVM");
-			if (_chatVM == null)
+			if (_chatVM != null)
 			{
-				return;
+				_chatVM.OnlineCountUpdated -= OnChatVMOnlineCountUpdated;
 			}
-			_chatVM.OnlineCountUpdated += delegate(int count)
+			_chatVM = value;
+			OnPropertyChanged(nameof(ChatVM));
+			if (_chatVM != null)
 			{
-				Application.Current.Dispatcher.Invoke(delegate
-				{
-					MainViewModel mainViewModel = this;
-					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(11, 1);
-					defaultInterpolatedStringHandler.AppendLiteral("聊天室活跃摸鱼人数: ");
-					defaultInterpolatedStringHandler.AppendFormatted(count);
-					mainViewModel.StatusRight = defaultInterpolatedStringHandler.ToStringAndClear();
-				});
-			};
+				_chatVM.OnlineCountUpdated += OnChatVMOnlineCountUpdated;
+			}
 		}
+	}
+
+	private void OnChatVMOnlineCountUpdated(int count)
+	{
+		Application.Current?.Dispatcher.Invoke(delegate
+		{
+			MainViewModel mainViewModel = this;
+			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(11, 1);
+			defaultInterpolatedStringHandler.AppendLiteral("聊天室活跃摸鱼人数: ");
+			defaultInterpolatedStringHandler.AppendFormatted(count);
+			mainViewModel.StatusRight = defaultInterpolatedStringHandler.ToStringAndClear();
+		});
 	}
 
 	public LogViewModel LogVM { get; set; }
@@ -226,7 +243,7 @@ public class MainViewModel : INotifyPropertyChanged
 		set
 		{
 			_chatColumnWidth = value;
-			OnPropertyChanged("ChatColumnWidth");
+			OnPropertyChanged(nameof(ChatColumnWidth));
 		}
 	}
 
@@ -239,11 +256,17 @@ public class MainViewModel : INotifyPropertyChanged
 		set
 		{
 			_chatVisibility = value;
-			OnPropertyChanged("ChatVisibility");
+			OnPropertyChanged(nameof(ChatVisibility));
 		}
 	}
 
 	public event PropertyChangedEventHandler PropertyChanged;
+
+	public Action OpenProxyWindowAction { get; set; }
+	public Action OpenImportExportWindowAction { get; set; }
+	public Action<string, string> OpenPositionWindowAction { get; set; }
+	public Action OpenSparrowWindowAction { get; set; }
+	public Func<string, string, bool> ShowConfirmFunc { get; set; }
 
 	public MainViewModel()
 	{
@@ -252,7 +275,7 @@ public class MainViewModel : INotifyPropertyChanged
 		StockVM.LogAction = AppendLog;
 		StockVM.LatencyAction = delegate(long ms)
 		{
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				if (ms < 5)
 				{
@@ -295,10 +318,10 @@ public class MainViewModel : INotifyPropertyChanged
 		InitCommands();
 		InitMenu();
 		AppendLog("系统初始化完成。");
-		InitializeDataService();
+		InitializeDataService().SafeFireAndForget();
 	}
 
-	public async void InitializeDataService()
+	public async Task InitializeDataService()
 	{
 		IsLoading = true;
 		AppendLog("☁\ufe0f 正在启动网络自检与数据服务...");
@@ -307,7 +330,7 @@ public class MainViewModel : INotifyPropertyChanged
 			await TimeHelper.SyncTimeAsync();
 			if (TimeHelper.IsSynced)
 			{
-				Application.Current.Dispatcher.Invoke(delegate
+				Application.Current?.Dispatcher.Invoke(delegate
 				{
 					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(10, 1);
 					defaultInterpolatedStringHandler.AppendLiteral("\ud83d\udd52 时间已校准: ");
@@ -315,7 +338,7 @@ public class MainViewModel : INotifyPropertyChanged
 					AppendLog(defaultInterpolatedStringHandler.ToStringAndClear());
 				});
 			}
-		});
+		}).SafeFireAndForget();
 		await StockVM.LoadBaseCodeNameTable();
 		StockVM.StartService();
 		AppendLog("\ud83d\ude80 行情心跳引擎已启动！");
@@ -371,7 +394,7 @@ public class MainViewModel : INotifyPropertyChanged
 					AppendLog(defaultInterpolatedStringHandler2.ToStringAndClear());
 					AnalyticsService.Log("2", "5");
 					imageUrl = StockNavigationHelper.BuildEastMoneyFiveDayImageUrl(text8);
-					Application.Current.Dispatcher.Invoke(delegate
+					Application.Current?.Dispatcher.Invoke(delegate
 					{
 						try
 						{
@@ -525,9 +548,7 @@ public class MainViewModel : INotifyPropertyChanged
 		});
 		SetProxyCommand = new RelayCommand(delegate
 		{
-			ProxyWindow proxyWindow = new ProxyWindow();
-			proxyWindow.Owner = Application.Current.MainWindow;
-			proxyWindow.ShowDialog();
+			OpenProxyWindowAction?.Invoke();
 		});
 		OpenHelpCommand = new RelayCommand(delegate
 		{
@@ -538,9 +559,7 @@ public class MainViewModel : INotifyPropertyChanged
 					UseShellExecute = true
 				});
 			}
-			catch
-			{
-			}
+			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in MainViewModel.cs : {ex}"); }
 		});
 		ToggleChatCommand = new RelayCommand(delegate
 		{
@@ -557,12 +576,10 @@ public class MainViewModel : INotifyPropertyChanged
 		});
 		OpenSparrowCommand = new RelayCommand(delegate
 		{
-			if (!(TimeHelper.BeijingNow.TimeOfDay < new TimeSpan(14, 30, 0)) || HandyControl.Controls.MessageBox.Show("量化选股建议在 14:30 以后执行，是否强制打开？", "风险确认", MessageBoxButton.YesNo, MessageBoxImage.Exclamation) == MessageBoxResult.Yes)
+			if (!(TimeHelper.BeijingNow.TimeOfDay < new TimeSpan(14, 30, 0)) || (ShowConfirmFunc?.Invoke("量化选股建议在 14:30 以后执行，是否强制打开？", "风险确认") ?? true))
 			{
 				AnalyticsService.Log("9", "0");
-				SparrowWindowDC sparrowWindow = new SparrowWindowDC(this);
-				sparrowWindow.Owner = Application.Current.MainWindow;
-				sparrowWindow.Show();
+				OpenSparrowWindowAction?.Invoke();
 			}
 		});
 	}
@@ -586,7 +603,7 @@ public class MainViewModel : INotifyPropertyChanged
 			Icon = "❌",
 			Command = new RelayCommand(delegate
 			{
-				Environment.Exit(0);
+				Application.Current?.Shutdown();
 			})
 		});
 		MenuItemModel menuItemModel2 = new MenuItemModel
@@ -646,11 +663,17 @@ public class MainViewModel : INotifyPropertyChanged
 		}
 		Task.Delay(500).ContinueWith(delegate
 		{
-			Application.Current.Dispatcher.Invoke(delegate
+			Application.Current?.Dispatcher.Invoke(delegate
 			{
 				OpenFolderCommand.Execute(null);
 			});
 		});
+	}
+
+	public void Dispose()
+	{
+		StockVM?.Dispose();
+		_chatVM?.Dispose();
 	}
 
 	protected void OnPropertyChanged([CallerMemberName] string name = null)

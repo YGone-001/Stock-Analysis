@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.ComponentModel;
 using System.Net.Http;
@@ -12,13 +13,16 @@ namespace AIHelper.ViewModels;
 
 public class LoginViewModel : INotifyPropertyChanged
 {
+	private ICommand? _loginCommand;
+	private ICommand? _registerCommand;
+
 	private readonly string _apiBaseUrl = ChatServiceConfig.BuildUrl("/api/auth");
 
-	private string _username;
+	private string _username = string.Empty;
 
-	private string _errorMessage;
+	private string _errorMessage = string.Empty;
 
-	public Action<string, string> OnLoginSuccess;
+	public Action<string, string>? OnLoginSuccess;
 
 	public string Username
 	{
@@ -29,7 +33,7 @@ public class LoginViewModel : INotifyPropertyChanged
 		set
 		{
 			_username = value;
-			OnPropertyChanged("Username");
+			OnPropertyChanged(nameof(Username));
 		}
 	}
 
@@ -42,13 +46,13 @@ public class LoginViewModel : INotifyPropertyChanged
 		set
 		{
 			_errorMessage = value;
-			OnPropertyChanged("ErrorMessage");
+			OnPropertyChanged(nameof(ErrorMessage));
 		}
 	}
 
-	public ICommand LoginCommand => new RelayCommand(async delegate(object o)
+	public ICommand LoginCommand => _loginCommand ??= new RelayCommand(async delegate(object o)
 	{
-		PasswordBox passwordBox = o as PasswordBox;
+		PasswordBox? passwordBox = o as PasswordBox;
 		if (string.IsNullOrWhiteSpace(Username) || passwordBox == null || string.IsNullOrWhiteSpace(passwordBox.Password))
 		{
 			ErrorMessage = "代号和暗号不能为空！";
@@ -58,7 +62,7 @@ public class LoginViewModel : INotifyPropertyChanged
 		try
 		{
 			StringContent content = new StringContent(JsonSerializer.Serialize(new { Username, passwordBox.Password }), Encoding.UTF8, "application/json");
-			using HttpClient client = new HttpClient();
+			HttpClient client = AIHelper.Helpers.NetworkHelper.SharedHttpClient;
 			client.Timeout = TimeSpan.FromSeconds(5.0);
 			HttpResponseMessage response = await client.PostAsync(_apiBaseUrl + "/login", content);
 			string text = await response.Content.ReadAsStringAsync();
@@ -66,9 +70,12 @@ public class LoginViewModel : INotifyPropertyChanged
 			{
 				using JsonDocument jsonDocument = JsonDocument.Parse(text);
 				JsonElement rootElement = jsonDocument.RootElement;
-				string @string = rootElement.GetProperty("Token").GetString();
-				string string2 = rootElement.GetProperty("Username").GetString();
-				OnLoginSuccess?.Invoke(@string, string2);
+				string? @string = rootElement.GetProperty("Token").GetString();
+				string? string2 = rootElement.GetProperty("Username").GetString();
+				if (!string.IsNullOrEmpty(@string) && !string.IsNullOrEmpty(string2))
+				{
+					OnLoginSuccess?.Invoke(@string, string2);
+				}
 				AnalyticsService.Log("3", "1");
 			}
 			else
@@ -82,9 +89,9 @@ public class LoginViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public ICommand RegisterCommand => new RelayCommand(async delegate(object o)
+	public ICommand RegisterCommand => _registerCommand ??= new RelayCommand(async delegate(object o)
 	{
-		PasswordBox passwordBox = o as PasswordBox;
+		PasswordBox? passwordBox = o as PasswordBox;
 		if (string.IsNullOrWhiteSpace(Username) || passwordBox == null || string.IsNullOrWhiteSpace(passwordBox.Password))
 		{
 			ErrorMessage = "代号和暗号不能为空！";
@@ -94,7 +101,7 @@ public class LoginViewModel : INotifyPropertyChanged
 		try
 		{
 			StringContent content = new StringContent(JsonSerializer.Serialize(new { Username, passwordBox.Password }), Encoding.UTF8, "application/json");
-			using HttpClient client = new HttpClient();
+			HttpClient client = AIHelper.Helpers.NetworkHelper.SharedHttpClient;
 			client.Timeout = TimeSpan.FromSeconds(5.0);
 			HttpResponseMessage response = await client.PostAsync(_apiBaseUrl + "/register", content);
 			string text = await response.Content.ReadAsStringAsync();
@@ -114,7 +121,7 @@ public class LoginViewModel : INotifyPropertyChanged
 		}
 	});
 
-	public event PropertyChangedEventHandler? PropertyChanged;
+	public event PropertyChangedEventHandler? PropertyChanged = null;
 
 	protected void OnPropertyChanged([CallerMemberName] string? name = null)
 	{

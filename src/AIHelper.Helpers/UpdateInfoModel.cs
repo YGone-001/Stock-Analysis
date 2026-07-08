@@ -1,10 +1,15 @@
+using System.Text.Json.Serialization;
+
 namespace AIHelper.Helpers;
 
 public class UpdateInfoModel
 {
-	public string version { get; set; }
+	[JsonPropertyName("version")]
+	public string Version { get; set; }
 
-	public string url { get; set; }
+	[JsonPropertyName("url")]
+	public string Url { get; set; }
 
-	public string description { get; set; }
+	[JsonPropertyName("description")]
+	public string Description { get; set; }
 }
