@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Helpers;
 using AIHelper.Models;
+using Serilog;
 
 namespace AIHelper.Services.StockData;
 
@@ -86,7 +87,7 @@ public class SparrowLegacyScannerService
                                 if (Interlocked.Exchange(ref _globalPauseFlag, 1) == 0)
                                 {
                                     ReportLog(progress, "⚠️ 网络波动、正在尽力尝试 (全员暂停5秒)...", true);
-                                    try { await Task.Delay(5000, cancellationToken); } catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowLegacyScannerService.cs : {ex}"); }
+                                    try { await Task.Delay(5000, cancellationToken); } catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                                     Interlocked.Exchange(ref _globalPauseFlag, 0);
                                 }
                                 else
@@ -200,7 +201,7 @@ public class SparrowLegacyScannerService
                                     if (Interlocked.Exchange(ref _globalPauseFlag, 1) == 0)
                                     {
                                         ReportLog(progress, "⚠️ 网络波动、正在尽力尝试 (全员暂停5秒)...", true);
-                                        try { await Task.Delay(5000, cancellationToken); } catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowLegacyScannerService.cs : {ex}"); }
+                                        try { await Task.Delay(5000, cancellationToken); } catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                                         Interlocked.Exchange(ref _globalPauseFlag, 0);
                                     }
                                     else
@@ -222,7 +223,7 @@ public class SparrowLegacyScannerService
                                 }
                             }
                         }
-                        catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowLegacyScannerService.cs : {ex}"); }
+                        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                         if (i < 5) await Task.Delay(500 * i, cancellationToken);
                     }
                     if (networkFatal || cancellationToken.IsCancellationRequested) return;
@@ -318,7 +319,7 @@ public class SparrowLegacyScannerService
                 return current < avg && avg < oldAvg;
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowLegacyScannerService.cs : {ex}"); }
+        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         return false;
     }
 
@@ -363,7 +364,7 @@ public class SparrowLegacyScannerService
                 return close > 0;
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowLegacyScannerService.cs : {ex}"); }
+        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         return false;
     }
 
@@ -403,7 +404,7 @@ public class SparrowLegacyScannerService
                 }
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowLegacyScannerService.cs : {ex}"); }
+        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         return list;
     }
 

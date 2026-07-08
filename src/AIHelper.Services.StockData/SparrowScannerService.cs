@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Helpers;
 using AIHelper.Models;
+using Serilog;
 
 namespace AIHelper.Services.StockData;
 
@@ -88,7 +89,7 @@ public class SparrowScannerService
                                 break;
                             }
                         }
-                        catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowScannerService.cs : {ex}"); }
+                        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                         await Task.Delay(500, ct);
                     }
                 }
@@ -152,7 +153,7 @@ public class SparrowScannerService
                                 break;
                             }
                         }
-                        catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowScannerService.cs : {ex}"); }
+                        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                         await Task.Delay(500, ct);
                     }
                 }
@@ -251,7 +252,7 @@ public class SparrowScannerService
                 return (shIndexPctChg <= -2.5, shIndexPctChg);
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowScannerService.cs : {ex}"); }
+        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         return (false, 0.0);
     }
 
@@ -282,7 +283,7 @@ public class SparrowScannerService
                     return true;
                 }
             }
-            catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowScannerService.cs : {ex}"); }
+            catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         }
         return false;
     }
@@ -325,12 +326,12 @@ public class SparrowScannerService
                                     }
                                 }
                             }
-                            catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowScannerService.cs : {ex}"); }
+                            catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                         }
                     }
                 }
             }
-            catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowScannerService.cs : {ex}"); }
+            catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         }
         return list;
     }

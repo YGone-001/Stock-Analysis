@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -12,15 +13,17 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using AIHelper.Helpers;
+using RelayCommand = AIHelper.Helpers.RelayCommand;
 using AIHelper.Models;
 using HandyControl.Controls;
 using Microsoft.AspNetCore.Http.Connections.Client;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Win32;
+using Serilog;
 
 namespace AIHelper.ViewModels;
 
-public class ChatViewModel : INotifyPropertyChanged, IDisposable
+public partial class ChatViewModel : ObservableObject, IDisposable
 {
 	private ICommand? _changeRoomCommand;
 	private ICommand? _replyCommand;
@@ -456,7 +459,7 @@ public class ChatViewModel : INotifyPropertyChanged, IDisposable
 
 	public event Action ScrollToBottomRequested;
 
-	public event PropertyChangedEventHandler PropertyChanged;
+	
 
 	public ChatViewModel(MainViewModel mainVm, string username, string token)
 	{
@@ -867,7 +870,7 @@ public class ChatViewModel : INotifyPropertyChanged, IDisposable
 				await _connection.StopAsync();
 				await _connection.DisposeAsync();
 			}
-			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatViewModel.cs : {ex}"); }
+			catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 		}
 	}
 
@@ -907,7 +910,7 @@ public class ChatViewModel : INotifyPropertyChanged, IDisposable
 				return result;
 			}
 		}
-		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatViewModel.cs : {ex}"); }
+		catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 		return 0;
 	}
 
@@ -917,7 +920,7 @@ public class ChatViewModel : INotifyPropertyChanged, IDisposable
 		{
 			File.WriteAllText(Path.Combine(Path.GetTempPath(), "AIHelper_chat_" + _myNickName + ".txt"), id.ToString());
 		}
-		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatViewModel.cs : {ex}"); }
+		catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 	}
 
 	public void Dispose()
@@ -925,8 +928,5 @@ public class ChatViewModel : INotifyPropertyChanged, IDisposable
 		_ = _connection?.DisposeAsync();
 	}
 
-	protected void OnPropertyChanged([CallerMemberName] string name = null)
-	{
-		this.PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-	}
+	
 }

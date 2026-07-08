@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using Serilog;
 
 namespace AIHelper.Services.StockData;
 
@@ -43,7 +44,7 @@ public class EastMoneySpiderService : IDisposable
 			{
 				_emClient?.Dispose();
 			}
-			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in EastMoneySpiderService.cs : {ex}"); }
+			catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 			_emClient = CreateSmartClient();
 		}
 	}

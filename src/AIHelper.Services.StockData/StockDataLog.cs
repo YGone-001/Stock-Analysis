@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using AIHelper.Helpers;
+using Serilog;
 
 namespace AIHelper.Services.StockData;
 
@@ -36,7 +37,7 @@ internal static class StockDataLog
 				File.AppendAllText(path, line, Encoding.UTF8);
 			}
 		}
-		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockDataLog.cs : {ex}"); }
+		catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 	}
 
 	private static string Clean(string value)

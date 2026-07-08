@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using HandyControl.Controls;
+using Serilog;
 
 namespace AIHelper.Helpers;
 
@@ -37,7 +38,7 @@ public static class UpdateHelper
 		}
 		catch (Exception ex)
 		{
-			System.Diagnostics.Trace.WriteLine($"Swallowed exception in UpdateHelper.cs : {ex}");
+			Log.Error(ex, "Swallowed exception");
 		}
 	}
 

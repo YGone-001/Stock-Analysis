@@ -1,30 +1,26 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using AIHelper.Helpers;
+using RelayCommand = AIHelper.Helpers.RelayCommand;
 using AIHelper.Models;
 using AIHelper.Services.StockData;
 using HandyControl.Controls;
+using Serilog;
 
 namespace AIHelper.ViewModels;
 
-public class SparrowLegacyViewModel : INotifyPropertyChanged
+public partial class SparrowLegacyViewModel : ObservableObject
 {
     private readonly MainViewModel _mainVm;
     private readonly SparrowLegacyScannerService _scannerService;
     private CancellationTokenSource _cts;
-
-    public event PropertyChangedEventHandler PropertyChanged;
-
-    private void OnPropertyChanged([CallerMemberName] string propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
 
     private SparrowLegacyScanParameters _parameters = new SparrowLegacyScanParameters();
 
@@ -204,7 +200,7 @@ public class SparrowLegacyViewModel : INotifyPropertyChanged
                             if (level == 2) break;
                         }
                     }
-                    catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in SparrowLegacyViewModel.cs : {ex}"); }
+                    catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 
                     list.Add(new StockModel
                     {

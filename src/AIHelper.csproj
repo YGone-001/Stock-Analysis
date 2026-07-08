@@ -207,9 +207,12 @@
     <Resource Include="views\imageviewerwindow.baml" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="HandyControl" Version="3.5.1" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.28" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3800.47" />
+    <PackageReference Include="Serilog" Version="4.3.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.9" />
   </ItemGroup>
 </Project>

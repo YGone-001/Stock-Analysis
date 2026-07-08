@@ -23,6 +23,7 @@ using AIHelper.Helpers;
 using AIHelper.Models;
 using AIHelper.ViewModels;
 using HandyControl.Controls;
+using Serilog;
 
 namespace AIHelper.Views;
 
@@ -332,7 +333,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 				mainViewModel.ChatVM = chatVM;
 			}
 		}
-		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatView.cs : {ex}"); }
+		catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 	}
 
 	private string Unprotect(string encryptedText)

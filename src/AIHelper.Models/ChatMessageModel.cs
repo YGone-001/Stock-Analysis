@@ -11,6 +11,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using AIHelper.Helpers;
+using Serilog;
 
 namespace AIHelper.Models;
 
@@ -189,7 +190,7 @@ public class ChatMessageModel : INotifyPropertyChanged
 							await fs.CopyToAsync(ms);
 							imageBytes = ms.ToArray();
 						}
-						catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatMessageModel.cs : {ex}"); }
+						catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 					}
 					if (imageBytes == null || imageBytes.Length == 0)
 					{
@@ -199,7 +200,7 @@ public class ChatMessageModel : INotifyPropertyChanged
 						{
 							await File.WriteAllBytesAsync(localFilePath, imageBytes);
 						}
-						catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatMessageModel.cs : {ex}"); }
+						catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 					}
 				}
 				else
@@ -224,11 +225,11 @@ public class ChatMessageModel : INotifyPropertyChanged
 							_loadedImage = bitmapImage;
 							OnPropertyChanged(nameof(ImageSource));
 						}
-						catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatMessageModel.cs : {ex}"); }
+						catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 					});
 				}
 			}
-			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ChatMessageModel.cs : {ex}"); }
+			catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 			finally
 			{
 				Application.Current?.Dispatcher.Invoke(() => IsDownloading = false);

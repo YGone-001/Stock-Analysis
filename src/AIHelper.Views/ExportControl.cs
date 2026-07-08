@@ -14,6 +14,7 @@ using System.Windows.Markup;
 using AIHelper.Helpers;
 using AIHelper.Models;
 using AIHelper.Services;
+using Serilog;
 
 namespace AIHelper.Views;
 
@@ -115,7 +116,7 @@ public class ExportControl : UserControl, IComponentConnector
 				exportControl2.Log(defaultInterpolatedStringHandler.ToStringAndClear());
 			}
 		}
-		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ExportControl.cs : {ex}"); }
+		catch (System.Exception ex) { Serilog.Log.Error(ex, "Swallowed exception"); }
 		finally
 		{
 			DpTargetDate.IsEnabled = true;
@@ -147,7 +148,7 @@ public class ExportControl : UserControl, IComponentConnector
 				exportControl.Log(defaultInterpolatedStringHandler.ToStringAndClear());
 			}
 		}
-		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in ExportControl.cs : {ex}"); }
+		catch (System.Exception ex) { Serilog.Log.Error(ex, "Swallowed exception"); }
 		finally
 		{
 			DpTargetDate.IsEnabled = true;

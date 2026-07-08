@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -10,162 +11,71 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using AIHelper.Helpers;
+using RelayCommand = AIHelper.Helpers.RelayCommand;
 using AIHelper.Services.StockData;
 using AIHelper.Views;
 using HandyControl.Controls;
+using Serilog;
 
 namespace AIHelper.ViewModels;
 
-public class MainViewModel : INotifyPropertyChanged, IDisposable
+public partial class MainViewModel : ObservableObject, IDisposable
 {
+	[ObservableProperty]
 	private string _mainTitle = "股票数据助手";
 
+	[ObservableProperty]
 	private string _statusLeft = "就绪";
 
+	[ObservableProperty]
 	private string _latencyText = "";
 
+	[ObservableProperty]
 	private string _statusRight = "在线人数: 获取中...";
 
+	[ObservableProperty]
 	private DateTime _selectedDate = DateTime.Now;
 
+	[ObservableProperty]
+	private bool _isLoading;
+
+	[ObservableProperty]
 	private bool _isAutoOpen;
 
+	partial void OnIsAutoOpenChanged(bool value)
+	{
+		if (!IsLoading)
+		{
+			DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
+			defaultInterpolatedStringHandler.AppendLiteral("⚙\ufe0f 设置更改：自动打开目录 -> ");
+			defaultInterpolatedStringHandler.AppendFormatted(value);
+			AppendLog(defaultInterpolatedStringHandler.ToStringAndClear());
+		}
+	}
+
+	[ObservableProperty]
 	private bool _isAiCompress = true;
+
+	partial void OnIsAiCompressChanged(bool value)
+	{
+		DefaultInterpolatedStringHandler defaultInterpolatedStringHandler;
+		if (!IsLoading)
+		{
+			defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
+			defaultInterpolatedStringHandler.AppendLiteral("⚙\ufe0f 设置更改：AI数据压缩 -> ");
+			defaultInterpolatedStringHandler.AppendFormatted(value);
+			AppendLog(defaultInterpolatedStringHandler.ToStringAndClear());
+		}
+		defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(0, 1);
+		defaultInterpolatedStringHandler.AppendFormatted(value);
+		AnalyticsService.Log("13", defaultInterpolatedStringHandler.ToStringAndClear());
+	}
 
 	private ChatViewModel _chatVM;
 
 	private GridLength _chatColumnWidth = new GridLength(1.0, GridUnitType.Star);
 
 	private Visibility _chatVisibility;
-
-	public string MainTitle
-	{
-		get
-		{
-			return _mainTitle;
-		}
-		set
-		{
-			_mainTitle = value;
-			OnPropertyChanged(nameof(MainTitle));
-		}
-	}
-
-	public string StatusLeft
-	{
-		get
-		{
-			return _statusLeft;
-		}
-		set
-		{
-			_statusLeft = value;
-			OnPropertyChanged(nameof(StatusLeft));
-		}
-	}
-
-	public string LatencyText
-	{
-		get
-		{
-			return _latencyText;
-		}
-		set
-		{
-			_latencyText = value;
-			OnPropertyChanged(nameof(LatencyText));
-		}
-	}
-
-	public string StatusRight
-	{
-		get
-		{
-			return _statusRight;
-		}
-		set
-		{
-			_statusRight = value;
-			OnPropertyChanged(nameof(StatusRight));
-		}
-	}
-
-	public DateTime SelectedDate
-	{
-		get
-		{
-			return _selectedDate;
-		}
-		set
-		{
-			_selectedDate = value;
-			OnPropertyChanged(nameof(SelectedDate));
-		}
-	}
-
-	private bool _isLoading;
-	public bool IsLoading
-	{
-		get => _isLoading;
-		set
-		{
-			if (_isLoading != value)
-			{
-				_isLoading = value;
-				OnPropertyChanged(nameof(IsLoading));
-			}
-		}
-	}
-
-	public bool IsAutoOpen
-	{
-		get
-		{
-			return _isAutoOpen;
-		}
-		set
-		{
-			if (_isAutoOpen != value)
-			{
-				_isAutoOpen = value;
-				OnPropertyChanged(nameof(IsAutoOpen));
-				if (!IsLoading)
-				{
-					DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
-					defaultInterpolatedStringHandler.AppendLiteral("⚙\ufe0f 设置更改：自动打开目录 -> ");
-					defaultInterpolatedStringHandler.AppendFormatted(value);
-					AppendLog(defaultInterpolatedStringHandler.ToStringAndClear());
-				}
-			}
-		}
-	}
-
-	public bool IsAiCompress
-	{
-		get
-		{
-			return _isAiCompress;
-		}
-		set
-		{
-			if (_isAiCompress != value)
-			{
-				_isAiCompress = value;
-				OnPropertyChanged(nameof(IsAiCompress));
-				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler;
-				if (!IsLoading)
-				{
-					defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(18, 1);
-					defaultInterpolatedStringHandler.AppendLiteral("⚙\ufe0f 设置更改：AI数据压缩 -> ");
-					defaultInterpolatedStringHandler.AppendFormatted(value);
-					AppendLog(defaultInterpolatedStringHandler.ToStringAndClear());
-				}
-				defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(0, 1);
-				defaultInterpolatedStringHandler.AppendFormatted(value);
-				AnalyticsService.Log("13", defaultInterpolatedStringHandler.ToStringAndClear());
-			}
-		}
-	}
 
 	public ICommand ClearCacheCommand { get; set; }
 
@@ -236,10 +146,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
 	public GridLength ChatColumnWidth
 	{
-		get
-		{
-			return _chatColumnWidth;
-		}
+		get => _chatColumnWidth;
 		set
 		{
 			_chatColumnWidth = value;
@@ -249,10 +156,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 
 	public Visibility ChatVisibility
 	{
-		get
-		{
-			return _chatVisibility;
-		}
+		get => _chatVisibility;
 		set
 		{
 			_chatVisibility = value;
@@ -260,7 +164,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 		}
 	}
 
-	public event PropertyChangedEventHandler PropertyChanged;
+		
 
 	public Action OpenProxyWindowAction { get; set; }
 	public Action OpenImportExportWindowAction { get; set; }
@@ -559,7 +463,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 					UseShellExecute = true
 				});
 			}
-			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in MainViewModel.cs : {ex}"); }
+			catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 		});
 		ToggleChatCommand = new RelayCommand(delegate
 		{
@@ -676,8 +580,5 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
 		_chatVM?.Dispose();
 	}
 
-	protected void OnPropertyChanged([CallerMemberName] string name = null)
-	{
-		this.PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-	}
+	
 }

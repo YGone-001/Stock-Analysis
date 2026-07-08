@@ -3,7 +3,8 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -18,14 +19,16 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using AIHelper.Helpers;
+using RelayCommand = AIHelper.Helpers.RelayCommand;
 using AIHelper.Models;
 using AIHelper.Services.StockData;
 using AIHelper.Views;
 using HandyControl.Controls;
+using Serilog;
 
 namespace AIHelper.ViewModels;
 
-public class StockViewModel : INotifyPropertyChanged, IDisposable
+public partial class StockViewModel : ObservableObject, IDisposable
 {
 	private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 	private ICommand? _openChartCommand;
@@ -397,7 +400,7 @@ public class StockViewModel : INotifyPropertyChanged, IDisposable
 		}
 	});
 
-	public event PropertyChangedEventHandler? PropertyChanged;
+	
 
 	public StockViewModel()
 	{
@@ -469,7 +472,7 @@ public class StockViewModel : INotifyPropertyChanged, IDisposable
 					}
 				}
 			}
-			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
+			catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 		}
 		if (StockGroups.Count == 1)
 		{
@@ -535,7 +538,7 @@ public class StockViewModel : INotifyPropertyChanged, IDisposable
 			string contents = JsonSerializer.Serialize(value, options);
 			File.WriteAllText(_filePath, contents);
 		}
-		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
+		catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 	}
 
 	public async Task LoadBaseCodeNameTable()
@@ -616,7 +619,7 @@ public class StockViewModel : INotifyPropertyChanged, IDisposable
 						}
 					});
 				}
-				catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
+				catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 			}
 		}
 		watch.Stop();
@@ -825,7 +828,7 @@ public class StockViewModel : INotifyPropertyChanged, IDisposable
 				}
 			}
 		}
-		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
+		catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 	}
 
 	private void ParseEtfJson(string json)
@@ -862,7 +865,7 @@ public class StockViewModel : INotifyPropertyChanged, IDisposable
 				}
 			}
 		}
-		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
+		catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 	}
 
 	private void RefreshAllNames()
@@ -955,7 +958,7 @@ public class StockViewModel : INotifyPropertyChanged, IDisposable
 					SaveNameMapCache(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StockNameMap.json"));
 				}
 			}
-			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in StockViewModel.cs : {ex}"); }
+			catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 		}, token);
 	}
 
@@ -1346,8 +1349,5 @@ public class StockViewModel : INotifyPropertyChanged, IDisposable
 		_refreshGate?.Dispose();
 	}
 
-	protected void OnPropertyChanged([CallerMemberName] string? name = null)
-	{
-		this.PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-	}
+	
 }

@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Helpers;
+using Serilog;
 
 namespace AIHelper.Services.StockData;
 
@@ -252,7 +253,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 					return document;
 				}
 			}
-			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in LocalStockCacheProvider.cs : {ex}"); }
+			catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 		}
 		return new StockNameCacheDocument();
 	}

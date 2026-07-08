@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using Serilog;
 
 namespace AIHelper.Models;
 
@@ -47,7 +48,7 @@ public static class HoldingsManager
 				File.WriteAllText(FilePath, contents);
 			}
 		}
-		catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in HoldingsManager.cs : {ex}"); }
+		catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 	}
 
 	public static HoldingInfo GetHolding(string code)

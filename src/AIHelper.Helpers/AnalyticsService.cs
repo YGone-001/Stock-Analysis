@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using AIHelper.Models;
+using Serilog;
 
 namespace AIHelper.Helpers;
 
@@ -68,7 +69,7 @@ public static class AnalyticsService
 				string requestUri = $"{TRACKING_URL}?a={action}&i={value}&timestamp={DateTime.Now.Ticks}";
 				await _client.GetAsync(requestUri);
 			}
-			catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in AnalyticsService.cs : {ex}"); }
+			catch (System.Exception ex) { Serilog.Log.Error(ex, "Swallowed exception"); }
 		});
 	}
 }

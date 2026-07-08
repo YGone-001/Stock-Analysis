@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Helpers;
 using AIHelper.Models;
+using Serilog;
 
 namespace AIHelper.Services.StockData;
 
@@ -69,7 +70,7 @@ public class TurtleScannerService
                         await Task.Delay(500, cancellationToken);
                     }
                 }
-                catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in TurtleScannerService.cs : {ex}"); }
+                catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                 finally
                 {
                     int c2 = Interlocked.Increment(ref p2Downloaded);
@@ -126,7 +127,7 @@ public class TurtleScannerService
                                 break;
                             }
                         }
-                        catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in TurtleScannerService.cs : {ex}"); }
+                        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                         await Task.Delay(300, cancellationToken);
                     }
                 }
@@ -240,7 +241,7 @@ public class TurtleScannerService
                 return (pctChg <= -2.0, pctChg);
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in TurtleScannerService.cs : {ex}"); }
+        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         return (false, 0.0);
     }
 
@@ -269,7 +270,7 @@ public class TurtleScannerService
                 return true;
             }
         }
-        catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in TurtleScannerService.cs : {ex}"); }
+        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         return false;
     }
 
@@ -306,12 +307,12 @@ public class TurtleScannerService
                                     }
                                 }
                             }
-                            catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in TurtleScannerService.cs : {ex}"); }
+                            catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                         }
                     }
                 }
             }
-            catch (System.Exception ex) { System.Diagnostics.Trace.WriteLine($"Swallowed exception in TurtleScannerService.cs : {ex}"); }
+            catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         }
         return list;
     }

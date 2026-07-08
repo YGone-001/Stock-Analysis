@@ -1,56 +1,31 @@
 #nullable enable
 using System;
-using System.ComponentModel;
 using System.Net.Http;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows.Controls;
-using System.Windows.Input;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using AIHelper.Helpers;
+using RelayCommand = AIHelper.Helpers.RelayCommand;
 
 namespace AIHelper.ViewModels;
 
-public class LoginViewModel : INotifyPropertyChanged
+public partial class LoginViewModel : ObservableObject
 {
-	private ICommand? _loginCommand;
-	private ICommand? _registerCommand;
-
 	private readonly string _apiBaseUrl = ChatServiceConfig.BuildUrl("/api/auth");
 
+	[ObservableProperty]
 	private string _username = string.Empty;
 
+	[ObservableProperty]
 	private string _errorMessage = string.Empty;
 
 	public Action<string, string>? OnLoginSuccess;
 
-	public string Username
-	{
-		get
-		{
-			return _username;
-		}
-		set
-		{
-			_username = value;
-			OnPropertyChanged(nameof(Username));
-		}
-	}
-
-	public string ErrorMessage
-	{
-		get
-		{
-			return _errorMessage;
-		}
-		set
-		{
-			_errorMessage = value;
-			OnPropertyChanged(nameof(ErrorMessage));
-		}
-	}
-
-	public ICommand LoginCommand => _loginCommand ??= new RelayCommand(async delegate(object o)
+	[RelayCommand]
+	private async Task LoginAsync(object o)
 	{
 		PasswordBox? passwordBox = o as PasswordBox;
 		if (string.IsNullOrWhiteSpace(Username) || passwordBox == null || string.IsNullOrWhiteSpace(passwordBox.Password))
@@ -87,9 +62,10 @@ public class LoginViewModel : INotifyPropertyChanged
 		{
 			ErrorMessage = "网络异常: " + ex.Message;
 		}
-	});
+	}
 
-	public ICommand RegisterCommand => _registerCommand ??= new RelayCommand(async delegate(object o)
+	[RelayCommand]
+	private async Task RegisterAsync(object o)
 	{
 		PasswordBox? passwordBox = o as PasswordBox;
 		if (string.IsNullOrWhiteSpace(Username) || passwordBox == null || string.IsNullOrWhiteSpace(passwordBox.Password))
@@ -119,12 +95,5 @@ public class LoginViewModel : INotifyPropertyChanged
 		{
 			ErrorMessage = "网络异常: " + ex.Message;
 		}
-	});
-
-	public event PropertyChangedEventHandler? PropertyChanged = null;
-
-	protected void OnPropertyChanged([CallerMemberName] string? name = null)
-	{
-		this.PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 	}
 }
