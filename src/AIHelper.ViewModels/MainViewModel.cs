@@ -160,14 +160,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
 		
 
-	public Action OpenProxyWindowAction { get; set; }
-	public Action OpenImportExportWindowAction { get; set; }
-	public Action<string, string> OpenPositionWindowAction { get; set; }
-	public Action OpenSparrowWindowAction { get; set; }
-	public Func<string, string, bool> ShowConfirmFunc { get; set; }
+	private readonly AIHelper.Services.IDialogService _dialogService;
 
-	public MainViewModel(StockViewModel stockVm, LogViewModel logVm)
+	public MainViewModel(StockViewModel stockVm, LogViewModel logVm, AIHelper.Services.IDialogService dialogService)
 	{
+		_dialogService = dialogService;
 		StockVM = stockVm;
 		LogVM = logVm;
 		StockVM.LogAction = AppendLog;
@@ -238,7 +235,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 					AppendLog((item.Success ? "✅ " : "❌ ") + item.Name + "：" + item.Message);
 				}
 				int passed = results.Count(item => item.Success);
-				HandyControl.Controls.MessageBox.Show("数据源诊断完成：" + passed + "/" + results.Count + " 项通过。\n详细结果已写入日志窗口。", "数据源诊断", MessageBoxButton.OK, passed == results.Count ? MessageBoxImage.Information : MessageBoxImage.Warning);
+				_dialogService.ShowMessage("数据源诊断完成：" + passed + "/" + results.Count + " 项通过。\n详细结果已写入日志窗口。", "数据源诊断");
 			}
 			catch (Exception ex)
 			{
@@ -247,9 +244,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		});
 		OpenImportExportCommand = new RelayCommand(delegate
 		{
-			ImportExportWindow importExportWindow = new ImportExportWindow(this);
-			importExportWindow.Owner = Application.Current.MainWindow;
-			importExportWindow.ShowDialog();
+			_dialogService.ShowImportExport();
 		});
 		string imageUrl;
 		OpenFiveDayChartCommand = new RelayCommand(delegate(object obj)
@@ -271,13 +266,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
 					{
 						try
 						{
-							ImageBrowser imageBrowser = new ImageBrowser(new Uri(imageUrl));
-							imageBrowser.Owner = Application.Current.MainWindow;
-							imageBrowser.Show();
+							_dialogService.ShowImage(imageUrl);
 						}
 						catch (Exception ex7)
 						{
-							Growl.Error("图表加载异常: " + ex7.Message);
+							_dialogService.ShowMessage("图表加载异常: " + ex7.Message, "错误");
 						}
 					});
 				}
@@ -299,9 +292,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 				string text7 = StockNavigationHelper.GetName(obj);
 				if (!string.IsNullOrEmpty(text6))
 				{
-					WenCaiWindow wenCaiWindow = new WenCaiWindow(text6, text7);
-					wenCaiWindow.Owner = Application.Current.MainWindow;
-					wenCaiWindow.Show();
+					_dialogService.ShowWenCai(text6, text7);
 					AppendLog("\ud83d\udd0d 开启问财分析: " + text7);
 					AnalyticsService.Log("2", "wc");
 				}
@@ -323,9 +314,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 				string text5 = StockNavigationHelper.GetName(obj);
 				if (!string.IsNullOrEmpty(text4))
 				{
-					LiveChartWindow liveChartWindow = new LiveChartWindow(text4, text5);
-					liveChartWindow.Owner = Application.Current.MainWindow;
-					liveChartWindow.Show();
+					_dialogService.ShowLiveChart(text4, text5);
 					AppendLog("\ud83d\udcca 开启东财详情: " + text5);
 					AnalyticsService.Log("2", "df");
 				}
@@ -344,9 +333,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 				string stockName = type.GetProperty("Name")?.GetValue(obj)?.ToString() ?? "未知股票";
 				if (!string.IsNullOrEmpty(text3))
 				{
-					PositionWindow positionWindow = new PositionWindow(text3, stockName);
-					positionWindow.Owner = Application.Current.MainWindow;
-					positionWindow.ShowDialog();
+					_dialogService.ShowPositionConfig(text3, stockName);
 					AnalyticsService.Log("15", "0");
 				}
 			}
@@ -417,7 +404,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		});
 		SetProxyCommand = new RelayCommand(delegate
 		{
-			OpenProxyWindowAction?.Invoke();
+			_dialogService.ShowProxySettings();
 		});
 		OpenHelpCommand = new RelayCommand(delegate
 		{
@@ -445,10 +432,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		});
 		OpenSparrowCommand = new RelayCommand(delegate
 		{
-			if (!(TimeHelper.BeijingNow.TimeOfDay < new TimeSpan(14, 30, 0)) || (ShowConfirmFunc?.Invoke("量化选股建议在 14:30 以后执行，是否强制打开？", "风险确认") ?? true))
+			if (!(TimeHelper.BeijingNow.TimeOfDay < new TimeSpan(14, 30, 0)) || _dialogService.ShowConfirm("量化选股建议在 14:30 以后执行，是否强制打开？", "风险确认"))
 			{
 				AnalyticsService.Log("9", "0");
-				OpenSparrowWindowAction?.Invoke();
+				_dialogService.ShowSparrowScanner();
 			}
 		});
 	}

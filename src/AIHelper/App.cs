@@ -12,6 +12,7 @@ using AIHelper.Models;
 using AIHelper.ViewModels;
 using AIHelper.Views;
 using AIHelper.Services.StockData;
+using AIHelper.Services;
 
 namespace AIHelper;
 
@@ -89,6 +90,12 @@ public class App : Application
 				services.AddSingleton<MainViewModel>();
 				services.AddTransient<StockViewModel>();
 				services.AddTransient<LogViewModel>();
+
+				// Memory Cache
+				services.AddMemoryCache();
+
+				// Dialog Service
+				services.AddSingleton<IDialogService, WpfDialogService>();
 
 				// Data Providers
 				services.AddSingleton<LocalStockCacheProvider>();

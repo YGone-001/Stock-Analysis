@@ -209,7 +209,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		if (!string.IsNullOrEmpty(code))
 		{
 			string name = StockNavigationHelper.GetName(o);
-			new ChartWindow(StockNavigationHelper.BuildEastMoneyQuoteUrl(code, fullScreenChart: true), name + " (" + code + ") 图表").Show();
+			_dialogService.ShowChart(StockNavigationHelper.BuildEastMoneyQuoteUrl(code, fullScreenChart: true), name + " (" + code + ") 图表");
 		}
 	});
 
@@ -317,8 +317,6 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		}
 	});
 
-	public Func<string, string, string> ShowInputDialogFunc { get; set; }
-
 	public ICommand RenameGroupCommand => _renameGroupCommand ??= new RelayCommand(delegate(object o)
 	{
 		StockGroupModel group = o as StockGroupModel;
@@ -326,20 +324,20 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		{
 			Application.Current?.Dispatcher.Invoke(delegate
 			{
-				LogAction?.Invoke("⚠\ufe0f 总览页属于系统层，无法重命名。");
+				LogAction?.Invoke("⚠️ 总览页属于系统层，无法重命名。");
 			});
 		}
 		else
 		{
 			AnalyticsService.Log("0", "1");
-			string result = ShowInputDialogFunc?.Invoke("重命名分组", group.Header);
+			string result = _dialogService.ShowInput("重命名分组", group.Header);
 			if (!string.IsNullOrWhiteSpace(result))
 			{
 				group.Header = result.Trim();
 				SaveLocalData();
 				Application.Current?.Dispatcher.Invoke(delegate
 				{
-					LogAction?.Invoke("✏\ufe0f 分组已重命名为: " + group.Header);
+					LogAction?.Invoke("✏️ 分组已重命名为: " + group.Header);
 				});
 			}
 		}
@@ -386,10 +384,12 @@ public partial class StockViewModel : ObservableObject, IDisposable
 	});
 
 	private readonly IStockDataProvider _dataProvider;
+	private readonly AIHelper.Services.IDialogService _dialogService;
 
-	public StockViewModel(IStockDataProvider dataProvider)
+	public StockViewModel(IStockDataProvider dataProvider, AIHelper.Services.IDialogService dialogService)
 	{
 		_dataProvider = dataProvider;
+		_dialogService = dialogService;
 		_filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StockGroups.json");
 		NetworkHelper.StockDataStatusChanged += OnStockDataStatusChanged;
 		LoadLocalData();

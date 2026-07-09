@@ -8,16 +8,20 @@ using System.Threading.Tasks;
 using AIHelper.Helpers;
 using Serilog;
 
+using Microsoft.Extensions.Caching.Memory;
+
 namespace AIHelper.Services.StockData;
 
 public sealed class KlineDiskCacheStore
  : IDisposable {
 	private readonly string _cacheRoot;
+	private readonly IMemoryCache _memoryCache;
 
 	private readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
 
-	public KlineDiskCacheStore(string? cacheRoot = null)
+	public KlineDiskCacheStore(IMemoryCache memoryCache = null, string? cacheRoot = null)
 	{
+		_memoryCache = memoryCache;
 		_cacheRoot = string.IsNullOrWhiteSpace(cacheRoot)
 			? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache", "kline-daily")
 			: cacheRoot;
@@ -35,6 +39,12 @@ public sealed class KlineDiskCacheStore
 		{
 			return null;
 		}
+		string cacheKey = $"KlineCache_{normalizedCode}";
+		if (_memoryCache != null && _memoryCache.TryGetValue(cacheKey, out string cachedPayload))
+		{
+			return cachedPayload;
+		}
+
 		SemaphoreSlim fileLock = _fileLocks.GetOrAdd(normalizedCode, _ => new SemaphoreSlim(1, 1));
 		await fileLock.WaitAsync(cancellationToken);
 		try
@@ -48,6 +58,10 @@ public sealed class KlineDiskCacheStore
 			if (entry.UpdatedAt.ToOffset(TimeSpan.FromHours(8)).Date != TimeHelper.BeijingNow.Date)
 			{
 				return null;
+			}
+			if (_memoryCache != null)
+			{
+				_memoryCache.Set(cacheKey, entry.Payload, TimeSpan.FromMinutes(10));
 			}
 			return entry.Payload;
 		}
@@ -86,6 +100,11 @@ public sealed class KlineDiskCacheStore
 				await JsonSerializer.SerializeAsync(stream, entry, cancellationToken: cancellationToken);
 			}
 			File.Move(temporaryPath, path, true);
+			if (_memoryCache != null)
+			{
+				string cacheKey = $"KlineCache_{normalizedCode}";
+				_memoryCache.Set(cacheKey, payload, TimeSpan.FromMinutes(10));
+			}
 		}
 		catch
 		{

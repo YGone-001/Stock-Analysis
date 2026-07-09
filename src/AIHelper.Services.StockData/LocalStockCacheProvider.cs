@@ -8,12 +8,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Helpers;
 using Serilog;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace AIHelper.Services.StockData;
 
 public sealed class LocalStockCacheProvider : IStockDataProvider
 , IDisposable {
 	private readonly string _cachePath;
+	private readonly IMemoryCache _memoryCache;
+	private const string CacheKey = "LocalStockCacheDocument";
 
 	private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
 
@@ -24,8 +27,9 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 		Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
 	};
 
-	public LocalStockCacheProvider(string cachePath = null)
+	public LocalStockCacheProvider(IMemoryCache memoryCache = null, string cachePath = null)
 	{
+		_memoryCache = memoryCache;
 		_cachePath = string.IsNullOrWhiteSpace(cachePath)
 			? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StockNameMap.json")
 			: cachePath;
@@ -217,6 +221,21 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 
 	private async Task<StockNameCacheDocument> LoadDocumentAsync()
 	{
+		if (_memoryCache != null && _memoryCache.TryGetValue(CacheKey, out StockNameCacheDocument cachedDocument))
+		{
+			return cachedDocument;
+		}
+
+		StockNameCacheDocument document = await ReadDocumentFromDiskAsync();
+		if (_memoryCache != null && document != null)
+		{
+			_memoryCache.Set(CacheKey, document, TimeSpan.FromMinutes(30));
+		}
+		return document;
+	}
+
+	private async Task<StockNameCacheDocument> ReadDocumentFromDiskAsync()
+	{
 		foreach (string path in GetCandidatePaths())
 		{
 			try
@@ -265,6 +284,10 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 		document.Source = "Local";
 		await File.WriteAllTextAsync(temporaryPath, JsonSerializer.Serialize(document, _jsonOptions));
 		File.Move(temporaryPath, _cachePath, true);
+		if (_memoryCache != null)
+		{
+			_memoryCache.Set(CacheKey, document, TimeSpan.FromMinutes(30));
+		}
 	}
 
 	private IEnumerable<string> GetCandidatePaths()
