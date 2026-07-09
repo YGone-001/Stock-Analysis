@@ -289,7 +289,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 		_ = 1;
 		try
 		{
-			string password = Unprotect(config.SavedChatPwd);
+			string password = config.SavedChatPwd;
 			StringContent content = new StringContent(JsonSerializer.Serialize(new
 			{
 				Username = config.SavedChatUser,
@@ -328,20 +328,6 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 		catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
 	}
 
-	private string Unprotect(string encryptedText)
-	{
-		try
-		{
-			byte[] encryptedData = Convert.FromBase64String(encryptedText);
-			byte[] bytes = Encoding.UTF8.GetBytes("CyberFish_2026_Salt");
-			byte[] bytes2 = ProtectedData.Unprotect(encryptedData, bytes, DataProtectionScope.CurrentUser);
-			return Encoding.UTF8.GetString(bytes2);
-		}
-		catch
-		{
-			return "";
-		}
-	}
 
 	private async void BtnLogout_Click(object sender, RoutedEventArgs e)
 	{

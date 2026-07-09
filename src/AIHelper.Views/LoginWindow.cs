@@ -20,7 +20,6 @@ public class LoginWindow : Window, IComponentConnector
 {
 	private readonly string _apiBaseUrl = ChatServiceConfig.BuildUrl("/api/auth");
 
-	private static readonly byte[] s_additionalEntropy = Encoding.UTF8.GetBytes("CyberFish_2026_Salt");
 
 	internal TextBox TxtUsername;
 
@@ -52,38 +51,6 @@ public class LoginWindow : Window, IComponentConnector
 		LoadSavedCredentials();
 	}
 
-	private string Protect(string clearText)
-	{
-		if (string.IsNullOrEmpty(clearText))
-		{
-			return "";
-		}
-		try
-		{
-			return Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(clearText), s_additionalEntropy, DataProtectionScope.CurrentUser));
-		}
-		catch
-		{
-			return "";
-		}
-	}
-
-	private string Unprotect(string encryptedText)
-	{
-		if (string.IsNullOrEmpty(encryptedText))
-		{
-			return "";
-		}
-		try
-		{
-			byte[] bytes = ProtectedData.Unprotect(Convert.FromBase64String(encryptedText), s_additionalEntropy, DataProtectionScope.CurrentUser);
-			return Encoding.UTF8.GetString(bytes);
-		}
-		catch
-		{
-			return "";
-		}
-	}
 
 	private void LoadSavedCredentials()
 	{
@@ -95,7 +62,7 @@ public class LoginWindow : Window, IComponentConnector
 		}
 		if (!string.IsNullOrEmpty(appConfig.SavedChatPwd))
 		{
-			string password = Unprotect(appConfig.SavedChatPwd);
+			string password = appConfig.SavedChatPwd;
 			TxtPassword.Password = password;
 			ChkSavePwd.IsChecked = true;
 		}
@@ -196,7 +163,7 @@ public class LoginWindow : Window, IComponentConnector
 	{
 		AppConfig appConfig = ConfigManager.Load();
 		appConfig.SavedChatUser = (ChkSaveUser.IsChecked.GetValueOrDefault() ? user : "");
-		appConfig.SavedChatPwd = (ChkSavePwd.IsChecked.GetValueOrDefault() ? Protect(pwd) : "");
+		appConfig.SavedChatPwd = (ChkSavePwd.IsChecked.GetValueOrDefault() ? pwd : "");
 		appConfig.IsChatAutoLogin = ChkAutoLogin.IsChecked.GetValueOrDefault();
 		ConfigManager.Save(appConfig);
 	}
