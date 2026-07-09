@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using AIHelper.Helpers;
-using RelayCommand = AIHelper.Helpers.RelayCommand;
+
 using AIHelper.Models;
 using AIHelper.Services.StockData;
 using HandyControl.Controls;
@@ -86,11 +86,7 @@ public partial class SparrowViewModel : ObservableObject
         set { _progressMax = value; OnPropertyChanged(); }
     }
 
-    private ICommand _startCommand;
-    public ICommand StartCommand => _startCommand ??= new RelayCommand(ExecuteStartCommand);
 
-    private ICommand _testCommand;
-    public ICommand TestCommand => _testCommand ??= new RelayCommand(ExecuteTestCommand);
 
     public SparrowViewModel(MainViewModel mainVm)
     {
@@ -104,7 +100,8 @@ public partial class SparrowViewModel : ObservableObject
         LogText += $"{prefix}{msg}\n";
     }
 
-    private async void ExecuteTestCommand(object parameter)
+    [RelayCommand]
+    private async Task Test()
     {
         AppendLog("\n🪺 [网络诊断] 测试抗封锁智能客户端...");
         try
@@ -127,13 +124,13 @@ public partial class SparrowViewModel : ObservableObject
                 AppendLog("❌ [诊断结论] 数据异常！没有找到 { } 包裹的 JSON 数据！", true);
             }
         }
-        catch (Exception ex)
-        {
+        catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
             AppendLog($"❌ [诊断异常] {ex.Message}{(ex.InnerException != null ? " -> 底层原因: " + ex.InnerException.Message : "")}", true);
         }
     }
 
-    private async void ExecuteStartCommand(object parameter)
+    [RelayCommand]
+    private async Task Start()
     {
         if (IsScanning)
         {
@@ -239,8 +236,7 @@ public partial class SparrowViewModel : ObservableObject
                 Growl.Success($"东财引擎执行完毕，入围 {results.Count} 只！");
             }
         }
-        catch (Exception ex)
-        {
+        catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
             AppendLog("❌ 引擎崩溃: " + ex.Message);
         }
         finally

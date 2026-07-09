@@ -104,8 +104,7 @@ public class ProxyWindow : HandyControl.Controls.Window, IComponentConnector
 				TxtTestResult.Foreground = new SolidColorBrush(Colors.Red);
 			}
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			TxtTestResult.Text = "❌ 连接失败: " + ex.Message;
 			TxtTestResult.Foreground = new SolidColorBrush(Colors.Red);
 		}

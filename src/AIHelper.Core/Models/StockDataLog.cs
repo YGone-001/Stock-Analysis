@@ -7,7 +7,7 @@ using Serilog;
 
 namespace AIHelper.Services.StockData;
 
-internal static class StockDataLog
+public static class StockDataLog
 {
 	private static readonly object SyncRoot = new object();
 	private static bool _directoryInitialized;
@@ -22,9 +22,9 @@ internal static class StockDataLog
 				Directory.CreateDirectory(directory);
 				_directoryInitialized = true;
 			}
-			string path = Path.Combine(directory, "network-" + TimeHelper.BeijingNow.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + ".log");
+			string path = Path.Combine(directory, "network-" + DateTime.UtcNow.AddHours(8).ToString("yyyyMMdd", CultureInfo.InvariantCulture) + ".log");
 			string exceptionSummary = exception == null ? "-" : exception.GetType().Name + ": " + exception.Message;
-			string line = TimeHelper.BeijingNow.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)
+			string line = DateTime.UtcNow.AddHours(8).ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)
 				+ "\tEndpoint=" + Clean(endpoint)
 				+ "\tCode=" + Clean(code)
 				+ "\tPublicUrl=" + Clean(url)

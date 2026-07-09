@@ -65,8 +65,7 @@ public sealed class KlineDiskCacheStore
 			}
 			return entry.Payload;
 		}
-		catch
-		{
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return null;
 		}
 		finally

@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using AIHelper.Helpers;
-using RelayCommand = AIHelper.Helpers.RelayCommand;
+
 using AIHelper.Models;
 using AIHelper.Services.StockData;
 using HandyControl.Controls;
@@ -82,8 +82,7 @@ public partial class SparrowLegacyViewModel : ObservableObject
         set { _statsDesc = value; OnPropertyChanged(); }
     }
 
-    private ICommand _startCommand;
-    public ICommand StartCommand => _startCommand ??= new RelayCommand(ExecuteStartCommand);
+
 
     public SparrowLegacyViewModel(MainViewModel mainVm)
     {
@@ -97,7 +96,8 @@ public partial class SparrowLegacyViewModel : ObservableObject
         LogText += $"{prefix}{msg}\n";
     }
 
-    private async void ExecuteStartCommand(object parameter)
+    [RelayCommand]
+    private async Task Start()
     {
         if (IsScanning)
         {
@@ -215,8 +215,7 @@ public partial class SparrowLegacyViewModel : ObservableObject
                 Growl.Success($"已同步入围 {results.Count} 只标的！");
             }
         }
-        catch (Exception ex)
-        {
+        catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
             AppendLog("❌ 引擎崩溃: " + ex.Message);
         }
         finally

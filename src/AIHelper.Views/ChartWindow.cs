@@ -43,8 +43,7 @@ public class ChartWindow : System.Windows.Window, IComponentConnector
 			MyWebView.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
 			MyWebView.Source = new Uri(_url);
 		}
-		catch (Exception ex2)
-		{
+		catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
 			Exception ex = ex2;
 			Application.Current?.Dispatcher.Invoke(delegate
 			{
@@ -94,8 +93,7 @@ public class ChartWindow : System.Windows.Window, IComponentConnector
 		{
 			MyWebView?.Dispose();
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			Trace.WriteLine("Failed to dispose WebView2: " + ex.Message);
 		}
 	}

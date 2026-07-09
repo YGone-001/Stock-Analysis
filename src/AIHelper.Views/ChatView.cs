@@ -65,12 +65,10 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 					Clipboard.SetText(text);
 					Growl.Success("已复制到剪贴板");
 				}
-				catch (COMException)
-				{
+				catch (COMException ex_log) { Serilog.Log.Warning(ex_log, "捕获到未处理异常"); 
 					Growl.Warning("剪贴板正被其他软件独占，请再点一次！");
 				}
-				catch (Exception ex2)
-				{
+				catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
 					Growl.Error("复制失败: " + ex2.Message);
 				}
 			}
@@ -119,8 +117,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 			}
 			new ImageBrowser(new Uri(text)).Show();
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			Growl.Error("图片打开失败: " + ex.Message);
 		}
 	}
@@ -194,8 +191,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 				TxtInput.CaretIndex = TxtInput.Text.Length;
 			}
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			Growl.Error("表情插入失败: " + ex.Message);
 		}
 	}
@@ -259,8 +255,7 @@ public class ChatView : UserControl, IComponentConnector, IStyleConnector
 				}
 			}
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			Growl.Error("图片解析失败: " + ex.Message);
 		}
 	}

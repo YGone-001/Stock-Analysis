@@ -127,8 +127,7 @@ public class SparrowLegacyScannerService
                         }
                     }
                 }
-                catch (Exception ex)
-                {
+                catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
                     ReportLog(progress, $"⚠️ P2扫描异常 [{stock.Name}]: {ex.Message}");
                 }
                 finally
@@ -261,8 +260,7 @@ public class SparrowLegacyScannerService
                     }
                 }
             }
-            catch (Exception ex)
-            {
+            catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
                 ReportLog(progress, $"❌ P3核验异常 [{stock.Name}]: {ex.Message}");
             }
             finally

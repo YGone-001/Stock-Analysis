@@ -112,12 +112,10 @@ public sealed class FallbackStockDataProvider : IStockDataProvider, IDisposable
 				};
 				StatusChanged?.Invoke(backgroundResult);
 			}
-			catch (OperationCanceledException)
-			{
+			catch (OperationCanceledException ex_log) { Serilog.Log.Information(ex_log, "任务被取消"); 
 				// Ignore
 			}
-			catch (Exception ex)
-			{
+			catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				System.Diagnostics.Trace.WriteLine($"Background refresh failed: {ex}");
 			}
 			finally

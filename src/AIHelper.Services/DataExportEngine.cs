@@ -199,8 +199,7 @@ public static class DataExportEngine
 						lastEx = null;
 					}
 				}
-				catch (Exception ex)
-				{
+				catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 					lastEx = ex;
 					if (i < 3)
 					{
@@ -267,8 +266,7 @@ public static class DataExportEngine
 			}
 			await writer.WriteLineAsync(stringBuilder.ToString());
 		}
-		catch (Exception ex2)
-		{
+		catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
 			await writer.WriteLineAsync("⚠\ufe0f取数异常: 拉取五档失败内部逻辑错误:" + ex2.Message);
 		}
 		finally
@@ -304,8 +302,7 @@ public static class DataExportEngine
 						lastEx = null;
 					}
 				}
-				catch (Exception ex)
-				{
+				catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 					lastEx = ex;
 					if (i < 3)
 					{
@@ -354,8 +351,7 @@ public static class DataExportEngine
 			}
 			await writer.WriteLineAsync(stringBuilder.ToString());
 		}
-		catch (Exception ex2)
-		{
+		catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
 			await writer.WriteLineAsync("⚠\ufe0f取数异常: 拉取分时内部逻辑错误:" + ex2.Message);
 		}
 		finally
@@ -391,8 +387,7 @@ public static class DataExportEngine
 						lastEx = null;
 					}
 				}
-				catch (Exception ex)
-				{
+				catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 					lastEx = ex;
 					if (i < 3)
 					{
@@ -444,8 +439,7 @@ public static class DataExportEngine
 			}
 			await writer.WriteLineAsync(stringBuilder.ToString());
 		}
-		catch (Exception ex2)
-		{
+		catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
 			await writer.WriteLineAsync("⚠\ufe0f取数异常: 拉取分笔内部逻辑错误:" + ex2.Message);
 		}
 		finally
@@ -485,8 +479,7 @@ public static class DataExportEngine
 						lastEx = null;
 					}
 				}
-				catch (Exception ex)
-				{
+				catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 					lastEx = ex;
 					if (i < 3)
 					{
@@ -560,8 +553,7 @@ public static class DataExportEngine
 			}
 			await writer.WriteLineAsync(stringBuilder.ToString());
 		}
-		catch (Exception ex2)
-		{
+		catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
 			await writer.WriteLineAsync("⚠\ufe0f取数异常: 拉取K线内部逻辑错误:" + ex2.Message);
 		}
 		finally
@@ -605,8 +597,7 @@ public static class DataExportEngine
 						lastEx = null;
 					}
 				}
-				catch (Exception ex)
-				{
+				catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 					lastEx = ex;
 					if (i < 3)
 					{
@@ -688,8 +679,7 @@ public static class DataExportEngine
 			}
 			return stringBuilder.ToString();
 		}
-		catch (Exception ex2)
-		{
+		catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
 			return "⚠\ufe0f取数异常: 拉取指数内部逻辑错误:" + ex2.Message + "\n";
 		}
 		finally
@@ -717,8 +707,7 @@ public static class DataExportEngine
 					}
 				}
 			}
-			catch
-			{
+			catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				if (i < 3)
 				{
 					await Task.Delay(1000, ct);
@@ -757,8 +746,7 @@ public static class DataExportEngine
 				WriteIndented = false
 			});
 		}
-		catch
-		{
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return json.Replace("\r", "").Replace("\n", "").Replace(" ", "");
 		}
 	}

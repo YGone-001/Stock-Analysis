@@ -13,7 +13,6 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using AIHelper.Helpers;
-using RelayCommand = AIHelper.Helpers.RelayCommand;
 using AIHelper.Models;
 using HandyControl.Controls;
 using Microsoft.AspNetCore.Http.Connections.Client;
@@ -25,20 +24,7 @@ namespace AIHelper.ViewModels;
 
 public partial class ChatViewModel : ObservableObject, IDisposable
 {
-	private ICommand? _changeRoomCommand;
-	private ICommand? _replyCommand;
-	private ICommand? _cancelReplyCommand;
-	private ICommand? _atUserCommand;
-	private ICommand? _increaseFontCommand;
-	private ICommand? _decreaseFontCommand;
-	private ICommand? _adminDeleteCommand;
-	private ICommand? _adminBanCommand;
-	private ICommand? _adminBanAccountCommand;
-	private ICommand? _sendMessageCommand;
-	private ICommand? _recallCommand;
-	private ICommand? _shareMarketCommand;
-	private ICommand? _clickStockCodeCommand;
-	private ICommand? _sendImageCommand;
+
 	public HubConnection _connection;
 
 	private readonly MainViewModel _mainVm;
@@ -210,29 +196,33 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 		}
 	}
 
-	public ICommand ChangeRoomCommand => _changeRoomCommand ??= new RelayCommand(delegate(object o)
+	[RelayCommand]
+	private void ChangeRoom(object o)
 	{
 		if (o is ChatRoomModel chatRoomModel && chatRoomModel != SelectedGroup)
 		{
 			SelectedGroup = chatRoomModel;
 		}
-	});
+	}
 
-	public ICommand ReplyCommand => _replyCommand ??= new RelayCommand(delegate(object msgObj)
+	[RelayCommand]
+	private void Reply(object msgObj)
 	{
 		if (msgObj is ChatMessageModel replyingMessage)
 		{
 			ReplyingMessage = replyingMessage;
 			InputText = "";
 		}
-	});
+	}
 
-	public ICommand CancelReplyCommand => _cancelReplyCommand ??= new RelayCommand(delegate
+	[RelayCommand]
+	private void CancelReply()
 	{
 		ReplyingMessage = null;
-	});
+	}
 
-	public ICommand AtUserCommand => _atUserCommand ??= new RelayCommand(delegate(object msgObj)
+	[RelayCommand]
+	private void AtUser(object msgObj)
 	{
 		if (msgObj is ChatMessageModel chatMessageModel)
 		{
@@ -246,42 +236,44 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 				InputText = InputText + (InputText.EndsWith(" ") ? "" : " ") + text;
 			}
 		}
-	});
+	}
 
-	public ICommand IncreaseFontCommand => _increaseFontCommand ??= new RelayCommand(delegate
+	[RelayCommand]
+	private void IncreaseFont()
 	{
 		if (ChatFontSize < 24)
 		{
 			ChatFontSize++;
 		}
-	});
+	}
 
-	public ICommand DecreaseFontCommand => _decreaseFontCommand ??= new RelayCommand(delegate
+	[RelayCommand]
+	private void DecreaseFont()
 	{
 		if (ChatFontSize > 10)
 		{
 			ChatFontSize--;
 		}
-	});
+	}
 
-	public ICommand AdminDeleteCommand => _adminDeleteCommand ??= new RelayCommand(async delegate(object msgIdObj)
+	[RelayCommand]
+	private async Task AdminDelete(object msgIdObj)
 	{
-		if (msgIdObj is int)
+		if (msgIdObj is int num)
 		{
-			int num = (int)msgIdObj;
 			try
 			{
 				Growl.Info($"[系统] 正在向服务器发送物理抹除指令 (ID:{num})...");
 				await _connection.InvokeAsync("AdminDeleteMessage", _myNickName, num);
 			}
-			catch (Exception ex)
-			{
+			catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				Growl.Error("物理删除失败: " + ex.Message);
 			}
 		}
-	});
+	}
 
-	public ICommand AdminBanCommand => _adminBanCommand ??= new RelayCommand(async delegate(object msgObj)
+	[RelayCommand]
+	private async Task AdminBan(object msgObj)
 	{
 		if (msgObj is ChatMessageModel chatMessageModel)
 		{
@@ -299,36 +291,36 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 						InputText = "";
 						await _connection.InvokeAsync("AdminBanUser", _myNickName, chatMessageModel.SenderIp, 7, arg, chatMessageModel.SenderName);
 					}
-					catch (Exception ex)
-					{
+					catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 						Growl.Error("封禁失败: " + ex.Message);
 					}
 				}
 			}
 		}
-	});
+	}
 
-	public ICommand AdminBanAccountCommand => _adminBanAccountCommand ??= new RelayCommand(async delegate(object msgObj)
+	[RelayCommand]
+	private async Task AdminBanAccount(object msgObj)
 	{
 		if (msgObj is ChatMessageModel chatMessageModel)
 		{
 			string text = (string.IsNullOrWhiteSpace(InputText) ? "严重违规，账号报废" : InputText.Trim());
-			if (System.Windows.MessageBox.Show("⚠\ufe0f 极刑警告！\n\n确定要将账号 [" + chatMessageModel.SenderName + "] 【永久封禁】吗？\n封禁理由：" + text, "神罚确认", MessageBoxButton.YesNo, MessageBoxImage.Hand) == MessageBoxResult.Yes)
+			if (System.Windows.MessageBox.Show("⚠️ 极刑警告！\n\n确定要将账号 [" + chatMessageModel.SenderName + "] 【永久封禁】吗？\n封禁理由：" + text, "神罚确认", MessageBoxButton.YesNo, MessageBoxImage.Hand) == MessageBoxResult.Yes)
 			{
 				try
 				{
 					InputText = "";
 					await _connection.InvokeAsync("AdminBanAccount", _myNickName, chatMessageModel.SenderName, text);
 				}
-				catch (Exception ex)
-				{
+				catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 					Growl.Error("账号封禁失败: " + ex.Message);
 				}
 			}
 		}
-	});
+	}
 
-	public ICommand SendMessageCommand => _sendMessageCommand ??= new RelayCommand(async delegate
+	[RelayCommand]
+	private async Task SendMessage()
 	{
 		if (!_isSending && !string.IsNullOrWhiteSpace(InputText))
 		{
@@ -359,8 +351,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 							ReplyingMessage = null;
 						}
 					}
-					catch (Exception ex)
-					{
+					catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 						Growl.Error("发送失败: " + ex.Message, "ChatRoomGrowl");
 					}
 				}
@@ -371,25 +362,25 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 				}
 			}
 		}
-	});
+	}
 
-	public ICommand RecallCommand => _recallCommand ??= new RelayCommand(async delegate(object msgIdObj)
+	[RelayCommand]
+	private async Task Recall(object msgIdObj)
 	{
-		if (msgIdObj is int)
+		if (msgIdObj is int num)
 		{
-			int num = (int)msgIdObj;
 			try
 			{
 				await _connection.InvokeAsync("RecallMessage", num);
 			}
-			catch (Exception ex)
-			{
+			catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				Growl.Error("撤回请求失败: " + ex.Message, "ChatRoomGrowl");
 			}
 		}
-	});
+	}
 
-	public ICommand ShareMarketCommand => _shareMarketCommand ??= new RelayCommand(delegate
+	[RelayCommand]
+	private void ShareMarket()
 	{
 		StockModel stockModel = _mainVm?.StockVM?.CurrentSelectedStock;
 		if (stockModel != null)
@@ -401,18 +392,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 		{
 			Growl.Warning("请先选中一只股票！", "ChatRoomGrowl");
 		}
-	});
+	}
 
-	public ICommand ClickStockCodeCommand => _clickStockCodeCommand ??= new RelayCommand(delegate(object codeObj)
+	[RelayCommand]
+	private void ClickStockCode(object codeObj)
 	{
 		if (codeObj is string text)
 		{
 			_mainVm?.StockVM?.AddStockFromChat(text);
 			Growl.Success("已添加 [" + text + "]", "ChatRoomGrowl");
 		}
-	});
+	}
 
-	public ICommand SendImageCommand => _sendImageCommand ??= new RelayCommand(async delegate
+	[RelayCommand]
+	private async Task SendImage()
 	{
 		OpenFileDialog openFileDialog = new OpenFileDialog
 		{
@@ -432,12 +425,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 					await SendDirectImageAsync(Convert.ToBase64String(array));
 				}
 			}
-			catch (Exception ex)
-			{
+			catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				Growl.Error("图片解析失败: " + ex.Message, "ChatRoomGrowl");
 			}
 		}
-	});
+	}
 
 	public event Action<int> OnlineCountUpdated;
 
@@ -614,8 +606,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 				await LoadInitialHistoryAsync(SelectedGroup);
 			}
 		}
-		catch (Exception ex2)
-		{
+		catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
 			Exception ex = ex2;
 			Application.Current?.Dispatcher.Invoke(delegate
 			{
@@ -687,8 +678,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 				}
 			});
 		}
-		catch (Exception ex2)
-		{
+		catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
 			Exception ex = ex2;
 			Application.Current?.Dispatcher.Invoke(delegate
 			{
@@ -750,8 +740,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 				}
 			});
 		}
-		catch (Exception ex2)
-		{
+		catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
 			Exception ex = ex2;
 			if (ex is InvalidOperationException || ex.Message.Contains("not active"))
 			{
@@ -813,8 +802,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 				}
 			});
 		}
-		catch (Exception ex2)
-		{
+		catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
 			Exception ex = ex2;
 			Application.Current?.Dispatcher.Invoke(delegate
 			{
@@ -837,8 +825,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 		{
 			await _connection.InvokeAsync("UpdateAvatar", _myNickName, avatarCode);
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			Growl.Error("发送失败: " + ex.Message, "ChatRoomGrowl");
 		}
 	}

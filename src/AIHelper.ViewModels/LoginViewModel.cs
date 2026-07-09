@@ -8,7 +8,7 @@ using System.Windows.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using AIHelper.Helpers;
-using RelayCommand = AIHelper.Helpers.RelayCommand;
+
 
 namespace AIHelper.ViewModels;
 
@@ -58,8 +58,7 @@ public partial class LoginViewModel : ObservableObject
 				ErrorMessage = "登录失败: " + text;
 			}
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			ErrorMessage = "网络异常: " + ex.Message;
 		}
 	}
@@ -91,8 +90,7 @@ public partial class LoginViewModel : ObservableObject
 				ErrorMessage = "注册失败: " + text;
 			}
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			ErrorMessage = "网络异常: " + ex.Message;
 		}
 	}

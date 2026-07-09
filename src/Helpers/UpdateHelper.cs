@@ -61,8 +61,7 @@ public static class UpdateHelper
 				UseShellExecute = true
 			})?.Dispose();
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			Growl.Error("浏览器拉起失败: " + ex.Message);
 		}
 	}

@@ -148,8 +148,7 @@ public class LoginWindow : Window, IComponentConnector
 				TxtError.Foreground = Brushes.Red;
 			}
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			TxtError.Text = "网络异常: " + ex.Message;
 			TxtError.Foreground = Brushes.Red;
 		}
@@ -203,8 +202,7 @@ public class LoginWindow : Window, IComponentConnector
 				TxtError.Foreground = Brushes.Red;
 			}
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			TxtError.Text = "异常: " + ex.Message;
 		}
 		finally

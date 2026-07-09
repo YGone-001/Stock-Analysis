@@ -7,7 +7,7 @@ using System.Text;
 
 namespace AIHelper.Helpers;
 
-internal class ConfigManager
+public class ConfigManager
 {
 	private static readonly string ConfigPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
 	private static readonly object _lock = new object();
@@ -26,7 +26,7 @@ internal class ConfigManager
 			byte[] encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
 			return Convert.ToBase64String(encrypted);
 		}
-		catch { return plainText; }
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常");  return plainText; }
 	}
 
 	private static string Unprotect(string cipherText)
@@ -38,7 +38,7 @@ internal class ConfigManager
 			byte[] decrypted = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
 			return Encoding.UTF8.GetString(decrypted);
 		}
-		catch { return cipherText; }
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常");  return cipherText; }
 	}
 
 	public static AppConfig Load()
@@ -62,8 +62,7 @@ internal class ConfigManager
 				_lastReadTime = lastWrite;
 				return _cachedConfig;
 			}
-			catch
-			{
+			catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				return new AppConfig();
 			}
 		}
@@ -83,8 +82,7 @@ internal class ConfigManager
 				File.WriteAllText(tempPath, contents);
 				File.Move(tempPath, ConfigPath, overwrite: true);
 			}
-			catch (Exception ex)
-			{
+			catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				System.Diagnostics.Trace.WriteLine("Failed to save config: " + ex);
 			}
 		}

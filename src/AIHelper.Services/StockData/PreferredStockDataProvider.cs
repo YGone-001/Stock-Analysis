@@ -29,8 +29,7 @@ public sealed class PreferredStockDataProvider : IStockDataProvider
 			{
 				primaryResult = await _primary.GetDataAsync(request, cancellationToken);
 			}
-			catch (System.Exception ex)
-			{
+			catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				System.Diagnostics.Trace.WriteLine($"PreferredStockDataProvider: Primary provider threw exception: {ex}");
 			}
 

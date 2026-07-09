@@ -15,8 +15,7 @@ namespace AIHelper.Helpers
 			{
 				await task.ConfigureAwait(false);
 			}
-			catch (Exception ex)
-			{
+			catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				if (onException != null)
 				{
 					onException(ex);

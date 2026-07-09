@@ -61,8 +61,7 @@ public class WenCaiWindow : System.Windows.Window, IComponentConnector
 				}
 			};
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			TxtStatus.Text = "❌ 浏览器初始化失败: " + ex.Message;
 			Growl.Error("无法启动内置浏览器，请检查 WebView2 运行时是否安装！");
 		}

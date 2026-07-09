@@ -32,8 +32,7 @@ public static class HoldingsManager
 				_holdings = dict != null ? new ConcurrentDictionary<string, HoldingInfo>(dict) : new ConcurrentDictionary<string, HoldingInfo>();
 			}
 		}
-		catch
-		{
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			_holdings = new ConcurrentDictionary<string, HoldingInfo>();
 		}
 	}

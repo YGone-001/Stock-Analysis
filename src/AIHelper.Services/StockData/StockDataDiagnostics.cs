@@ -58,8 +58,7 @@ public sealed class StockDataDiagnostics
 				}
 			}
 		}
-		catch
-		{
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			sparrowQuoteResult = new StockDataDiagnosticItem("麻雀选股盘口字段", false, BuildMessage(quote, 0) + "；解析或字段缺失");
 		}
 		results.Add(new StockDataDiagnosticItem("实时行情/五档", quote.Success && quoteRows > 0 && hasFiveLevels, BuildMessage(quote, quoteRows) + (hasFiveLevels ? (hasDepthValues ? "；买卖五档完整且有值" : "；买卖五档结构完整，当前时段无档位值") : "；买卖五档不完整")));
@@ -114,8 +113,7 @@ public sealed class StockDataDiagnostics
 			}
 			return value.ValueKind == JsonValueKind.Array ? value.GetArrayLength() : 0;
 		}
-		catch
-		{
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return 0;
 		}
 	}
@@ -130,8 +128,7 @@ public sealed class StockDataDiagnostics
 			string value = data.EnumerateArray().Last().GetProperty("Time").GetString();
 			return DateTime.TryParse(value, out var date) ? date.ToString("yyyyMMdd", CultureInfo.InvariantCulture) : null;
 		}
-		catch
-		{
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return null;
 		}
 	}

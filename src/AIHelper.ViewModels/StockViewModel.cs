@@ -19,10 +19,10 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using AIHelper.Helpers;
-using RelayCommand = AIHelper.Helpers.RelayCommand;
+
 using AIHelper.Models;
 using AIHelper.Services.StockData;
-using AIHelper.Views;
+
 using HandyControl.Controls;
 using Serilog;
 
@@ -31,16 +31,7 @@ namespace AIHelper.ViewModels;
 public partial class StockViewModel : ObservableObject, IDisposable
 {
 	private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-	private ICommand? _openChartCommand;
-	private ICommand? _confirmAddStockCommand;
-	private ICommand? _quickAddStockCommand;
-	private ICommand? _removeStockCommand;
-	private ICommand? _addGroupCommand;
-	private ICommand? _removeGroupCommand;
-	private ICommand? _renameGroupCommand;
-	private ICommand? _manualRefreshCommand;
-	private ICommand? _refreshCodeTableCommand;
-	private ICommand? _moveStockToGroupCommand;
+
 
 	private const string DataFileName = "StockGroups.json";
 
@@ -203,7 +194,8 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		}
 	}
 
-	public ICommand OpenChartCommand => _openChartCommand ??= new RelayCommand(delegate(object o)
+	[RelayCommand]
+	private void OpenChart(object o)
 	{
 		string code = StockNavigationHelper.GetCode(o);
 		if (!string.IsNullOrEmpty(code))
@@ -211,9 +203,10 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			string name = StockNavigationHelper.GetName(o);
 			_dialogService.ShowChart(StockNavigationHelper.BuildEastMoneyQuoteUrl(code, fullScreenChart: true), name + " (" + code + ") 图表");
 		}
-	});
+	}
 
-	public ICommand ConfirmAddStockCommand => _confirmAddStockCommand ??= new RelayCommand(delegate(object o)
+	[RelayCommand]
+	private void ConfirmAddStock(object o)
 	{
 		if (o is StockModel stockModel)
 		{
@@ -221,9 +214,10 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			SearchText = "";
 			IsSearchPopupOpen = false;
 		}
-	});
+	}
 
-	public ICommand QuickAddStockCommand => _quickAddStockCommand ??= new RelayCommand(delegate
+	[RelayCommand]
+	private void QuickAddStock()
 	{
 		if (SearchResults != null && SearchResults.Count > 0)
 		{
@@ -244,9 +238,10 @@ public partial class StockViewModel : ObservableObject, IDisposable
 				IsSearchPopupOpen = false;
 			}
 		}
-	});
+	}
 
-	public ICommand RemoveStockCommand => _removeStockCommand ??= new RelayCommand(delegate(object o)
+	[RelayCommand]
+	private void RemoveStock(object o)
 	{
 		StockModel stock = o as StockModel;
 		if (stock != null && SelectedGroup != null && !SelectedGroup.IsOverview)
@@ -264,13 +259,14 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			SaveLocalData();
 			Application.Current?.Dispatcher.Invoke(delegate
 			{
-				LogAction?.Invoke("\ud83d\uddd1\ufe0f 已删除: " + stock.Name);
+				LogAction?.Invoke("🗑️ 已删除: " + stock.Name);
 			});
 			AnalyticsService.Log("7", stock.Code ?? "");
 		}
-	});
+	}
 
-	public ICommand AddGroupCommand => _addGroupCommand ??= new RelayCommand(delegate(object o)
+	[RelayCommand]
+	private void AddGroup(object o)
 	{
 		string text = o as string;
 		if (string.IsNullOrWhiteSpace(text))
@@ -285,9 +281,10 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		SelectedGroup = stockGroupModel;
 		AnalyticsService.Log("16", "1");
 		SaveLocalData();
-	});
+	}
 
-	public ICommand RemoveGroupCommand => _removeGroupCommand ??= new RelayCommand(delegate(object o)
+	[RelayCommand]
+	private void RemoveGroup(object o)
 	{
 		if (o is StockGroupModel stockGroupModel && !stockGroupModel.IsOverview)
 		{
@@ -315,9 +312,10 @@ public partial class StockViewModel : ObservableObject, IDisposable
 				SaveLocalData();
 			}
 		}
-	});
+	}
 
-	public ICommand RenameGroupCommand => _renameGroupCommand ??= new RelayCommand(delegate(object o)
+	[RelayCommand]
+	private void RenameGroup(object o)
 	{
 		StockGroupModel group = o as StockGroupModel;
 		if (group == null || group.IsOverview)
@@ -341,25 +339,28 @@ public partial class StockViewModel : ObservableObject, IDisposable
 				});
 			}
 		}
-	});
+	}
 
-	public ICommand ManualRefreshCommand => _manualRefreshCommand ??= new RelayCommand(async delegate
+	[RelayCommand]
+	private async Task ManualRefresh()
 	{
 		Application.Current?.Dispatcher.Invoke(delegate
 		{
-			LogAction?.Invoke("\ud83d\udd04 手动刷新数据...");
+			LogAction?.Invoke("🔄 手动刷新数据...");
 		});
 		AnalyticsService.Log("0", "0");
 		ResetQuoteBackoff();
 		await RefreshAll();
-	});
+	}
 
-	public ICommand RefreshCodeTableCommand => _refreshCodeTableCommand ??= new RelayCommand(async delegate
+	[RelayCommand]
+	private async Task RefreshCodeTable()
 	{
 		await RefreshCodeNameCacheAsync(forceRefresh: true);
-	});
+	}
 
-	public ICommand MoveStockToGroupCommand => _moveStockToGroupCommand ??= new RelayCommand(delegate(object o)
+	[RelayCommand]
+	private void MoveStockToGroup(object o)
 	{
 		StockGroupModel targetGroup = o as StockGroupModel;
 		StockModel stockToMove = CurrentSelectedStock;
@@ -377,11 +378,11 @@ public partial class StockViewModel : ObservableObject, IDisposable
 				Action<string>? logAction = LogAction;
 				if (logAction != null)
 				{
-					logAction!($"\ud83d\ude9a 已移动 {stockToMove.Name} 到 [{targetGroup.Header}]");
+					logAction!($"🚛 已移动 {stockToMove.Name} 到 [{targetGroup.Header}]");
 				}
 			});
 		}
-	});
+	}
 
 	private readonly IStockDataProvider _dataProvider;
 	private readonly AIHelper.Services.IDialogService _dialogService;
@@ -566,8 +567,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			{
 				ParseCodeNameJson((await _dataProvider.GetDataAsync(StockDataRequest.Parse("/api/codes"))).Json);
 			}
-			catch (Exception ex3)
-			{
+			catch (Exception ex3) { Serilog.Log.Warning(ex3, "捕获到未处理异常"); 
 				Exception ex2 = ex3;
 				Application.Current?.Dispatcher.Invoke(delegate
 				{
@@ -578,8 +578,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			{
 				ParseEtfJson((await _dataProvider.GetDataAsync(StockDataRequest.Parse("/api/etf?limit=10000"))).Json);
 			}
-			catch (Exception ex4)
-			{
+			catch (Exception ex4) { Serilog.Log.Warning(ex4, "捕获到未处理异常"); 
 				Exception ex = ex4;
 				Application.Current?.Dispatcher.Invoke(delegate
 				{
@@ -683,8 +682,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			StockNameMap = dictionary;
 			return true;
 		}
-		catch
-		{
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return false;
 		}
 	}
@@ -1108,8 +1106,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 					StockDataResult result = await _dataProvider.GetDataAsync(StockDataRequest.Parse("/api/quote?code=" + codes));
 					return result.Success && UpdateBatchStockUI(result.Json) > 0;
 				}
-				catch
-				{
+				catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 					return false;
 				}
 			}));
@@ -1229,8 +1226,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			});
 			return updates.Count;
 		}
-		catch
-		{
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return 0;
 		}
 	}
@@ -1266,8 +1262,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 						TimeSpan delay = _quoteBackoffUntil > TimeHelper.BeijingNow ? _quoteBackoffUntil - TimeHelper.BeijingNow : TimeSpan.FromSeconds(3);
 						await Task.Delay(delay, token);
 					}
-					catch
-					{
+					catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 						break;
 					}
 				}
@@ -1285,8 +1280,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 					{
 						await Task.Delay(1000, token);
 					}
-					catch
-					{
+					catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 						break;
 					}
 				}

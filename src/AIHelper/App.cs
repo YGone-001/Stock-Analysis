@@ -142,6 +142,8 @@ public class App : Application
 			.Build();
 
 		AppHost.Start();
+		
+		AIHelper.Helpers.NetworkHelper.ServiceProvider = AppHost.Services;
 
 		App app = new App();
 		app.InitializeComponent();

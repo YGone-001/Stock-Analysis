@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using AIHelper.Helpers;
-using RelayCommand = AIHelper.Helpers.RelayCommand;
+
 using AIHelper.Models;
 using AIHelper.Services.StockData;
 using HandyControl.Controls;
@@ -68,11 +68,7 @@ public partial class TurtleViewModel : ObservableObject
         set { _progressMax = value; OnPropertyChanged(); }
     }
 
-    private ICommand _startCommand;
-    public ICommand StartCommand => _startCommand ??= new RelayCommand(ExecuteStartCommand);
 
-    private ICommand _testCommand;
-    public ICommand TestCommand => _testCommand ??= new RelayCommand(ExecuteTestCommand);
 
     public TurtleViewModel(MainViewModel mainVm)
     {
@@ -86,7 +82,8 @@ public partial class TurtleViewModel : ObservableObject
         LogText += $"{prefix}{msg}\n";
     }
 
-    private async void ExecuteTestCommand(object parameter)
+    [RelayCommand]
+    private async Task Test()
     {
         AppendLog("\n🪺 [网络诊断] 正在向东方财富发送 000001(平安银行) K线请求...");
         try
@@ -108,13 +105,13 @@ public partial class TurtleViewModel : ObservableObject
                 AppendLog("❌ [诊断结论] 数据异常！没有找到 { } 包裹的 JSON 数据！", true);
             }
         }
-        catch (Exception ex)
-        {
+        catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
             AppendLog($"❌ [诊断异常] {ex.GetType().Name}: {ex.Message}", true);
         }
     }
 
-    private async void ExecuteStartCommand(object parameter)
+    [RelayCommand]
+    private async Task Start()
     {
         if (IsScanning)
         {
@@ -214,8 +211,7 @@ public partial class TurtleViewModel : ObservableObject
                 Growl.Success($"突破检测完毕，擒获 {results.Count} 只海龟！");
             }
         }
-        catch (Exception ex)
-        {
+        catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
             AppendLog("❌ 引擎崩溃: " + ex.Message);
         }
         finally

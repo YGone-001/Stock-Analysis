@@ -57,8 +57,7 @@ public class LiveChartWindow : Window, IComponentConnector
 				}
 			};
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			MessageBox.Show("浏览器引擎初始化失败: " + ex.Message);
 		}
 	}

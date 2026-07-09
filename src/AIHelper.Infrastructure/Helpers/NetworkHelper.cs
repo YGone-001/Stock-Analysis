@@ -13,29 +13,31 @@ namespace AIHelper.Helpers;
 
 public static class NetworkHelper
 {
-	private static HttpClient _client => App.AppHost.Services.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient("EastMoneyStockDataProvider");
+	public static IServiceProvider ServiceProvider { get; set; }
 
-	public static HttpClient SharedHttpClient => App.AppHost.Services.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient();
+	private static HttpClient _client => ServiceProvider.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient("EastMoneyStockDataProvider");
 
-	private static LocalStockCacheProvider _localCacheProvider => App.AppHost.Services.GetRequiredService<LocalStockCacheProvider>();
+	public static HttpClient SharedHttpClient => ServiceProvider.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient();
 
-	private static IStockDataProvider _stockDataProvider => App.AppHost.Services.GetRequiredService<IStockDataProvider>();
+	private static LocalStockCacheProvider _localCacheProvider => ServiceProvider.GetRequiredService<LocalStockCacheProvider>();
+
+	private static IStockDataProvider _stockDataProvider => ServiceProvider.GetRequiredService<IStockDataProvider>();
 
 	public static event Action<StockDataResult> StockDataStatusChanged
 	{
 		add
 		{
-			if (App.AppHost != null)
+			if (ServiceProvider != null)
 			{
-				var fallback = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<FallbackStockDataProvider>(App.AppHost.Services);
+				var fallback = (dynamic)ServiceProvider.GetRequiredService(Type.GetType("AIHelper.Services.StockData.FallbackStockDataProvider, AIHelper.Services"));
 				fallback.StatusChanged += value;
 			}
 		}
 		remove
 		{
-			if (App.AppHost != null)
+			if (ServiceProvider != null)
 			{
-				var fallback = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<FallbackStockDataProvider>(App.AppHost.Services);
+				var fallback = (dynamic)ServiceProvider.GetRequiredService(Type.GetType("AIHelper.Services.StockData.FallbackStockDataProvider, AIHelper.Services"));
 				fallback.StatusChanged -= value;
 			}
 		}
@@ -135,8 +137,7 @@ public static class NetworkHelper
 			using Ping ping = new Ping();
 			return ping.Send(host, 1000).Status == IPStatus.Success;
 		}
-		catch
-		{
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return false;
 		}
 	}
@@ -158,8 +159,7 @@ public static class NetworkHelper
 			using HttpResponseMessage response = await client.SendAsync(request);
 			return response.IsSuccessStatusCode ? "200" : response.StatusCode.ToString();
 		}
-		catch
-		{
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return "Error";
 		}
 	}

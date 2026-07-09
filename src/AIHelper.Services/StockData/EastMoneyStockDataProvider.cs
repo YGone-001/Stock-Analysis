@@ -123,8 +123,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		{
 			throw;
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				System.Diagnostics.Trace.WriteLine($"EastMoney GetQuoteAsync batch failed: {ex.Message}");
 			}
 		}
@@ -181,8 +180,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		{
 			throw;
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return Failure(request, "{\"data\":[]}", ex.Message, url, ex, code);
 		}
 	}
@@ -224,8 +222,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		{
 			throw;
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return Failure(request, "{\"data\":[]}", ex.Message, url, ex, code);
 		}
 	}
@@ -260,8 +257,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		{
 			throw;
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return Failure(request, "{\"data\":{\"List\":[]}}", ex.Message, url, ex, code);
 		}
 	}
@@ -306,8 +302,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		{
 			throw;
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return Failure(request, "{\"data\":{\"List\":[]}}", ex.Message, detailsUrl, ex, code);
 		}
 	}
@@ -348,8 +343,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		{
 			throw;
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return Failure(request, "{\"code\":0,\"data\":[]}", ex.Message, url, ex, keyword);
 		}
 	}
@@ -375,8 +369,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		{
 			throw;
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			string empty = kind == "etf" ? "{\"data\":{\"list\":[]}}" : "{\"data\":{\"codes\":[]}}";
 			return Failure(request, empty, ex.Message, currentUrl, ex);
 		}
@@ -440,8 +433,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		{
 			throw;
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return Failure(request, "{\"data\":{\"is_workday\":false,\"previous\":[]}}", ex.Message, url, ex, "000001");
 		}
 	}

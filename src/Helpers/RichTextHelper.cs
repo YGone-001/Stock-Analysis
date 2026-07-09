@@ -71,8 +71,7 @@ public static class RichTextHelper
 					BaselineAlignment = BaselineAlignment.Center
 				});
 			}
-			catch
-			{
+			catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				textBlock.Inlines.Add(new Run(item.Value));
 			}
 			num = item.Index + item.Length;

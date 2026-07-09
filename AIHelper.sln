@@ -1,0 +1,54 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIHelper", "src\AIHelper.csproj", "{CEAE8492-4BD5-4478-96FD-154CC3F70B38}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{E18E4A29-8E95-45E1-92D1-C09ABEF5C9C9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIHelper.Core", "src\AIHelper.Core\AIHelper.Core.csproj", "{E04D61F6-DFEE-42C0-A687-64C8CCB66C88}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIHelper.Infrastructure", "src\AIHelper.Infrastructure\AIHelper.Infrastructure.csproj", "{F630D47F-B14C-4226-97FE-4A02D1AFDB00}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIHelper.Services", "src\AIHelper.Services\AIHelper.Services.csproj", "{F32CE8CB-27CD-4BBC-B6CD-55A8A269B2A0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIHelper.ViewModels", "src\AIHelper.ViewModels\AIHelper.ViewModels.csproj", "{4341C706-A1C1-4C09-A377-98765467C91F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CEAE8492-4BD5-4478-96FD-154CC3F70B38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CEAE8492-4BD5-4478-96FD-154CC3F70B38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CEAE8492-4BD5-4478-96FD-154CC3F70B38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CEAE8492-4BD5-4478-96FD-154CC3F70B38}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E04D61F6-DFEE-42C0-A687-64C8CCB66C88}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E04D61F6-DFEE-42C0-A687-64C8CCB66C88}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E04D61F6-DFEE-42C0-A687-64C8CCB66C88}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E04D61F6-DFEE-42C0-A687-64C8CCB66C88}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F630D47F-B14C-4226-97FE-4A02D1AFDB00}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F630D47F-B14C-4226-97FE-4A02D1AFDB00}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F630D47F-B14C-4226-97FE-4A02D1AFDB00}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F630D47F-B14C-4226-97FE-4A02D1AFDB00}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F32CE8CB-27CD-4BBC-B6CD-55A8A269B2A0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F32CE8CB-27CD-4BBC-B6CD-55A8A269B2A0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F32CE8CB-27CD-4BBC-B6CD-55A8A269B2A0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F32CE8CB-27CD-4BBC-B6CD-55A8A269B2A0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4341C706-A1C1-4C09-A377-98765467C91F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4341C706-A1C1-4C09-A377-98765467C91F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4341C706-A1C1-4C09-A377-98765467C91F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4341C706-A1C1-4C09-A377-98765467C91F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{E04D61F6-DFEE-42C0-A687-64C8CCB66C88} = {E18E4A29-8E95-45E1-92D1-C09ABEF5C9C9}
+		{F630D47F-B14C-4226-97FE-4A02D1AFDB00} = {E18E4A29-8E95-45E1-92D1-C09ABEF5C9C9}
+		{F32CE8CB-27CD-4BBC-B6CD-55A8A269B2A0} = {E18E4A29-8E95-45E1-92D1-C09ABEF5C9C9}
+		{4341C706-A1C1-4C09-A377-98765467C91F} = {E18E4A29-8E95-45E1-92D1-C09ABEF5C9C9}
+	EndGlobalSection
+EndGlobal

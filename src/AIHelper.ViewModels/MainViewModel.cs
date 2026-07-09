@@ -11,9 +11,9 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using AIHelper.Helpers;
-using RelayCommand = AIHelper.Helpers.RelayCommand;
+
 using AIHelper.Services.StockData;
-using AIHelper.Views;
+
 using HandyControl.Controls;
 using Serilog;
 
@@ -74,35 +74,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
 	private Visibility _chatVisibility;
 
-	public ICommand ClearCacheCommand { get; set; }
-
-	public ICommand ClearLogCommand { get; set; }
-
 	public ObservableCollection<MenuItemModel> MenuItems { get; set; }
-
-	public ICommand OpenFolderCommand { get; set; }
-
-	public ICommand ToggleChatCommand { get; set; }
-
-	public ICommand SetProxyCommand { get; set; }
-
-	public ICommand OpenHelpCommand { get; set; }
-
-	public ICommand OpenSparrowCommand { get; set; }
-
-	public ICommand OpenWenCaiCommand { get; set; }
-
-	public ICommand OpenDongFangCommand { get; set; }
-
-	public ICommand OpenAnalyzeMenuCommand { get; set; }
-
-	public ICommand ConfigPositionCommand { get; set; }
-
-	public ICommand OpenFiveDayChartCommand { get; set; }
-
-	public ICommand OpenImportExportCommand { get; set; }
-
-	public ICommand DiagnoseDataSourcesCommand { get; set; }
 
 	public StockViewModel StockVM { get; set; }
 
@@ -194,7 +166,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 				}
 			});
 		};
-		InitCommands();
+
 		InitMenu();
 		AppendLog("系统初始化完成。");
 		InitializeDataService().SafeFireAndForget();
@@ -222,222 +194,234 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		IsLoading = false;
 	}
 
-	private void InitCommands()
+	[RelayCommand]
+	private async Task DiagnoseDataSources()
 	{
-		DiagnoseDataSourcesCommand = new RelayCommand(async delegate
+		AppendLog("🩺 开始诊断股票数据源...");
+		try
 		{
-			AppendLog("🩺 开始诊断股票数据源...");
-			try
+			IReadOnlyList<StockDataDiagnosticItem> results = await new StockDataDiagnostics().RunAsync();
+			foreach (StockDataDiagnosticItem item in results)
 			{
-				IReadOnlyList<StockDataDiagnosticItem> results = await new StockDataDiagnostics().RunAsync();
-				foreach (StockDataDiagnosticItem item in results)
+				AppendLog((item.Success ? "✅ " : "❌ ") + item.Name + "：" + item.Message);
+			}
+			int passed = results.Count(item => item.Success);
+			_dialogService.ShowMessage("数据源诊断完成：" + passed + "/" + results.Count + " 项通过。\n详细结果已写入日志窗口。", "数据源诊断");
+		}
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
+			AppendLog("❌ 数据源诊断失败：" + ex.Message);
+		}
+	}
+
+	[RelayCommand]
+	private void OpenImportExport()
+	{
+		_dialogService.ShowImportExport();
+	}
+
+	[RelayCommand]
+	private void OpenFiveDayChart(object obj)
+	{
+		if (obj == null)
+		{
+			return;
+		}
+		try
+		{
+			string text8 = StockNavigationHelper.GetCode(obj);
+			string value = StockNavigationHelper.GetName(obj);
+			if (!string.IsNullOrEmpty(text8))
+			{
+				AppendLog($"📈 正在提取五日分时图: {value}({text8})");
+				AnalyticsService.Log("2", "5");
+				string imageUrl = StockNavigationHelper.BuildEastMoneyFiveDayImageUrl(text8);
+				Application.Current?.Dispatcher.Invoke(delegate
 				{
-					AppendLog((item.Success ? "✅ " : "❌ ") + item.Name + "：" + item.Message);
-				}
-				int passed = results.Count(item => item.Success);
-				_dialogService.ShowMessage("数据源诊断完成：" + passed + "/" + results.Count + " 项通过。\n详细结果已写入日志窗口。", "数据源诊断");
-			}
-			catch (Exception ex)
-			{
-				AppendLog("❌ 数据源诊断失败：" + ex.Message);
-			}
-		});
-		OpenImportExportCommand = new RelayCommand(delegate
-		{
-			_dialogService.ShowImportExport();
-		});
-		string imageUrl;
-		OpenFiveDayChartCommand = new RelayCommand(delegate(object obj)
-		{
-			if (obj == null)
-			{
-				return;
-			}
-			try
-			{
-				string text8 = StockNavigationHelper.GetCode(obj);
-				string value = StockNavigationHelper.GetName(obj);
-				if (!string.IsNullOrEmpty(text8))
-				{
-					AppendLog($"\ud83d\udcc8 正在提取五日分时图: {value}({text8})");
-					AnalyticsService.Log("2", "5");
-					imageUrl = StockNavigationHelper.BuildEastMoneyFiveDayImageUrl(text8);
-					Application.Current?.Dispatcher.Invoke(delegate
+					try
 					{
-						try
-						{
-							_dialogService.ShowImage(imageUrl);
-						}
-						catch (Exception ex7)
-						{
-							_dialogService.ShowMessage("图表加载异常: " + ex7.Message, "错误");
-						}
-					});
-				}
-			}
-			catch (Exception ex6)
-			{
-				AppendLog("❌ 五日图命令执行失败: " + ex6.Message);
-			}
-		});
-		OpenWenCaiCommand = new RelayCommand(delegate(object obj)
-		{
-			if (obj == null)
-			{
-				return;
-			}
-			try
-			{
-				string text6 = StockNavigationHelper.GetCode(obj);
-				string text7 = StockNavigationHelper.GetName(obj);
-				if (!string.IsNullOrEmpty(text6))
-				{
-					_dialogService.ShowWenCai(text6, text7);
-					AppendLog("\ud83d\udd0d 开启问财分析: " + text7);
-					AnalyticsService.Log("2", "wc");
-				}
-			}
-			catch (Exception ex5)
-			{
-				AppendLog("❌ 问财开启失败: " + ex5.Message);
-			}
-		});
-		OpenDongFangCommand = new RelayCommand(delegate(object obj)
-		{
-			if (obj == null)
-			{
-				return;
-			}
-			try
-			{
-				string text4 = StockNavigationHelper.GetCode(obj);
-				string text5 = StockNavigationHelper.GetName(obj);
-				if (!string.IsNullOrEmpty(text4))
-				{
-					_dialogService.ShowLiveChart(text4, text5);
-					AppendLog("\ud83d\udcca 开启东财详情: " + text5);
-					AnalyticsService.Log("2", "df");
-				}
-			}
-			catch (Exception ex4)
-			{
-				AppendLog("❌ 东财开启失败: " + ex4.Message);
-			}
-		});
-		ConfigPositionCommand = new RelayCommand(delegate(object obj)
-		{
-			try
-			{
-				Type type = obj.GetType();
-				string text3 = type.GetProperty("Code")?.GetValue(obj)?.ToString() ?? "";
-				string stockName = type.GetProperty("Name")?.GetValue(obj)?.ToString() ?? "未知股票";
-				if (!string.IsNullOrEmpty(text3))
-				{
-					_dialogService.ShowPositionConfig(text3, stockName);
-					AnalyticsService.Log("15", "0");
-				}
-			}
-			catch (Exception ex3)
-			{
-				AppendLog("❌ 打开持仓配置失败: " + ex3.Message);
-			}
-		});
-		OpenFolderCommand = new RelayCommand(delegate
-		{
-			string text2 = ConfigManager.Load().DataSavePath;
-			if (string.IsNullOrWhiteSpace(text2))
-			{
-				text2 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "GPSJ");
-			}
-			if (!Directory.Exists(text2))
-			{
-				Directory.CreateDirectory(text2);
-			}
-			try
-			{
-				string name = new DirectoryInfo(text2).Name;
-				if (Win32Helper.FocusFolderWindow(name))
-				{
-					StatusLeft = "激活：" + name;
-				}
-				else
-				{
-					Process.Start("explorer.exe", text2);
-				}
-			}
-			catch (Exception ex2)
-			{
-				AppendLog("❌ 打开目录失败: " + ex2.Message);
-			}
-		});
-		string[] validPrefixes;
-		ClearCacheCommand = new RelayCommand(delegate
-		{
-			try
-			{
-				string text = ConfigManager.Load().DataSavePath;
-				if (string.IsNullOrWhiteSpace(text))
-				{
-					text = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "GPSJ");
-				}
-				if (Directory.Exists(text))
-				{
-					validPrefixes = new string[8] { "复合取数_", "五档盘口_", "分时走势_", "逐笔明细_", "麻雀", "海龟", "历史K线_", "大盘指数_" };
-					List<string> list = (from s in Directory.GetFiles(text, "*.txt")
-						where validPrefixes.Any((string p) => Path.GetFileName(s)!.StartsWith(p))
-						select s).ToList();
-					foreach (string item in list)
-					{
-						File.Delete(item);
+						_dialogService.ShowImage(imageUrl);
 					}
-					AppendLog($"✅ 清理完成，共剿灭 {list.Count} 个缓存文件！");
-				}
-			}
-			catch (Exception ex)
-			{
-				AppendLog("❌ 清理出错: " + ex.Message);
-			}
-		});
-		ClearLogCommand = new RelayCommand(delegate
-		{
-			LogVM.Clear();
-		});
-		SetProxyCommand = new RelayCommand(delegate
-		{
-			_dialogService.ShowProxySettings();
-		});
-		OpenHelpCommand = new RelayCommand(delegate
-		{
-			try
-			{
-				Process.Start(new ProcessStartInfo("https://www.ooppp.com/help.html")
-				{
-					UseShellExecute = true
+					catch (Exception ex7) { Serilog.Log.Warning(ex7, "捕获到未处理异常"); 
+						_dialogService.ShowMessage("图表加载异常: " + ex7.Message, "错误");
+					}
 				});
 			}
-			catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
-		});
-		ToggleChatCommand = new RelayCommand(delegate
+		}
+		catch (Exception ex6) { Serilog.Log.Warning(ex6, "捕获到未处理异常"); 
+			AppendLog("❌ 五日图命令执行失败: " + ex6.Message);
+		}
+	}
+
+	[RelayCommand]
+	private void OpenWenCai(object obj)
+	{
+		if (obj == null)
 		{
-			if (ChatVisibility == Visibility.Visible)
+			return;
+		}
+		try
+		{
+			string text6 = StockNavigationHelper.GetCode(obj);
+			string text7 = StockNavigationHelper.GetName(obj);
+			if (!string.IsNullOrEmpty(text6))
 			{
-				ChatVisibility = Visibility.Collapsed;
-				ChatColumnWidth = new GridLength(0.0);
+				_dialogService.ShowWenCai(text6, text7);
+				AppendLog("🔍 开启问财分析: " + text7);
+				AnalyticsService.Log("2", "wc");
+			}
+		}
+		catch (Exception ex5) { Serilog.Log.Warning(ex5, "捕获到未处理异常"); 
+			AppendLog("❌ 问财开启失败: " + ex5.Message);
+		}
+	}
+
+	[RelayCommand]
+	private void OpenDongFang(object obj)
+	{
+		if (obj == null)
+		{
+			return;
+		}
+		try
+		{
+			string text4 = StockNavigationHelper.GetCode(obj);
+			string text5 = StockNavigationHelper.GetName(obj);
+			if (!string.IsNullOrEmpty(text4))
+			{
+				_dialogService.ShowLiveChart(text4, text5);
+				AppendLog("📊 开启东财详情: " + text5);
+				AnalyticsService.Log("2", "df");
+			}
+		}
+		catch (Exception ex4) { Serilog.Log.Warning(ex4, "捕获到未处理异常"); 
+			AppendLog("❌ 东财开启失败: " + ex4.Message);
+		}
+	}
+
+	[RelayCommand]
+	private void ConfigPosition(object obj)
+	{
+		try
+		{
+			Type type = obj.GetType();
+			string text3 = type.GetProperty("Code")?.GetValue(obj)?.ToString() ?? "";
+			string stockName = type.GetProperty("Name")?.GetValue(obj)?.ToString() ?? "未知股票";
+			if (!string.IsNullOrEmpty(text3))
+			{
+				_dialogService.ShowPositionConfig(text3, stockName);
+				AnalyticsService.Log("15", "0");
+			}
+		}
+		catch (Exception ex3) { Serilog.Log.Warning(ex3, "捕获到未处理异常"); 
+			AppendLog("❌ 打开持仓配置失败: " + ex3.Message);
+		}
+	}
+
+	[RelayCommand]
+	private void OpenFolder()
+	{
+		string text2 = ConfigManager.Load().DataSavePath;
+		if (string.IsNullOrWhiteSpace(text2))
+		{
+			text2 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "GPSJ");
+		}
+		if (!Directory.Exists(text2))
+		{
+			Directory.CreateDirectory(text2);
+		}
+		try
+		{
+			string name = new DirectoryInfo(text2).Name;
+			if (Win32Helper.FocusFolderWindow(name))
+			{
+				StatusLeft = "激活：" + name;
 			}
 			else
 			{
-				ChatVisibility = Visibility.Visible;
-				ChatColumnWidth = new GridLength(1.0, GridUnitType.Star);
+				Process.Start("explorer.exe", text2);
 			}
-		});
-		OpenSparrowCommand = new RelayCommand(delegate
+		}
+		catch (Exception ex2) { Serilog.Log.Warning(ex2, "捕获到未处理异常"); 
+			AppendLog("❌ 打开目录失败: " + ex2.Message);
+		}
+	}
+
+	[RelayCommand]
+	private void ClearCache()
+	{
+		try
 		{
-			if (!(TimeHelper.BeijingNow.TimeOfDay < new TimeSpan(14, 30, 0)) || _dialogService.ShowConfirm("量化选股建议在 14:30 以后执行，是否强制打开？", "风险确认"))
+			string text = ConfigManager.Load().DataSavePath;
+			if (string.IsNullOrWhiteSpace(text))
 			{
-				AnalyticsService.Log("9", "0");
-				_dialogService.ShowSparrowScanner();
+				text = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "GPSJ");
 			}
-		});
+			if (Directory.Exists(text))
+			{
+				string[] validPrefixes = new string[8] { "复合取数_", "五档盘口_", "分时走势_", "逐笔明细_", "麻雀", "海龟", "历史K线_", "大盘指数_" };
+				List<string> list = (from s in Directory.GetFiles(text, "*.txt")
+					where validPrefixes.Any((string p) => Path.GetFileName(s)!.StartsWith(p))
+					select s).ToList();
+				foreach (string item in list)
+				{
+					File.Delete(item);
+				}
+				AppendLog($"✅ 清理完成，共剿灭 {list.Count} 个缓存文件！");
+			}
+		}
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
+			AppendLog("❌ 清理出错: " + ex.Message);
+		}
+	}
+
+	[RelayCommand]
+	private void ClearLog()
+	{
+		LogVM.Clear();
+	}
+
+	[RelayCommand]
+	private void SetProxy()
+	{
+		_dialogService.ShowProxySettings();
+	}
+
+	[RelayCommand]
+	private void OpenHelp()
+	{
+		try
+		{
+			Process.Start(new ProcessStartInfo("https://www.ooppp.com/help.html")
+			{
+				UseShellExecute = true
+			});
+		}
+		catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
+	}
+
+	[RelayCommand]
+	private void ToggleChat()
+	{
+		if (ChatVisibility == Visibility.Visible)
+		{
+			ChatVisibility = Visibility.Collapsed;
+			ChatColumnWidth = new GridLength(0.0);
+		}
+		else
+		{
+			ChatVisibility = Visibility.Visible;
+			ChatColumnWidth = new GridLength(1.0, GridUnitType.Star);
+		}
+	}
+
+	[RelayCommand]
+	private void OpenSparrow()
+	{
+		if (!(TimeHelper.BeijingNow.TimeOfDay < new TimeSpan(14, 30, 0)) || _dialogService.ShowConfirm("量化选股建议在 14:30 以后执行，是否强制打开？", "风险确认"))
+		{
+			AnalyticsService.Log("9", "0");
+			_dialogService.ShowSparrowScanner();
+		}
 	}
 
 	private void InitMenu()
@@ -457,10 +441,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		{
 			Header = "退出",
 			Icon = "❌",
-			Command = new RelayCommand(delegate
-			{
-				Application.Current?.Shutdown();
-			})
+			Command = ExitAppCommand
 		});
 		MenuItemModel menuItemModel2 = new MenuItemModel
 		{
@@ -532,5 +513,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		_chatVM?.Dispose();
 	}
 
-	
+	[RelayCommand]
+	private void ExitApp()
+	{
+		Application.Current?.Shutdown();
+	}
 }

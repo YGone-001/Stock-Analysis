@@ -287,12 +287,10 @@ public class ExportControl : UserControl, IComponentConnector
 				SelectedIndices = GetSelectedIndices()
 			}, Log, _cts.Token);
 		}
-		catch (OperationCanceledException)
-		{
+		catch (OperationCanceledException ex_log) { Serilog.Log.Information(ex_log, "任务被取消"); 
 			Log("🛑 取数任务已被手动取消。");
 		}
-		catch (Exception ex)
-		{
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			Log("❌ 取数引擎崩溃: " + ex.Message);
 		}
 		finally

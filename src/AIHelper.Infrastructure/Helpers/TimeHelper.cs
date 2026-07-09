@@ -40,8 +40,7 @@ public static class TimeHelper
 				IsSynced = true;
 			}
 		}
-		catch
-		{
+		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			IsSynced = false;
 		}
 	}

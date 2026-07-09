@@ -15,6 +15,7 @@
   <PropertyGroup>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <RootNamespace />
+    <DefaultItemExcludes>$(DefaultItemExcludes);AIHelper.Core\**;AIHelper.Infrastructure\**;AIHelper.Services\**;AIHelper.ViewModels\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <None Remove="assets\emoji_tab_icon.png" />
@@ -217,6 +218,12 @@
     <PackageReference Include="Serilog" Version="4.3.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.9" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="AIHelper.Core\AIHelper.Core.csproj" />
+    <ProjectReference Include="AIHelper.Infrastructure\AIHelper.Infrastructure.csproj" />
+    <ProjectReference Include="AIHelper.Services\AIHelper.Services.csproj" />
+    <ProjectReference Include="AIHelper.ViewModels\AIHelper.ViewModels.csproj" />
   </ItemGroup>
 </Project>
 

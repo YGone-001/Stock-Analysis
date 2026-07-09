@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AIHelper.Core\AIHelper.Core.csproj" />
+    <ProjectReference Include="..\AIHelper.Services\AIHelper.Services.csproj" />
+    <ProjectReference Include="..\AIHelper.Infrastructure\AIHelper.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="HandyControl" Version="3.5.1" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.28" />
+  </ItemGroup>
+</Project>
