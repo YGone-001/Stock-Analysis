@@ -385,10 +385,11 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		}
 	});
 
-	
+	private readonly IStockDataProvider _dataProvider;
 
-	public StockViewModel()
+	public StockViewModel(IStockDataProvider dataProvider)
 	{
+		_dataProvider = dataProvider;
 		_filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StockGroups.json");
 		NetworkHelper.StockDataStatusChanged += OnStockDataStatusChanged;
 		LoadLocalData();
@@ -563,7 +564,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			}
 			try
 			{
-				ParseCodeNameJson(await NetworkHelper.GetDataAsync("/api/codes"));
+				ParseCodeNameJson((await _dataProvider.GetDataAsync(StockDataRequest.Parse("/api/codes"))).Json);
 			}
 			catch (Exception ex3)
 			{
@@ -575,7 +576,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			}
 			try
 			{
-				ParseEtfJson(await NetworkHelper.GetDataAsync("/api/etf?limit=10000"));
+				ParseEtfJson((await _dataProvider.GetDataAsync(StockDataRequest.Parse("/api/etf?limit=10000"))).Json);
 			}
 			catch (Exception ex4)
 			{
@@ -615,8 +616,8 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			LogAction?.Invoke(forceRefresh ? "🔄 正在手动刷新股票代码表..." : "🌐 正在同步股票代码表...");
 		});
 		string suffix = forceRefresh ? "?force=1" : "";
-		Task<StockDataResult> stockTask = NetworkHelper.GetDataResultAsync("/api/codes" + suffix);
-		Task<StockDataResult> etfTask = NetworkHelper.GetDataResultAsync("/api/etf" + suffix);
+		Task<StockDataResult> stockTask = _dataProvider.GetDataAsync(StockDataRequest.Parse("/api/codes" + suffix));
+		Task<StockDataResult> etfTask = _dataProvider.GetDataAsync(StockDataRequest.Parse("/api/etf" + suffix));
 		await Task.WhenAll(stockTask, etfTask);
 		StockDataResult stockResult = await stockTask;
 		StockDataResult etfResult = await etfTask;
@@ -901,7 +902,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			}
 			try
 			{
-				string json = await NetworkHelper.GetDataAsync("/api/search?keyword=" + Uri.EscapeDataString(keyword2));
+				string json = (await _dataProvider.GetDataAsync(StockDataRequest.Parse("/api/search?keyword=" + Uri.EscapeDataString(keyword2)))).Json;
 				if (token.IsCancellationRequested)
 				{
 					return;
@@ -1104,7 +1105,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 				try
 				{
 					string codes = string.Join(",", chunk.Select((StockModel stock) => stock.PureCode));
-					StockDataResult result = await NetworkHelper.GetDataResultAsync("/api/quote?code=" + codes);
+					StockDataResult result = await _dataProvider.GetDataAsync(StockDataRequest.Parse("/api/quote?code=" + codes));
 					return result.Success && UpdateBatchStockUI(result.Json) > 0;
 				}
 				catch

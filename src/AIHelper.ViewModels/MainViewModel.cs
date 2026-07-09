@@ -166,10 +166,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
 	public Action OpenSparrowWindowAction { get; set; }
 	public Func<string, string, bool> ShowConfirmFunc { get; set; }
 
-	public MainViewModel()
+	public MainViewModel(StockViewModel stockVm, LogViewModel logVm)
 	{
-		StockVM = new StockViewModel();
-		LogVM = new LogViewModel();
+		StockVM = stockVm;
+		LogVM = logVm;
 		StockVM.LogAction = AppendLog;
 		StockVM.LatencyAction = delegate(long ms)
 		{

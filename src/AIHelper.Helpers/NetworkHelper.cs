@@ -7,30 +7,42 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Models;
 using AIHelper.Services.StockData;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AIHelper.Helpers;
 
 public static class NetworkHelper
 {
-	private static HttpClient _client;
-	public static readonly HttpClient SharedHttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+	private static HttpClient _client => App.AppHost.Services.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient("EastMoneyStockDataProvider");
 
-	private static LocalStockCacheProvider _localCacheProvider;
+	public static HttpClient SharedHttpClient => App.AppHost.Services.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient();
 
-	private static FallbackStockDataProvider _stockDataProvider;
+	private static LocalStockCacheProvider _localCacheProvider => App.AppHost.Services.GetRequiredService<LocalStockCacheProvider>();
 
-	public static event Action<StockDataResult> StockDataStatusChanged;
+	private static IStockDataProvider _stockDataProvider => App.AppHost.Services.GetRequiredService<IStockDataProvider>();
+
+	public static event Action<StockDataResult> StockDataStatusChanged
+	{
+		add
+		{
+			if (App.AppHost != null)
+			{
+				var fallback = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<FallbackStockDataProvider>(App.AppHost.Services);
+				fallback.StatusChanged += value;
+			}
+		}
+		remove
+		{
+			if (App.AppHost != null)
+			{
+				var fallback = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<FallbackStockDataProvider>(App.AppHost.Services);
+				fallback.StatusChanged -= value;
+			}
+		}
+	}
 
 	static NetworkHelper()
 	{
-		try
-		{
-			ReloadProxySettings();
-		}
-		catch (Exception ex)
-		{
-			System.Diagnostics.Trace.WriteLine($"Failed to initialize NetworkHelper: {ex}");
-		}
 	}
 
 	public static WebProxy GetWebProxy(AppConfig config)
@@ -52,46 +64,9 @@ public static class NetworkHelper
 
 	public static void ReloadProxySettings()
 	{
-		AppConfig config = ConfigManager.Load();
-		HttpClientHandler handler = new HttpClientHandler();
-		WebProxy proxy = GetWebProxy(config);
-		if (proxy != null)
-		{
-			handler.Proxy = proxy;
-			handler.UseProxy = true;
-		}
-		else
-		{
-			handler.UseProxy = true;
-		}
-
-		HttpClient previousClient = _client;
-		_client = new HttpClient(handler)
-		{
-			Timeout = TimeSpan.FromSeconds(config.TimeoutSeconds > 0 ? config.TimeoutSeconds : 10)
-		};
-		_client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
-		_localCacheProvider ??= new LocalStockCacheProvider();
-		
-		if (_stockDataProvider != null)
-		{
-			_stockDataProvider.StatusChanged -= OnStockDataProviderStatusChanged;
-		}
-		
-		var eastMoney = new EastMoneyStockDataProvider(_client, _localCacheProvider);
-		var externalGateway = new ExternalStockDataProvider(_client);
-		var publicProvider = new PreferredStockDataProvider(externalGateway, eastMoney);
-		_stockDataProvider = new FallbackStockDataProvider(publicProvider, _localCacheProvider);
-		_stockDataProvider.StatusChanged += OnStockDataProviderStatusChanged;
-		
-		// Remove previousClient?.Dispose(); to avoid race condition with in-flight requests.
-		// HttpClient will be safely cleaned up by the GC/Finalizer when requests complete.
+		// With DI, HttpMessageHandler configuration is handled in App.cs
 	}
 
-	private static void OnStockDataProviderStatusChanged(StockDataResult result)
-	{
-		StockDataStatusChanged?.Invoke(result);
-	}
 
 	public static async Task<string> GetDataAsync(string endpoint, CancellationToken cancellationToken = default)
 	{
@@ -103,7 +78,7 @@ public static class NetworkHelper
 		if (!endpoint.StartsWith("http", StringComparison.OrdinalIgnoreCase))
 		{
 			StockDataRequest request = StockDataRequest.Parse(endpoint);
-			FallbackStockDataProvider provider = _stockDataProvider;
+			IStockDataProvider provider = _stockDataProvider;
 			if (provider != null && provider.CanHandle(request))
 			{
 				return await provider.GetDataAsync(request, cancellationToken);

@@ -23,10 +23,9 @@ public class MainWindow : HandyControl.Controls.Window, IComponentConnector
 
 	private bool _contentLoaded;
 
-	public MainWindow()
+	public MainWindow(MainViewModel vm)
 	{
 		InitializeComponent();
-		MainViewModel vm = new MainViewModel();
 		base.DataContext = vm;
 		ExportCtrl.PrintLogAction = delegate(string message)
 		{
