@@ -16,27 +16,8 @@ using HandyControl.Controls;
 
 namespace AIHelper.Views;
 
-public class ProxyWindow : HandyControl.Controls.Window, IComponentConnector
+public partial class ProxyWindow : HandyControl.Controls.Window
 {
-	internal ToggleButton TglEnableProxy;
-
-	internal System.Windows.Controls.TextBox TxtAddress;
-
-	internal System.Windows.Controls.TextBox TxtPort;
-
-	internal System.Windows.Controls.TextBox TxtUsername;
-
-	internal System.Windows.Controls.PasswordBox TxtPassword;
-
-	internal TextBlock TxtTestResult;
-
-	internal Button BtnTest;
-
-	internal Button BtnCancel;
-
-	internal Button BtnSave;
-
-	private bool _contentLoaded;
 
 	public ProxyWindow()
 	{
@@ -140,54 +121,4 @@ public class ProxyWindow : HandyControl.Controls.Window, IComponentConnector
 		Close();
 	}
 
-	public void InitializeComponent()
-	{
-		if (!_contentLoaded)
-		{
-			_contentLoaded = true;
-			Uri resourceLocator = new Uri("/AIHelper;component/views/proxywindow.xaml", UriKind.Relative);
-			Application.LoadComponent(this, resourceLocator);
-		}
-	}
-
-	[EditorBrowsable(EditorBrowsableState.Never)]
-	void IComponentConnector.Connect(int connectionId, object target)
-	{
-		switch (connectionId)
-		{
-		case 1:
-			TglEnableProxy = (ToggleButton)target;
-			break;
-		case 2:
-			TxtAddress = (System.Windows.Controls.TextBox)target;
-			break;
-		case 3:
-			TxtPort = (System.Windows.Controls.TextBox)target;
-			break;
-		case 4:
-			TxtUsername = (System.Windows.Controls.TextBox)target;
-			break;
-		case 5:
-			TxtPassword = (System.Windows.Controls.PasswordBox)target;
-			break;
-		case 6:
-			TxtTestResult = (TextBlock)target;
-			break;
-		case 7:
-			BtnTest = (Button)target;
-			BtnTest.Click += BtnTest_Click;
-			break;
-		case 8:
-			BtnCancel = (Button)target;
-			BtnCancel.Click += BtnCancel_Click;
-			break;
-		case 9:
-			BtnSave = (Button)target;
-			BtnSave.Click += BtnSave_Click;
-			break;
-		default:
-			_contentLoaded = true;
-			break;
-		}
-	}
 }

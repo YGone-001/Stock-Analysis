@@ -10,17 +10,9 @@ using HandyControl.Controls;
 
 namespace AIHelper.Views;
 
-public class PositionWindow : System.Windows.Window, IComponentConnector
+public partial class PositionWindow : System.Windows.Window
 {
 	private string _stockCode;
-
-	internal TextBlock TxtTitle;
-
-	internal System.Windows.Controls.TextBox TxtVolume;
-
-	internal System.Windows.Controls.TextBox TxtCostPrice;
-
-	private bool _contentLoaded;
 
 	public PositionWindow(string stockCode, string stockName)
 	{
@@ -60,39 +52,4 @@ public class PositionWindow : System.Windows.Window, IComponentConnector
 		Close();
 	}
 
-	public void InitializeComponent()
-	{
-		if (!_contentLoaded)
-		{
-			_contentLoaded = true;
-			Uri resourceLocator = new Uri("/AIHelper;component/views/positionwindow.xaml", UriKind.Relative);
-			Application.LoadComponent(this, resourceLocator);
-		}
-	}
-
-	[EditorBrowsable(EditorBrowsableState.Never)]
-	void IComponentConnector.Connect(int connectionId, object target)
-	{
-		switch (connectionId)
-		{
-		case 1:
-			TxtTitle = (TextBlock)target;
-			break;
-		case 2:
-			TxtVolume = (System.Windows.Controls.TextBox)target;
-			break;
-		case 3:
-			TxtCostPrice = (System.Windows.Controls.TextBox)target;
-			break;
-		case 4:
-			((Button)target).Click += BtnSave_Click;
-			break;
-		case 5:
-			((Button)target).Click += BtnCancel_Click;
-			break;
-		default:
-			_contentLoaded = true;
-			break;
-		}
-	}
 }

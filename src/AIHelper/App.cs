@@ -16,9 +16,12 @@ using AIHelper.Services;
 
 namespace AIHelper;
 
-public class App : Application
+public partial class App : Application
 {
-	private bool _contentLoaded;
+	public App()
+	{
+		InitializeComponent();
+	}
 
 	protected override void OnStartup(StartupEventArgs e)
 	{
@@ -64,16 +67,7 @@ public class App : Application
 		base.OnExit(e);
 	}
 
-	public void InitializeComponent()
-	{
-		if (!_contentLoaded)
-		{
-			_contentLoaded = true;
-			base.StartupUri = new Uri("MainWindow.xaml", UriKind.Relative);
-			Uri resourceLocator = new Uri("/AIHelper;component/app.xaml", UriKind.Relative);
-			Application.LoadComponent(this, resourceLocator);
-		}
-	}
+
 
 	public static IHost? AppHost { get; private set; }
 

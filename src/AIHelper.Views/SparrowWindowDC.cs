@@ -11,29 +11,9 @@ using HandyControl.Controls;
 
 namespace AIHelper.Views;
 
-public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
+public partial class SparrowWindowDC : HandyControl.Controls.Window
 {
-    private bool _contentLoaded;
     private readonly SparrowViewModel _vm;
-
-    internal CheckBox ChkMacroDef;
-    internal NumericUpDown NumMinRise;
-    internal NumericUpDown NumMaxRise;
-    internal NumericUpDown NumVolRatio;
-    internal NumericUpDown NumMinAmount;
-    internal CheckBox ChkMA60;
-    internal CheckBox ChkAlpha;
-    internal CheckBox ChkUseCache;
-    internal RangeSlider SldAdhesion;
-    internal RangeSlider SldTurnover;
-    internal NumericUpDown NumMomentum;
-    internal Button BtnStart;
-    internal Button BtnTest;
-    internal NumericUpDown NumConcurrency;
-    internal TextBlock TxtProgressDesc;
-    internal TextBlock TxtStats;
-    internal ProgressBar PbScan;
-    internal System.Windows.Controls.TextBox TxtLog;
 
     public SparrowWindowDC(MainViewModel mainVm)
     {
@@ -92,40 +72,4 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         }
     }
 
-    public void InitializeComponent()
-    {
-        if (!_contentLoaded)
-        {
-            _contentLoaded = true;
-            Uri resourceLocator = new Uri("/AIHelper;component/views/sparrowwindowdc.xaml", UriKind.Relative);
-            Application.LoadComponent(this, resourceLocator);
-        }
-    }
-
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    void IComponentConnector.Connect(int connectionId, object target)
-    {
-        switch (connectionId)
-        {
-            case 1: ChkMacroDef = (CheckBox)target; break;
-            case 2: NumMinRise = (NumericUpDown)target; break;
-            case 3: NumMaxRise = (NumericUpDown)target; break;
-            case 4: NumVolRatio = (NumericUpDown)target; break;
-            case 5: NumMinAmount = (NumericUpDown)target; break;
-            case 6: ChkMA60 = (CheckBox)target; break;
-            case 7: ChkAlpha = (CheckBox)target; break;
-            case 8: ChkUseCache = (CheckBox)target; break;
-            case 9: SldAdhesion = (RangeSlider)target; break;
-            case 10: SldTurnover = (RangeSlider)target; break;
-            case 11: NumMomentum = (NumericUpDown)target; break;
-            case 12: BtnStart = (Button)target; BtnStart.Click += BtnStart_Click; break;
-            case 13: BtnTest = (Button)target; BtnTest.Click += BtnTest_Click; break;
-            case 14: NumConcurrency = (NumericUpDown)target; break;
-            case 15: TxtProgressDesc = (TextBlock)target; break;
-            case 16: TxtStats = (TextBlock)target; break;
-            case 17: PbScan = (ProgressBar)target; break;
-            case 18: TxtLog = (System.Windows.Controls.TextBox)target; break;
-            default: _contentLoaded = true; break;
-        }
-    }
 }

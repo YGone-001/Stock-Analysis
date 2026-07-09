@@ -16,30 +16,9 @@ using AIHelper.Models;
 
 namespace AIHelper.Views;
 
-public class LoginWindow : Window, IComponentConnector
+public partial class LoginWindow : Window
 {
 	private readonly string _apiBaseUrl = ChatServiceConfig.BuildUrl("/api/auth");
-
-
-	internal TextBox TxtUsername;
-
-	internal PasswordBox TxtPassword;
-
-	internal CheckBox ChkSaveUser;
-
-	internal CheckBox ChkSavePwd;
-
-	internal CheckBox ChkAutoLogin;
-
-	internal TextBlock TxtError;
-
-	internal Button BtnLogin;
-
-	internal Button BtnCancel;
-
-	internal Button BtnRegister;
-
-	private bool _contentLoaded;
 
 	public string LoggedInToken { get; private set; }
 
@@ -211,60 +190,4 @@ public class LoginWindow : Window, IComponentConnector
 		}
 	}
 
-	public void InitializeComponent()
-	{
-		if (!_contentLoaded)
-		{
-			_contentLoaded = true;
-			Uri resourceLocator = new Uri("/AIHelper;component/views/loginwindow.xaml", UriKind.Relative);
-			Application.LoadComponent(this, resourceLocator);
-		}
-	}
-
-	[EditorBrowsable(EditorBrowsableState.Never)]
-	void IComponentConnector.Connect(int connectionId, object target)
-	{
-		switch (connectionId)
-		{
-		case 1:
-			((Border)target).MouseLeftButtonDown += DragWindow;
-			break;
-		case 2:
-			((Button)target).Click += Close_Click;
-			break;
-		case 3:
-			TxtUsername = (TextBox)target;
-			break;
-		case 4:
-			TxtPassword = (PasswordBox)target;
-			break;
-		case 5:
-			ChkSaveUser = (CheckBox)target;
-			break;
-		case 6:
-			ChkSavePwd = (CheckBox)target;
-			break;
-		case 7:
-			ChkAutoLogin = (CheckBox)target;
-			break;
-		case 8:
-			TxtError = (TextBlock)target;
-			break;
-		case 9:
-			BtnLogin = (Button)target;
-			BtnLogin.Click += BtnLogin_Click;
-			break;
-		case 10:
-			BtnCancel = (Button)target;
-			BtnCancel.Click += Close_Click;
-			break;
-		case 11:
-			BtnRegister = (Button)target;
-			BtnRegister.Click += BtnRegister_Click;
-			break;
-		default:
-			_contentLoaded = true;
-			break;
-		}
-	}
 }

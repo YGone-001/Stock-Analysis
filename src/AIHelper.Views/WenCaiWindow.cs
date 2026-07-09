@@ -14,15 +14,9 @@ using Microsoft.Web.WebView2.Wpf;
 
 namespace AIHelper.Views;
 
-public class WenCaiWindow : System.Windows.Window, IComponentConnector
+public partial class WenCaiWindow : System.Windows.Window
 {
 	private string _stockCode = string.Empty;
-
-	internal TextBlock TxtStatus = null!;
-
-	internal WebView2 WenCaiWebView = null!;
-
-	private bool _contentLoaded;
 
 	public WenCaiWindow(string stockCode, string stockName)
 	{
@@ -67,30 +61,4 @@ public class WenCaiWindow : System.Windows.Window, IComponentConnector
 		}
 	}
 
-	public void InitializeComponent()
-	{
-		if (!_contentLoaded)
-		{
-			_contentLoaded = true;
-			Uri resourceLocator = new Uri("/AIHelper;component/views/wencaiwindow.xaml", UriKind.Relative);
-			Application.LoadComponent(this, resourceLocator);
-		}
-	}
-
-	[EditorBrowsable(EditorBrowsableState.Never)]
-	void IComponentConnector.Connect(int connectionId, object target)
-	{
-		switch (connectionId)
-		{
-		case 1:
-			TxtStatus = (TextBlock)target;
-			break;
-		case 2:
-			WenCaiWebView = (WebView2)target;
-			break;
-		default:
-			_contentLoaded = true;
-			break;
-		}
-	}
 }

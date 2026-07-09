@@ -1,0 +1,66 @@
+<hc:Window x:Class="AIHelper.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:hc="https://handyorg.github.io/handycontrol"
+        xmlns:views="clr-namespace:AIHelper.Views"
+        Title="{Binding MainTitle}" Height="800" Width="1200"
+        WindowStartupLocation="CenterScreen">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="5"/>
+            <RowDefinition x:Name="RowLog" Height="150"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <Menu Grid.Row="0" ItemsSource="{Binding MenuItems}">
+            <Menu.ItemTemplate>
+                <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                    <TextBlock Text="{Binding Header}"/>
+                </HierarchicalDataTemplate>
+            </Menu.ItemTemplate>
+        </Menu>
+        
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="{Binding ChatColumnWidth, Mode=TwoWay}" />
+            </Grid.ColumnDefinitions>
+            
+            <views:StockView Grid.Column="0" DataContext="{Binding StockVM}"/>
+            
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" />
+            
+            <views:ChatView x:Name="MyChatView" Grid.Column="2" Visibility="{Binding ChatVisibility}" DataContext="{Binding ChatVM}"/>
+        </Grid>
+        
+        <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch" />
+        
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="300"/>
+            </Grid.ColumnDefinitions>
+            <TextBox Text="{Binding LogVM.LogContent, Mode=OneWay}" 
+                     IsReadOnly="True" 
+                     TextWrapping="Wrap" 
+                     VerticalScrollBarVisibility="Auto" 
+                     TextChanged="TextBox_TextChanged"/>
+            <views:ExportControl x:Name="ExportCtrl" Grid.Column="1"/>
+        </Grid>
+        
+        <StatusBar Grid.Row="4">
+            <StatusBarItem>
+                <TextBlock Text="{Binding StatusLeft}"/>
+            </StatusBarItem>
+            <StatusBarItem HorizontalAlignment="Right">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding LatencyText}" Margin="0,0,20,0"/>
+                    <TextBlock Text="{Binding StatusRight}"/>
+                </StackPanel>
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</hc:Window>

@@ -12,19 +12,9 @@ using AIHelper.ViewModels;
 
 namespace AIHelper.Views;
 
-public class ImportExportWindow : Window, IComponentConnector
+public partial class ImportExportWindow : Window
 {
 	private MainViewModel _mainVm;
-
-	internal TextBox TxtData;
-
-	internal RadioButton RbAllTabs;
-
-	internal RadioButton RbCurrentTab;
-
-	internal TextBlock TxtStatus;
-
-	private bool _contentLoaded;
 
 	public ImportExportWindow(MainViewModel mainVm)
 	{
@@ -128,47 +118,5 @@ public class ImportExportWindow : Window, IComponentConnector
 		MessageBox.Show($"解析与导入完成！\n成功导入: {num2} 只股票\n格式错误/忽略: {num}", "导入结果");
 		AnalyticsService.Log("4", "9");
 		Close();
-	}
-
-	public void InitializeComponent()
-	{
-		if (!_contentLoaded)
-		{
-			_contentLoaded = true;
-			Uri resourceLocator = new Uri("/AIHelper;component/views/importexportwindow.xaml", UriKind.Relative);
-			Application.LoadComponent(this, resourceLocator);
-		}
-	}
-
-	[EditorBrowsable(EditorBrowsableState.Never)]
-	void IComponentConnector.Connect(int connectionId, object target)
-	{
-		switch (connectionId)
-		{
-		case 1:
-			TxtData = (TextBox)target;
-			break;
-		case 2:
-			RbAllTabs = (RadioButton)target;
-			break;
-		case 3:
-			RbCurrentTab = (RadioButton)target;
-			break;
-		case 4:
-			((Button)target).Click += BtnExport_Click;
-			break;
-		case 5:
-			((Button)target).Click += BtnImport_Click;
-			break;
-		case 6:
-			((Button)target).Click += BtnCopy_Click;
-			break;
-		case 7:
-			TxtStatus = (TextBlock)target;
-			break;
-		default:
-			_contentLoaded = true;
-			break;
-		}
 	}
 }

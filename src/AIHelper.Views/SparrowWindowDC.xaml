@@ -1,0 +1,85 @@
+<hc:Window x:Class="AIHelper.Views.SparrowWindowDC"
+           xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+           xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+           xmlns:hc="https://handyorg.github.io/handycontrol"
+           Title="动量选股任务 (DC版)" Height="650" Width="850"
+           WindowStartupLocation="CenterScreen">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <GroupBox Header="参数设置" Grid.Row="0" Margin="0,0,0,10">
+            <WrapPanel>
+                <CheckBox x:Name="ChkMacroDef" Content="宏定义过滤" Margin="0,0,15,10"/>
+                <CheckBox x:Name="ChkMA60" Content="站上60日均线" Margin="0,0,15,10"/>
+                <CheckBox x:Name="ChkAlpha" Content="启用 Alpha 因子" Margin="0,0,15,10"/>
+                <CheckBox x:Name="ChkUseCache" Content="使用缓存" Margin="0,0,15,10" IsChecked="True"/>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,0,15,10">
+                    <TextBlock Text="涨幅(%):" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <hc:NumericUpDown x:Name="NumMinRise" Minimum="-20" Maximum="20" Value="2" Width="60"/>
+                    <TextBlock Text=" - " VerticalAlignment="Center"/>
+                    <hc:NumericUpDown x:Name="NumMaxRise" Minimum="-20" Maximum="20" Value="8" Width="60"/>
+                </StackPanel>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,0,15,10">
+                    <TextBlock Text="量比>=" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <hc:NumericUpDown x:Name="NumVolRatio" Minimum="0" Maximum="100" Value="1.5" Width="70" Increment="0.1"/>
+                </StackPanel>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,0,15,10">
+                    <TextBlock Text="额(亿)>=" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <hc:NumericUpDown x:Name="NumMinAmount" Minimum="0" Maximum="10000" Value="1" Width="70"/>
+                </StackPanel>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,0,15,10">
+                    <TextBlock Text="动量阀值:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <hc:NumericUpDown x:Name="NumMomentum" Minimum="0" Maximum="100" Value="10" Width="70"/>
+                </StackPanel>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,0,15,10">
+                    <TextBlock Text="均线粘合度(%):" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <hc:RangeSlider x:Name="SldAdhesion" Minimum="0" Maximum="10" ValueStart="0" ValueEnd="3" Width="100" VerticalAlignment="Center"/>
+                </StackPanel>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,0,15,10">
+                    <TextBlock Text="换手率区间(%):" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <hc:RangeSlider x:Name="SldTurnover" Minimum="0" Maximum="50" ValueStart="2" ValueEnd="20" Width="100" VerticalAlignment="Center"/>
+                </StackPanel>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,0,15,10">
+                    <TextBlock Text="并发数:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <hc:NumericUpDown x:Name="NumConcurrency" Minimum="1" Maximum="20" Value="5" Width="60"/>
+                </StackPanel>
+            </WrapPanel>
+        </GroupBox>
+        
+        <GroupBox Header="运行日志" Grid.Row="1" Margin="0,0,0,10">
+            <TextBox x:Name="TxtLog" AcceptsReturn="True" TextWrapping="Wrap" IsReadOnly="True" 
+                     VerticalScrollBarVisibility="Auto" Background="#F9F9F9"/>
+        </GroupBox>
+        
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            
+            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                <TextBlock x:Name="TxtProgressDesc" Text="准备就绪" Margin="0,0,0,5"/>
+                <ProgressBar x:Name="PbScan" Height="15" Margin="0,0,10,5"/>
+                <TextBlock x:Name="TxtStats" Text="统计: 0 / 0" Foreground="Gray"/>
+            </StackPanel>
+            
+            <Button x:Name="BtnTest" Grid.Column="1" Content="运行测试" Click="BtnTest_Click" Width="100" Height="40" 
+                    Style="{StaticResource ButtonInfo}" Margin="0,0,10,0"/>
+                    
+            <Button x:Name="BtnStart" Grid.Column="2" Content="开始执行" Click="BtnStart_Click" Width="100" Height="40" 
+                    Style="{StaticResource ButtonPrimary}"/>
+        </Grid>
+    </Grid>
+</hc:Window>
