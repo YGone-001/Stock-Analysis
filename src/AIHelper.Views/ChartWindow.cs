@@ -1,5 +1,5 @@
 ﻿using System;
-
+using System.CodeDom.Compiler;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -11,11 +11,18 @@ using HandyControl.Controls;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
+#pragma warning disable CS8622
 namespace AIHelper.Views;
 
-public partial class ChartWindow : System.Windows.Window
+public class ChartWindow : System.Windows.Window, IComponentConnector
 {
 	private string _url;
+
+	internal WebView2 MyWebView;
+
+	internal Border LoadingMask;
+
+	private bool _contentLoaded;
 
 	public ChartWindow(string url, string title)
 	{
@@ -89,6 +96,33 @@ public partial class ChartWindow : System.Windows.Window
 		}
 		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			Trace.WriteLine("Failed to dispose WebView2: " + ex.Message);
+		}
+	}
+
+	public void InitializeComponent()
+	{
+		if (!_contentLoaded)
+		{
+			_contentLoaded = true;
+			Uri resourceLocator = new Uri("/AIHelper;component/views/chartwindow.xaml", UriKind.Relative);
+			Application.LoadComponent(this, resourceLocator);
+		}
+	}
+
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	void IComponentConnector.Connect(int connectionId, object target)
+	{
+		switch (connectionId)
+		{
+		case 1:
+			MyWebView = (WebView2)target;
+			break;
+		case 2:
+			LoadingMask = (Border)target;
+			break;
+		default:
+			_contentLoaded = true;
+			break;
 		}
 	}
 }

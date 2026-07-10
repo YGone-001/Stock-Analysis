@@ -1,8 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 
+#pragma warning disable CS8618, CS8625
+#pragma warning disable CS8618, CS8625
 namespace AIHelper.Services.StockData;
 
 public sealed class FallbackStockDataProvider : IStockDataProvider, IDisposable

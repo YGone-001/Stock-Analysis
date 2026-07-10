@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Text.Json;
@@ -7,6 +7,8 @@ using System.Windows;
 using HandyControl.Controls;
 using Serilog;
 
+#pragma warning disable CS8600
+#pragma warning disable CS8600
 namespace AIHelper.Helpers;
 
 public static class UpdateHelper

@@ -1,5 +1,7 @@
-using System;
+﻿using System;
 
+#pragma warning disable CS8618
+#pragma warning disable CS8618
 namespace AIHelper.Models;
 
 public class TurtleScanParameters
@@ -16,7 +18,7 @@ public class TurtleScanParameters
 
 public class TurtleScanReport
 {
-    public string LogMessage { get; set; }
+    public string LogMessage { get; set; } = null!;
     public bool IsHighlight { get; set; }
     public double? ProgressValue { get; set; }
     public double? ProgressMax { get; set; }

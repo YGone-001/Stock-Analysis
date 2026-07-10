@@ -1,10 +1,12 @@
-using System;
+﻿using System;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Serilog;
 
+#pragma warning disable CS8603
+#pragma warning disable CS8603
 namespace AIHelper.Services.StockData;
 
 public class EastMoneySpiderService : IDisposable

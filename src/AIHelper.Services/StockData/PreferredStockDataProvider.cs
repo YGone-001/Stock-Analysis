@@ -1,6 +1,8 @@
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 
+#pragma warning disable CS8625
+#pragma warning disable CS8625
 namespace AIHelper.Services.StockData;
 
 public sealed class PreferredStockDataProvider : IStockDataProvider

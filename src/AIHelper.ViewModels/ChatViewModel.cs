@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -20,6 +20,8 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Win32;
 using Serilog;
 
+#pragma warning disable CS8600, CS8618, CS8619, CS8625
+#pragma warning disable CS8600, CS8618, CS8619, CS8625
 namespace AIHelper.ViewModels;
 
 public partial class ChatViewModel : ObservableObject, IDisposable

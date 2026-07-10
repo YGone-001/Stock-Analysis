@@ -1,6 +1,6 @@
-﻿#nullable enable
+#nullable enable
 using System;
-
+using System.CodeDom.Compiler;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -13,11 +13,19 @@ using Microsoft.Web.WebView2.Wpf;
 
 namespace AIHelper.Views;
 
-public partial class LiveChartWindow : Window
+public class LiveChartWindow : Window, IComponentConnector
 {
 	private string _code = string.Empty;
 
 	private string _name = string.Empty;
+
+	internal TextBlock TxtInfo = null!;
+
+	internal ProgressBar LoadProgress = null!;
+
+	internal WebView2 WebView = null!;
+
+	private bool _contentLoaded;
 
 	public LiveChartWindow(string code, string name)
 	{
@@ -60,4 +68,36 @@ public partial class LiveChartWindow : Window
 		LoadProgress.Visibility = Visibility.Visible;
 	}
 
+	public void InitializeComponent()
+	{
+		if (!_contentLoaded)
+		{
+			_contentLoaded = true;
+			Uri resourceLocator = new Uri("/AIHelper;component/views/livechartwindow.xaml", UriKind.Relative);
+			Application.LoadComponent(this, resourceLocator);
+		}
+	}
+
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	void IComponentConnector.Connect(int connectionId, object target)
+	{
+		switch (connectionId)
+		{
+		case 1:
+			TxtInfo = (TextBlock)target;
+			break;
+		case 2:
+			LoadProgress = (ProgressBar)target;
+			break;
+		case 3:
+			((Button)target).Click += BtnRefresh_Click;
+			break;
+		case 4:
+			WebView = (WebView2)target;
+			break;
+		default:
+			_contentLoaded = true;
+			break;
+		}
+	}
 }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -9,6 +9,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Helpers;
 
+#pragma warning disable CS8600, CS8604, CS8625
+#pragma warning disable CS8600, CS8604, CS8625
 namespace AIHelper.Services.StockData;
 
 public sealed class EastMoneyStockDataProvider : IStockDataProvider

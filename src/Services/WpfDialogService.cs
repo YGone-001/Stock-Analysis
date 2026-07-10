@@ -1,10 +1,12 @@
-using System;
+﻿using System;
 using System.Windows;
 using AIHelper.ViewModels;
 using AIHelper.Views;
 using HandyControl.Controls;
 using Microsoft.Extensions.DependencyInjection;
 
+#pragma warning disable CS8603
+#pragma warning disable CS8603
 namespace AIHelper.Services;
 
 public class WpfDialogService : IDialogService

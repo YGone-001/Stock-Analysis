@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.IO;
@@ -10,6 +10,8 @@ using Serilog;
 
 using Microsoft.Extensions.Caching.Memory;
 
+#pragma warning disable CS8600, CS8625
+#pragma warning disable CS8600, CS8625
 namespace AIHelper.Services.StockData;
 
 public sealed class KlineDiskCacheStore

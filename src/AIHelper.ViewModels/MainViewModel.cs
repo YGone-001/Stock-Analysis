@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -17,6 +17,8 @@ using AIHelper.Services.StockData;
 using HandyControl.Controls;
 using Serilog;
 
+#pragma warning disable CS8618
+#pragma warning disable CS8618
 namespace AIHelper.ViewModels;
 
 public partial class MainViewModel : ObservableObject, IDisposable

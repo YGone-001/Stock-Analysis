@@ -1,5 +1,5 @@
 ﻿using System;
-
+using System.CodeDom.Compiler;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
@@ -8,10 +8,16 @@ using System.Windows.Markup;
 using AIHelper.Models;
 using AIHelper.ViewModels;
 
+#pragma warning disable CS8600
 namespace AIHelper.Views;
 
-public partial class StockView : UserControl
+public class StockView : UserControl, IComponentConnector, IStyleConnector
 {
+	internal TextBox TxtNewGroup;
+
+	internal TextBox TxtSearch;
+
+	private bool _contentLoaded;
 
 	public StockView()
 	{
@@ -61,4 +67,39 @@ public partial class StockView : UserControl
 		contextMenu.IsOpen = true;
 	}
 
+	public void InitializeComponent()
+	{
+		if (!_contentLoaded)
+		{
+			_contentLoaded = true;
+			Uri resourceLocator = new Uri("/AIHelper;component/views/stockview.xaml", UriKind.Relative);
+			Application.LoadComponent(this, resourceLocator);
+		}
+	}
+
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	void IComponentConnector.Connect(int connectionId, object target)
+	{
+		switch (connectionId)
+		{
+		case 1:
+			TxtNewGroup = (TextBox)target;
+			break;
+		case 2:
+			TxtSearch = (TextBox)target;
+			break;
+		default:
+			_contentLoaded = true;
+			break;
+		}
+	}
+
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	void IStyleConnector.Connect(int connectionId, object target)
+	{
+		if (connectionId == 3)
+		{
+			((Button)target).Click += BtnMove_Click;
+		}
+	}
 }

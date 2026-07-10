@@ -1,10 +1,12 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text.Json;
 using AIHelper.Models;
 using System.Security.Cryptography;
 using System.Text;
 
+#pragma warning disable CS8600, CS8602, CS8618
+#pragma warning disable CS8600, CS8602, CS8618
 namespace AIHelper.Helpers;
 
 public class ConfigManager
@@ -13,7 +15,7 @@ public class ConfigManager
 	private static readonly object _lock = new object();
 	private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions { WriteIndented = true };
 
-	private static AppConfig _cachedConfig;
+	private static AppConfig _cachedConfig = null!;
 	private static DateTime _lastReadTime;
 
 

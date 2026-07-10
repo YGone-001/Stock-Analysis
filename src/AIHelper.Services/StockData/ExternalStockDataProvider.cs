@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using AIHelper.Helpers;
 using AIHelper.Models;
 
+#pragma warning disable CS8600, CS8618, CS8625
+#pragma warning disable CS8600, CS8618, CS8625
 namespace AIHelper.Services.StockData;
 
 public sealed class ExternalStockDataProvider : IStockDataProvider
@@ -27,7 +29,7 @@ public sealed class ExternalStockDataProvider : IStockDataProvider
 		return SupportedPaths.Contains(request.Path) && TryGetBaseUrl(out _);
 	}
 
-	private static string _cachedBaseUrl;
+	private static string _cachedBaseUrl = null!;
 	private static long _lastCacheTime;
 	private static readonly object _cacheLock = new object();
 

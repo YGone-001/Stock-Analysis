@@ -1,5 +1,5 @@
 ﻿using System;
-
+using System.CodeDom.Compiler;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -16,12 +16,56 @@ using AIHelper.Models;
 using AIHelper.Services;
 using Serilog;
 
+#pragma warning disable CS8600, CS8604, CS8618, CS8622, CS8625
 namespace AIHelper.Views;
 
-public partial class ExportControl : UserControl
+public class ExportControl : UserControl, IComponentConnector
 {
 	private bool _isUpdatingDate;
+
 	private bool _hasInitializedDate;
+
+	internal DatePicker DpTargetDate;
+
+	internal RadioButton RdoSingleFile;
+
+	internal RadioButton RdoMultiFile;
+
+	internal ToggleButton ToggleAiCompress;
+
+	internal ToggleButton ToggleHoldingPrompt;
+
+	internal TextBox TxtKlineDays;
+
+	internal CheckBox ChkIdxSH;
+
+	internal CheckBox ChkIdxSZ;
+
+	internal CheckBox ChkIdxCY;
+
+	internal CheckBox ChkIdxHS300;
+
+	internal TextBox TxtIndexDays;
+
+	internal Button BtnFetchQuote;
+
+	internal Button BtnFetchMinute;
+
+	internal Button BtnFetchKline;
+
+	internal Button BtnFetchTick;
+
+	internal CheckBox ChkComboQuote;
+
+	internal CheckBox ChkComboMinute;
+
+	internal CheckBox ChkComboKline;
+
+	internal CheckBox ChkComboTick;
+
+	internal Button BtnFetchComposite;
+
+	private bool _contentLoaded;
 
 	public Func<List<(string Code, string Name)>> GetSelectedStocksFunc { get; set; }
 
@@ -302,4 +346,89 @@ public partial class ExportControl : UserControl
 		DpTargetDate.IsEnabled = isEnabled;
 	}
 
+	public void InitializeComponent()
+	{
+		if (!_contentLoaded)
+		{
+			_contentLoaded = true;
+			Uri resourceLocator = new Uri("/AIHelper;component/views/exportcontrol.xaml", UriKind.Relative);
+			Application.LoadComponent(this, resourceLocator);
+		}
+	}
+
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	void IComponentConnector.Connect(int connectionId, object target)
+	{
+		switch (connectionId)
+		{
+		case 1:
+			DpTargetDate = (DatePicker)target;
+			break;
+		case 2:
+			RdoSingleFile = (RadioButton)target;
+			break;
+		case 3:
+			RdoMultiFile = (RadioButton)target;
+			break;
+		case 4:
+			ToggleAiCompress = (ToggleButton)target;
+			break;
+		case 5:
+			ToggleHoldingPrompt = (ToggleButton)target;
+			break;
+		case 6:
+			TxtKlineDays = (TextBox)target;
+			break;
+		case 7:
+			ChkIdxSH = (CheckBox)target;
+			break;
+		case 8:
+			ChkIdxSZ = (CheckBox)target;
+			break;
+		case 9:
+			ChkIdxCY = (CheckBox)target;
+			break;
+		case 10:
+			ChkIdxHS300 = (CheckBox)target;
+			break;
+		case 11:
+			TxtIndexDays = (TextBox)target;
+			break;
+		case 12:
+			BtnFetchQuote = (Button)target;
+			BtnFetchQuote.Click += BtnFetchQuote_Click;
+			break;
+		case 13:
+			BtnFetchMinute = (Button)target;
+			BtnFetchMinute.Click += BtnFetchMinute_Click;
+			break;
+		case 14:
+			BtnFetchKline = (Button)target;
+			BtnFetchKline.Click += BtnFetchKline_Click;
+			break;
+		case 15:
+			BtnFetchTick = (Button)target;
+			BtnFetchTick.Click += BtnFetchTick_Click;
+			break;
+		case 16:
+			ChkComboQuote = (CheckBox)target;
+			break;
+		case 17:
+			ChkComboMinute = (CheckBox)target;
+			break;
+		case 18:
+			ChkComboKline = (CheckBox)target;
+			break;
+		case 19:
+			ChkComboTick = (CheckBox)target;
+			break;
+		case 20:
+			BtnFetchComposite = (Button)target;
+			BtnFetchComposite.Click += BtnFetchComposite_Click;
+			break;
+		default:
+			_contentLoaded = true;
+			break;
+		}
+	}
 }

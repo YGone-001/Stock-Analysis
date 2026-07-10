@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -11,6 +11,8 @@ using System.Threading.Tasks;
 using AIHelper.Helpers;
 using AIHelper.Models;
 
+#pragma warning disable CS8600, CS8602, CS8604
+#pragma warning disable CS8600, CS8602, CS8604
 namespace AIHelper.Services;
 
 public static class DataExportEngine

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -7,6 +7,8 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
+#pragma warning disable CS8600
+#pragma warning disable CS8600
 namespace AIHelper.Helpers;
 
 public static class RichTextHelper

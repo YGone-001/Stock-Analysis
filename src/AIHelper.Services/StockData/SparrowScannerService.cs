@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -11,11 +11,13 @@ using AIHelper.Helpers;
 using AIHelper.Models;
 using Serilog;
 
+#pragma warning disable CS8618, CS8619
+#pragma warning disable CS8618, CS8619
 namespace AIHelper.Services.StockData;
 
 public class SparrowScanReport
 {
-    public string LogMessage { get; set; }
+    public string LogMessage { get; set; } = null!;
     public bool IsHighlight { get; set; }
     public int? ProgressMax { get; set; }
     public int? ProgressValue { get; set; }

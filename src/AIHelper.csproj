@@ -11,6 +11,8 @@
     <LangVersion>Preview</LangVersion>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <NoWarn>$(NoWarn);CS8618;CS8600;CS8601;CS8602;CS8604;CS8625</NoWarn>
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationIcon>app.ico</ApplicationIcon>
@@ -160,6 +162,7 @@
     <Resource Include="assets\emoji\42.png" />
     <Resource Include="assets\emoji\41.png" />
     <Resource Include="assets\emoji\40.png" />
+    <Resource Include="views\wencaiwindow.baml" />
     <Resource Include="assets\data.png" />
     <Resource Include="assets\face\17.png" />
     <Resource Include="assets\face\16.png" />
@@ -187,11 +190,24 @@
     <Resource Include="assets\face\09.png" />
     <Resource Include="assets\face\08.png" />
     <Resource Include="assets\app.ico" />
+    <Resource Include="views\chartwindow.baml" />
+    <Resource Include="views\exportcontrol.baml" />
+    <Resource Include="views\livechartwindow.baml" />
+    <Resource Include="views\stockview.baml" />
     <Resource Include="tv.js" />
+    <Resource Include="views\importexportwindow.baml" />
     <Resource Include="views\positionwindow.baml" />
+    <Resource Include="mainwindow.baml" />
+    <Resource Include="views\proxywindow.baml" />
     <Resource Include="assets\emoji.png" />
+    <Resource Include="views\sparrowwindow.baml" />
+    <Resource Include="views\turtlewindowdc.baml" />
     <Resource Include="assets\pic.png" />
-    <ApplicationDefinition Remove="AIHelper\App.xaml" />
+    <Resource Include="views\chatview.baml" />
+    <Resource Include="views\sparrowwindowdc.baml" />
+    <Resource Include="views\loginwindow.baml" />
+    <Resource Include="app.baml" />
+    <Resource Include="views\imageviewerwindow.baml" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />

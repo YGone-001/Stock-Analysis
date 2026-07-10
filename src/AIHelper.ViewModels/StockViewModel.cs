@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -26,6 +26,8 @@ using AIHelper.Services.StockData;
 using HandyControl.Controls;
 using Serilog;
 
+#pragma warning disable CS8600, CS8602, CS8618
+#pragma warning disable CS8600, CS8602, CS8618
 namespace AIHelper.ViewModels;
 
 public partial class StockViewModel : ObservableObject, IDisposable

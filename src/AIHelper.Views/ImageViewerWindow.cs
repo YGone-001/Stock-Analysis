@@ -1,5 +1,5 @@
-﻿using System;
-
+using System;
+using System.CodeDom.Compiler;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
@@ -10,10 +10,19 @@ using System.Windows.Media;
 
 namespace AIHelper.Views;
 
-public partial class ImageViewerWindow : Window
+public class ImageViewerWindow : Window, IComponentConnector
 {
 	private Point _dragStartPoint;
+
 	private bool _isDragging;
+
+	internal Border ImageContainer;
+
+	internal Image MainImage;
+
+	internal MatrixTransform ImgTransform;
+
+	private bool _contentLoaded;
 
 	public ImageViewerWindow(ImageSource source)
 	{
@@ -69,5 +78,40 @@ public partial class ImageViewerWindow : Window
 	{
 		_isDragging = false;
 		ImageContainer.ReleaseMouseCapture();
+	}
+
+	public void InitializeComponent()
+	{
+		if (!_contentLoaded)
+		{
+			_contentLoaded = true;
+			Uri resourceLocator = new Uri("/AIHelper;component/views/imageviewerwindow.xaml", UriKind.Relative);
+			Application.LoadComponent(this, resourceLocator);
+		}
+	}
+
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	void IComponentConnector.Connect(int connectionId, object target)
+	{
+		switch (connectionId)
+		{
+		case 1:
+			ImageContainer = (Border)target;
+			ImageContainer.MouseLeftButtonDown += Container_MouseLeftButtonDown;
+			ImageContainer.MouseLeftButtonUp += Container_MouseLeftButtonUp;
+			ImageContainer.MouseMove += Container_MouseMove;
+			ImageContainer.MouseWheel += Container_MouseWheel;
+			ImageContainer.MouseDown += Container_MouseDown;
+			break;
+		case 2:
+			MainImage = (Image)target;
+			break;
+		case 3:
+			ImgTransform = (MatrixTransform)target;
+			break;
+		default:
+			_contentLoaded = true;
+			break;
+		}
 	}
 }

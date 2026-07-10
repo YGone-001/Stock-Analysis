@@ -1,10 +1,12 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.IO;
 using System.Text;
 using AIHelper.Helpers;
 using Serilog;
 
+#pragma warning disable CS8625
+#pragma warning disable CS8625
 namespace AIHelper.Services.StockData;
 
 public static class StockDataLog

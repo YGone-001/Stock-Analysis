@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -10,6 +10,8 @@ using AIHelper.Helpers;
 using Serilog;
 using Microsoft.Extensions.Caching.Memory;
 
+#pragma warning disable CS8600, CS8602, CS8603, CS8604, CS8625
+#pragma warning disable CS8600, CS8602, CS8603, CS8604, CS8625
 namespace AIHelper.Services.StockData;
 
 public sealed class LocalStockCacheProvider : IStockDataProvider

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
@@ -9,6 +9,8 @@ using AIHelper.Models;
 using AIHelper.Services.StockData;
 using Microsoft.Extensions.DependencyInjection;
 
+#pragma warning disable CS8600, CS8603, CS8604, CS8618, CS8625
+#pragma warning disable CS8600, CS8603, CS8604, CS8618, CS8625
 namespace AIHelper.Helpers;
 
 public static class NetworkHelper

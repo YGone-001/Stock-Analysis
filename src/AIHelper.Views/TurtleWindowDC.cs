@@ -1,5 +1,5 @@
-﻿using System;
-
+using System;
+using System.CodeDom.Compiler;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
@@ -11,9 +11,24 @@ using HandyControl.Controls;
 
 namespace AIHelper.Views;
 
-public partial class TurtleWindowDC : HandyControl.Controls.Window
+public class TurtleWindowDC : HandyControl.Controls.Window, IComponentConnector
 {
+    private bool _contentLoaded;
     private readonly TurtleViewModel _vm;
+
+    internal CheckBox ChkMacroDef;
+    internal NumericUpDown NumN1;
+    internal NumericUpDown NumN2;
+    internal RangeSlider SldTurnover;
+    internal NumericUpDown NumMinAmount;
+    internal NumericUpDown NumConcurrency;
+    internal CheckBox ChkUseCache;
+    internal Button BtnStart;
+    internal Button BtnTest;
+    internal TextBlock TxtProgressDesc;
+    internal TextBlock TxtStats;
+    internal ProgressBar PbScan;
+    internal System.Windows.Controls.TextBox TxtLog;
 
     public TurtleWindowDC(MainViewModel mainVm)
     {
@@ -66,4 +81,35 @@ public partial class TurtleWindowDC : HandyControl.Controls.Window
         }
     }
 
+    public void InitializeComponent()
+    {
+        if (!_contentLoaded)
+        {
+            _contentLoaded = true;
+            Uri resourceLocator = new Uri("/AIHelper;component/views/turtlewindowdc.xaml", UriKind.Relative);
+            Application.LoadComponent(this, resourceLocator);
+        }
+    }
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    void IComponentConnector.Connect(int connectionId, object target)
+    {
+        switch (connectionId)
+        {
+            case 1: ChkMacroDef = (CheckBox)target; break;
+            case 2: NumN1 = (NumericUpDown)target; break;
+            case 3: NumN2 = (NumericUpDown)target; break;
+            case 4: SldTurnover = (RangeSlider)target; break;
+            case 5: NumMinAmount = (NumericUpDown)target; break;
+            case 6: NumConcurrency = (NumericUpDown)target; break;
+            case 7: ChkUseCache = (CheckBox)target; break;
+            case 8: BtnStart = (Button)target; BtnStart.Click += BtnStart_Click; break;
+            case 9: BtnTest = (Button)target; BtnTest.Click += BtnTest_Click; break;
+            case 10: TxtProgressDesc = (TextBlock)target; break;
+            case 11: TxtStats = (TextBlock)target; break;
+            case 12: PbScan = (ProgressBar)target; break;
+            case 13: TxtLog = (System.Windows.Controls.TextBox)target; break;
+            default: _contentLoaded = true; break;
+        }
+    }
 }

@@ -1,10 +1,12 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using Serilog;
 
+#pragma warning disable CS8603
+#pragma warning disable CS8603
 namespace AIHelper.Models;
 
 public static class HoldingsManager

@@ -1,6 +1,6 @@
-﻿#nullable enable
+#nullable enable
 using System;
-
+using System.CodeDom.Compiler;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Windows;
@@ -16,12 +16,9 @@ using AIHelper.Services;
 
 namespace AIHelper;
 
-public partial class App : Application
+public class App : Application
 {
-	public App()
-	{
-		InitializeComponent();
-	}
+	private bool _contentLoaded;
 
 	protected override void OnStartup(StartupEventArgs e)
 	{
@@ -67,7 +64,15 @@ public partial class App : Application
 		base.OnExit(e);
 	}
 
-
+	public void InitializeComponent()
+	{
+		if (!_contentLoaded)
+		{
+			_contentLoaded = true;
+			Uri resourceLocator = new Uri("/AIHelper;component/app.xaml", UriKind.Relative);
+			Application.LoadComponent(this, resourceLocator);
+		}
+	}
 
 	public static IHost? AppHost { get; private set; }
 

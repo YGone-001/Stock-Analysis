@@ -1,5 +1,5 @@
-﻿using System;
-
+using System;
+using System.CodeDom.Compiler;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
@@ -13,8 +13,16 @@ using HandyControl.Controls;
 
 namespace AIHelper;
 
-public partial class MainWindow : HandyControl.Controls.Window
+public class MainWindow : HandyControl.Controls.Window, IComponentConnector
 {
+	internal RowDefinition RowLog;
+
+	internal ExportControl ExportCtrl;
+
+	internal ChatView MyChatView;
+
+	private bool _contentLoaded;
+
 	public MainWindow(MainViewModel vm)
 	{
 		InitializeComponent();
@@ -108,4 +116,44 @@ public partial class MainWindow : HandyControl.Controls.Window
 		}
 	}
 
+	public void InitializeComponent()
+	{
+		if (!_contentLoaded)
+		{
+			_contentLoaded = true;
+			Uri resourceLocator = new Uri("/AIHelper;component/mainwindow.xaml", UriKind.Relative);
+			Application.LoadComponent(this, resourceLocator);
+		}
+	}
+
+	internal Delegate _CreateDelegate(Type delegateType, string handler)
+	{
+		return Delegate.CreateDelegate(delegateType, this, handler);
+	}
+
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	void IComponentConnector.Connect(int connectionId, object target)
+	{
+		switch (connectionId)
+		{
+		case 1:
+			((MainWindow)target).Closing += Window_Closing;
+			break;
+		case 2:
+			RowLog = (RowDefinition)target;
+			break;
+		case 3:
+			ExportCtrl = (ExportControl)target;
+			break;
+		case 4:
+			((System.Windows.Controls.TextBox)target).TextChanged += TextBox_TextChanged;
+			break;
+		case 5:
+			MyChatView = (ChatView)target;
+			break;
+		default:
+			_contentLoaded = true;
+			break;
+		}
+	}
 }

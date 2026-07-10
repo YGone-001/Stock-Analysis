@@ -1,5 +1,5 @@
-﻿using System;
-
+using System;
+using System.CodeDom.Compiler;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -25,12 +25,33 @@ using AIHelper.ViewModels;
 using HandyControl.Controls;
 using Serilog;
 
+#pragma warning disable CS8600, CS8603, CS8604, CS8618, CS8625
 namespace AIHelper.Views;
 
-public partial class ChatView : UserControl
+public class ChatView : UserControl, IComponentConnector, IStyleConnector
 {
 	private System.Windows.Controls.ScrollViewer _messageScrollViewer;
+
 	private bool _isLoadingHistory;
+
+	internal Grid ChatMainUI;
+
+	internal ListBox MessageList;
+
+	internal Button BtnEmoji;
+
+	internal Popup EmojiPopup;
+
+	internal System.Windows.Controls.TextBox TxtInput;
+
+	internal Popup AvatarPickerPopup;
+
+	internal ItemsControl AvatarItemsControl;
+
+	internal Border LoginOverlay;
+
+	private bool _contentLoaded;
+
 	public ChatView()
 	{
 		InitializeComponent();
@@ -418,4 +439,82 @@ public partial class ChatView : UserControl
 		}
 	}
 
+	public void InitializeComponent()
+	{
+		if (!_contentLoaded)
+		{
+			_contentLoaded = true;
+			Uri resourceLocator = new Uri("/AIHelper;component/views/chatview.xaml", UriKind.Relative);
+			Application.LoadComponent(this, resourceLocator);
+		}
+	}
+
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	void IComponentConnector.Connect(int connectionId, object target)
+	{
+		switch (connectionId)
+		{
+		case 1:
+			((ChatView)target).DataContextChanged += UserControl_DataContextChanged;
+			break;
+		case 2:
+			ChatMainUI = (Grid)target;
+			break;
+		case 3:
+			((Button)target).Click += BtnLogout_Click;
+			break;
+		case 4:
+			MessageList = (ListBox)target;
+			break;
+		case 7:
+			BtnEmoji = (Button)target;
+			BtnEmoji.Click += BtnEmoji_Click;
+			break;
+		case 8:
+			EmojiPopup = (Popup)target;
+			break;
+		case 10:
+			TxtInput = (System.Windows.Controls.TextBox)target;
+			TxtInput.PreviewKeyDown += TxtInput_PreviewKeyDown;
+			break;
+		case 11:
+			AvatarPickerPopup = (Popup)target;
+			break;
+		case 12:
+			AvatarItemsControl = (ItemsControl)target;
+			break;
+		case 14:
+			((Border)target).MouseLeftButtonDown += ResetGravatar_Click;
+			break;
+		case 15:
+			LoginOverlay = (Border)target;
+			break;
+		case 16:
+			((Button)target).Click += BtnShowLogin_Click;
+			break;
+		default:
+			_contentLoaded = true;
+			break;
+		}
+	}
+
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	void IStyleConnector.Connect(int connectionId, object target)
+	{
+		switch (connectionId)
+		{
+		case 5:
+			((Image)target).MouseLeftButtonDown += ChatImage_MouseLeftButtonDown;
+			break;
+		case 6:
+			((Grid)target).MouseLeftButtonDown += MyAvatar_MouseLeftButtonDown;
+			break;
+		case 9:
+			((Border)target).MouseLeftButtonDown += LocalEmoji_Click;
+			break;
+		case 13:
+			((Border)target).MouseLeftButtonDown += SelectLocalAvatar_Click;
+			break;
+		}
+	}
 }

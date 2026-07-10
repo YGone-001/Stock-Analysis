@@ -1,7 +1,9 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 
+#pragma warning disable CS8618
+#pragma warning disable CS8618
 namespace AIHelper.ViewModels;
 
 public partial class MenuItemModel : ObservableObject

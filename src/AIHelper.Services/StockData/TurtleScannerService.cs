@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -11,6 +11,8 @@ using AIHelper.Helpers;
 using AIHelper.Models;
 using Serilog;
 
+#pragma warning disable CS8604
+#pragma warning disable CS8604
 namespace AIHelper.Services.StockData;
 
 public class TurtleScannerService

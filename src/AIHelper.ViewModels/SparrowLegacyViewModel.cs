@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -14,6 +14,8 @@ using AIHelper.Services.StockData;
 using HandyControl.Controls;
 using Serilog;
 
+#pragma warning disable CS8602, CS8618
+#pragma warning disable CS8602, CS8618
 namespace AIHelper.ViewModels;
 
 public partial class SparrowLegacyViewModel : ObservableObject
