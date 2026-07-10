@@ -75,7 +75,7 @@ public partial class TurtleViewModel : ObservableObject
     public TurtleViewModel(MainViewModel mainVm)
     {
         _mainVm = mainVm;
-        _scannerService = new TurtleScannerService();
+        _scannerService = new TurtleScannerService(mainVm.DataProvider);
     }
 
     private void AppendLog(string msg, bool isHighlight = false)

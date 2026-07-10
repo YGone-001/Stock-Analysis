@@ -12,7 +12,6 @@ using AIHelper.Models;
 using Serilog;
 
 #pragma warning disable CS8618, CS8619
-#pragma warning disable CS8618, CS8619
 namespace AIHelper.Services.StockData;
 
 public class SparrowScanReport
@@ -25,14 +24,14 @@ public class SparrowScanReport
 
 public class SparrowScannerService
 {
-    private readonly EastMoneySpiderService _spider;
+    private readonly IStockDataProvider _dataProvider;
     private readonly ConcurrentDictionary<string, string> _p2QuoteCache_DC = new();
     private readonly ConcurrentDictionary<string, string> _p3KlineCache_DC = new();
     private readonly ConcurrentDictionary<string, (string Name, string Reason)> _p3Winners_DC = new();
 
-    public SparrowScannerService(EastMoneySpiderService spider)
+    public SparrowScannerService(IStockDataProvider dataProvider)
     {
-        _spider = spider;
+        _dataProvider = dataProvider;
     }
 
     public async Task<List<(string Code, string Name, string Reason)>> ScanAsync(
@@ -48,7 +47,7 @@ public class SparrowScannerService
         }
         _p3Winners_DC.Clear();
 
-        ReportLog(progress, $"🦅 [麻雀-东财精准版] 引擎点火！初始标的: {targetPool.Count} 只");
+        ReportLog(progress, $"🦅 [麻雀-全景高速版] 引擎点火！初始标的: {targetPool.Count} 只");
 
         double shIndexPctChg = 0;
         if (parameters.MacroDef)
@@ -63,45 +62,56 @@ public class SparrowScannerService
             ReportLog(progress, $"✅ [第一阶段通过] 上证今日涨幅: {shIndexPctChg:F2}%, 已设为 RPS 参照基准。");
         }
 
-        // Phase 2
         var p2Missing = targetPool.Where(s => !_p2QuoteCache_DC.ContainsKey(s.Code)).ToList();
         if (p2Missing.Count > 0)
         {
-            ReportLog(progress, $"\n🌪️ [阶段2] 东财直连拉取盘口快照 (待下载:{p2Missing.Count} 只, 并发:{parameters.MaxConcurrency})...");
+            ReportLog(progress, $"\n🌪️ [阶段2] 极速网关并发拉取盘口快照 (待下载:{p2Missing.Count} 只)...");
             int p2Downloaded = 0;
             progress.Report(new SparrowScanReport { ProgressMax = p2Missing.Count, ProgressValue = 0 });
             
+            var batches = p2Missing.Select((x, i) => new { Index = i, Value = x })
+                .GroupBy(x => x.Index / 50)
+                .Select(x => x.Select(v => v.Value).ToList())
+                .ToList();
+
             using var semaphore = new SemaphoreSlim(Math.Min(8, parameters.MaxConcurrency));
-            await Task.WhenAll(p2Missing.Select(async stock =>
+            await Task.WhenAll(batches.Select(async batch =>
             {
                 await semaphore.WaitAsync();
                 try
                 {
-                    for (int retry = 0; retry < 3; retry++)
+                    if (ct.IsCancellationRequested) return;
+                    string codesStr = string.Join(",", batch.Select(x => x.Code));
+                    var req = StockDataRequest.Parse("/api/quote?code=" + codesStr);
+                    var res = await _dataProvider.GetDataAsync(req, ct);
+                    if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
                     {
-                        if (ct.IsCancellationRequested) break;
                         try
                         {
-                            string emSecId = stock.Code.StartsWith("6") ? "1." + stock.Code : "0." + stock.Code;
-                            await Task.Delay(new Random().Next(50, 200), ct);
-                            string text = await _spider.FetchEastMoneyQuoteAsync(emSecId);
-                            if (!string.IsNullOrWhiteSpace(text) && text.Contains("data"))
+                            using JsonDocument doc = JsonDocument.Parse(res.Json);
+                            if (doc.RootElement.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array)
                             {
-                                _p2QuoteCache_DC.TryAdd(stock.Code, text);
-                                break;
+                                foreach (var item in dataArr.EnumerateArray())
+                                {
+                                    if (item.TryGetProperty("Code", out var codeElem))
+                                    {
+                                        string code = codeElem.GetString() ?? "";
+                                        if (code.StartsWith("1.") || code.StartsWith("0.")) code = code.Substring(2);
+                                        if (!string.IsNullOrEmpty(code))
+                                        {
+                                            _p2QuoteCache_DC.TryAdd(code, item.GetRawText());
+                                        }
+                                    }
+                                }
                             }
                         }
-                        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
-                        await Task.Delay(500, ct);
+                        catch (Exception ex) { Log.Error(ex, "Failed to parse batch quote JSON"); }
                     }
                 }
                 finally
                 {
-                    int c = Interlocked.Increment(ref p2Downloaded);
-                    if (c % 50 == 0 || c == p2Missing.Count)
-                    {
-                        progress.Report(new SparrowScanReport { ProgressValue = c });
-                    }
+                    int c = Interlocked.Add(ref p2Downloaded, batch.Count);
+                    progress.Report(new SparrowScanReport { ProgressValue = c });
                     semaphore.Release();
                 }
             }));
@@ -114,7 +124,7 @@ public class SparrowScannerService
         foreach (var item in targetPool)
         {
             if (_p2QuoteCache_DC.TryGetValue(item.Code, out var value) && 
-                ParseEastMoneySnapshot(value, out var risePct, out var outerVol, out var innerVol, out var amount, out var turnover) && 
+                ParseQuote(value, out var risePct, out var outerVol, out var innerVol, out var amount, out var turnover) && 
                 !(risePct < parameters.MinRise) && !(risePct > parameters.MaxRise) && 
                 !(amount < parameters.MinAmount) && !(outerVol <= 0.0) && !(innerVol <= 0.0) && 
                 !(outerVol <= innerVol * parameters.VolRatio) && 
@@ -127,42 +137,31 @@ public class SparrowScannerService
 
         if (p2List.Count == 0) return new List<(string, string, string)>();
 
-        // Phase 3
         var p3Missing = p2List.Where(s => !_p3KlineCache_DC.ContainsKey(s.Code)).ToList();
         if (p3Missing.Count > 0)
         {
-            ReportLog(progress, $"\n🔭 [阶段3] 东财网络拉取 K 线 (待下载:{p3Missing.Count} 只)...");
+            ReportLog(progress, $"\n🔭 [阶段3] 极速网关拉取 K 线 (待下载:{p3Missing.Count} 只)...");
             int p3Downloaded = 0;
             progress.Report(new SparrowScanReport { ProgressMax = p3Missing.Count, ProgressValue = 0 });
 
-            using var semaphore = new SemaphoreSlim(Math.Min(4, parameters.MaxConcurrency));
+            using var semaphore = new SemaphoreSlim(Math.Min(32, parameters.MaxConcurrency * 4));
             await Task.WhenAll(p3Missing.Select(async stock =>
             {
                 await semaphore.WaitAsync();
                 try
                 {
-                    for (int i = 1; i <= 3; i++)
+                    if (ct.IsCancellationRequested) return;
+                    var req = StockDataRequest.Parse("/api/kline-all?code=" + stock.Code + "&limit=120");
+                    var res = await _dataProvider.GetDataAsync(req, ct);
+                    if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
                     {
-                        if (ct.IsCancellationRequested) break;
-                        try
-                        {
-                            string emSecId = stock.Code.StartsWith("6") ? "1." + stock.Code : "0." + stock.Code;
-                            await Task.Delay(new Random().Next(200, 600), ct);
-                            string text = await _spider.FetchEastMoneyKLineAsync(emSecId);
-                            if (!string.IsNullOrWhiteSpace(text))
-                            {
-                                _p3KlineCache_DC.TryAdd(stock.Code, text);
-                                break;
-                            }
-                        }
-                        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
-                        await Task.Delay(500, ct);
+                        _p3KlineCache_DC.TryAdd(stock.Code, res.Json);
                     }
                 }
                 finally
                 {
                     int c = Interlocked.Increment(ref p3Downloaded);
-                    if (c % 20 == 0 || c == p3Missing.Count)
+                    if (c % 10 == 0 || c == p3Missing.Count)
                     {
                         progress.Report(new SparrowScanReport { ProgressValue = c });
                     }
@@ -187,10 +186,9 @@ public class SparrowScannerService
 
             if (!_p3KlineCache_DC.TryGetValue(item.Code, out var value)) continue;
 
-            var list = ParseEastMoneyKline(value, out var latestPrice, out var latestPctChg);
+            var list = ParseKline(value, out var latestPrice, out var latestPctChg);
             if (list.Count < 60)
             {
-                // Optionally log probe death
                 continue;
             }
 
@@ -238,103 +236,90 @@ public class SparrowScannerService
         double shIndexPctChg = 0.0;
         try
         {
-            string text = await _spider.FetchEastMoneyQuoteAsync("1.000001");
-            if (string.IsNullOrWhiteSpace(text)) return (false, 0.0);
-            
-            int num = text.IndexOf('{');
-            int num2 = text.LastIndexOf('}');
-            if (num >= 0 && num2 > num)
+            var req = StockDataRequest.Parse("/api/index?code=sh000001&limit=2");
+            var res = await _dataProvider.GetDataAsync(req, CancellationToken.None);
+            if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
             {
-                text = text.Substring(num, num2 - num + 1);
-            }
-            using JsonDocument jsonDocument = JsonDocument.Parse(text);
-            if (jsonDocument.RootElement.TryGetProperty("data", out var value))
-            {
-                shIndexPctChg = value.TryGetProperty("f170", out var value2) ? value2.GetDouble() : 0.0;
-                return (shIndexPctChg <= -2.5, shIndexPctChg);
+                using JsonDocument doc = JsonDocument.Parse(res.Json);
+                if (doc.RootElement.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array)
+                {
+                    var elements = dataArr.EnumerateArray().ToList();
+                    if (elements.Count >= 2)
+                    {
+                        double prevClose = elements[elements.Count - 2].TryGetProperty("Close", out var pc) ? pc.GetDouble() / 1000.0 : 0.0;
+                        double close = elements[elements.Count - 1].TryGetProperty("Close", out var c) ? c.GetDouble() / 1000.0 : 0.0;
+                        if (prevClose > 0)
+                        {
+                            shIndexPctChg = (close - prevClose) / prevClose * 100.0;
+                            return (shIndexPctChg <= -2.5, shIndexPctChg);
+                        }
+                    }
+                }
             }
         }
         catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         return (false, 0.0);
     }
 
-    private bool ParseEastMoneySnapshot(string json, out double risePct, out double outerVol, out double innerVol, out double amount, out double turnover)
+    private bool ParseQuote(string json, out double risePct, out double outerVol, out double innerVol, out double amount, out double turnover)
     {
         risePct = outerVol = innerVol = amount = turnover = 0.0;
-        if (string.IsNullOrWhiteSpace(json)) return false;
-
-        int num = json.IndexOf('{');
-        int num2 = json.LastIndexOf('}');
-        if (num >= 0 && num2 > num)
+        try
         {
-            json = json.Substring(num, num2 - num + 1);
-            try
+            using JsonDocument doc = JsonDocument.Parse(json);
+            var item = doc.RootElement;
+            if (item.TryGetProperty("K", out var kElem) && kElem.TryGetProperty("Close", out var closeElem))
             {
-                using JsonDocument jsonDocument = JsonDocument.Parse(json);
-                if (jsonDocument.RootElement.TryGetProperty("data", out var value) && value.ValueKind == JsonValueKind.Object)
-                {
-                    if ((value.TryGetProperty("f43", out var value2) ? (value2.GetDouble() / 100.0) : 0.0) <= 0.001)
-                    {
-                        return false;
-                    }
-                    risePct = value.TryGetProperty("f170", out var v1) ? v1.GetDouble() : 0.0;
-                    amount = value.TryGetProperty("f48", out var v2) ? v2.GetDouble() : 0.0;
-                    outerVol = value.TryGetProperty("f49", out var v3) ? v3.GetDouble() : 0.0;
-                    innerVol = value.TryGetProperty("f161", out var v4) ? v4.GetDouble() : 0.0;
-                    turnover = value.TryGetProperty("f168", out var v5) ? v5.GetDouble() : 0.0;
-                    return true;
-                }
+                double close = closeElem.GetDouble() / 1000.0;
+                if (close <= 0.001) return false;
             }
-            catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
+
+            risePct = item.TryGetProperty("Percent", out var p) ? p.GetDouble() : 0.0;
+            amount = item.TryGetProperty("Amount", out var a) ? a.GetDouble() : 0.0;
+            outerVol = item.TryGetProperty("Wp", out var w) ? w.GetDouble() : 0.0;
+            innerVol = item.TryGetProperty("Np", out var n) ? n.GetDouble() : 0.0;
+            turnover = item.TryGetProperty("Turnover", out var t) ? t.GetDouble() : 0.0;
+            return true;
         }
+        catch { }
         return false;
     }
 
-    private List<double> ParseEastMoneyKline(string json, out double latestPrice, out double latestPctChg)
+    private List<double> ParseKline(string json, out double latestPrice, out double latestPctChg)
     {
         List<double> list = new List<double>();
         latestPrice = 0.0;
         latestPctChg = 0.0;
-        if (string.IsNullOrWhiteSpace(json)) return list;
-
-        int num = json.IndexOf('{');
-        int num2 = json.LastIndexOf('}');
-        if (num >= 0 && num2 > num)
+        try
         {
-            json = json.Substring(num, num2 - num + 1);
-            try
+            using JsonDocument doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array)
             {
-                using JsonDocument jsonDocument = JsonDocument.Parse(json);
-                if (jsonDocument.RootElement.TryGetProperty("data", out var value) && value.ValueKind == JsonValueKind.Object)
+                var elements = dataArr.EnumerateArray().ToList();
+                for (int i = elements.Count - 1; i >= 0; i--)
                 {
-                    if (value.TryGetProperty("klines", out var value2) && value2.ValueKind == JsonValueKind.Array)
+                    var item = elements[i];
+                    if (item.TryGetProperty("Close", out var closeElem))
                     {
-                        List<string> list2 = value2.EnumerateArray().Select(x => x.GetString()).ToList();
-                        for (int num3 = list2.Count - 1; num3 >= 0; num3--)
+                        double close = closeElem.GetDouble() / 1000.0;
+                        if (close > 0)
                         {
-                            try
+                            list.Add(close);
+                        }
+                        if (i == elements.Count - 1)
+                        {
+                            latestPrice = close;
+                            if (i > 0 && elements[i - 1].TryGetProperty("Close", out var prevCloseElem))
                             {
-                                string[] array = list2[num3].Split(',');
-                                if (array.Length >= 9)
-                                {
-                                    if (double.TryParse(array[2], out var result) && result > 0.0)
-                                    {
-                                        list.Add(result);
-                                    }
-                                    if (num3 == list2.Count - 1)
-                                    {
-                                        latestPrice = result;
-                                        double.TryParse(array[8], out latestPctChg);
-                                    }
-                                }
+                                double prevClose = prevCloseElem.GetDouble() / 1000.0;
+                                latestPctChg = prevClose > 0 ? (close - prevClose) / prevClose * 100.0 : 0.0;
                             }
-                            catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                         }
                     }
                 }
             }
-            catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         }
+        catch { }
         return list;
     }
 
@@ -352,14 +337,15 @@ public class SparrowScannerService
             Directory.CreateDirectory(path);
         }
 
-        string fileName = $"东财麻雀池_{DateTime.Now:yyyyMMdd_HHmmss}.txt";
+        string fileName = $"麻雀池高速筛选结果_{DateTime.Now:yyyyMMdd_HHmmss}.txt";
         string fullPath = Path.Combine(path, fileName);
 
         using StreamWriter writer = new StreamWriter(fullPath, append: false, Encoding.UTF8);
-        await writer.WriteLineAsync($"【麻雀战法 4.5 - 东财版】选股结果\n生成时间: {DateTime.Now}\n入围数量: {results.Count}\n=======================================");
+        await writer.WriteLineAsync($"【麻雀战法高速版】选股结果\n生成时间: {DateTime.Now}\n入围数量: {results.Count}\n=======================================");
         foreach (var item in results)
         {
             await writer.WriteLineAsync($"代码: {item.Code} \t名称: {item.Name} \t说明: {item.Reason}");
         }
     }
 }
+

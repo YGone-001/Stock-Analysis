@@ -136,9 +136,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
 	private readonly AIHelper.Services.IDialogService _dialogService;
 
-	public MainViewModel(StockViewModel stockVm, LogViewModel logVm, AIHelper.Services.IDialogService dialogService)
+	public AIHelper.Services.StockData.IStockDataProvider DataProvider { get; }
+	public MainViewModel(StockViewModel stockVm, LogViewModel logVm, AIHelper.Services.IDialogService dialogService, AIHelper.Services.StockData.IStockDataProvider dataProvider)
 	{
 		_dialogService = dialogService;
+		DataProvider = dataProvider;
 		StockVM = stockVm;
 		LogVM = logVm;
 		StockVM.LogAction = AppendLog;

@@ -89,7 +89,7 @@ public partial class SparrowLegacyViewModel : ObservableObject
     public SparrowLegacyViewModel(MainViewModel mainVm)
     {
         _mainVm = mainVm;
-        _scannerService = new SparrowLegacyScannerService();
+        _scannerService = new SparrowLegacyScannerService(mainVm.DataProvider);
     }
 
     private void AppendLog(string msg, bool isHighlight = false)

@@ -12,14 +12,19 @@ using AIHelper.Models;
 using Serilog;
 
 #pragma warning disable CS8604
-#pragma warning disable CS8604
 namespace AIHelper.Services.StockData;
 
 public class TurtleScannerService
 {
+    private readonly IStockDataProvider _dataProvider;
     private readonly ConcurrentDictionary<string, string> _p2QuoteCache = new();
     private readonly ConcurrentDictionary<string, string> _p3KlineCache = new();
     private readonly ConcurrentDictionary<string, (string Name, string Reason)> _p3Winners = new();
+
+    public TurtleScannerService(IStockDataProvider dataProvider)
+    {
+        _dataProvider = dataProvider;
+    }
 
     public async Task<List<(string Code, string Name, string Reason)>> ScanAsync(
         List<(string Code, string Name)> targetPool,
@@ -34,7 +39,7 @@ public class TurtleScannerService
         }
         _p3Winners.Clear();
 
-        ReportLog(progress, $"🌊 [海龟法则] 引擎点火！初始标的: {targetPool.Count} 只");
+        ReportLog(progress, $"🌊 [海龟法则-高速版] 引擎点火！初始标的: {targetPool.Count} 只");
 
         if (parameters.MacroDef)
         {
@@ -46,40 +51,57 @@ public class TurtleScannerService
             }
         }
 
-        // Phase 2
         var p2Missing = targetPool.Where(s => !_p2QuoteCache.ContainsKey(s.Code)).ToList();
         if (p2Missing.Count > 0)
         {
-            ReportLog(progress, $"\n🌪️ [阶段 2] 网络拉取盘口快照 (待下载:{p2Missing.Count} 只, 并发:{parameters.MaxConcurrency})...");
+            ReportLog(progress, $"\n🌪️ [阶段 2] 极速网关并发拉取盘口快照 (待下载:{p2Missing.Count} 只)...");
             int p2Downloaded = 0;
             progress?.Report(new TurtleScanReport { ProgressMax = p2Missing.Count, ProgressValue = 0 });
             
-            using var semaphore2 = new SemaphoreSlim(parameters.MaxConcurrency);
-            await Task.WhenAll(p2Missing.Select(async stock =>
+            var batches = p2Missing.Select((x, i) => new { Index = i, Value = x })
+                .GroupBy(x => x.Index / 50)
+                .Select(x => x.Select(v => v.Value).ToList())
+                .ToList();
+
+            using var semaphore2 = new SemaphoreSlim(Math.Min(8, parameters.MaxConcurrency));
+            await Task.WhenAll(batches.Select(async batch =>
             {
                 await semaphore2.WaitAsync();
                 try
                 {
-                    for (int retry = 0; retry < 3; retry++)
+                    if (cancellationToken.IsCancellationRequested) return;
+                    string codesStr = string.Join(",", batch.Select(x => x.Code));
+                    var req = StockDataRequest.Parse("/api/quote?code=" + codesStr);
+                    var res = await _dataProvider.GetDataAsync(req, cancellationToken);
+                    if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
                     {
-                        if (cancellationToken.IsCancellationRequested) break;
-                        string text = await NetworkHelper.GetDataAsync("/api/quote?code=" + stock.Code);
-                        if (!string.IsNullOrWhiteSpace(text) && !text.Contains("\"code\":-1"))
+                        try
                         {
-                            _p2QuoteCache.TryAdd(stock.Code, text);
-                            break;
+                            using JsonDocument doc = JsonDocument.Parse(res.Json);
+                            if (doc.RootElement.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var item in dataArr.EnumerateArray())
+                                {
+                                    if (item.TryGetProperty("Code", out var codeElem))
+                                    {
+                                        string code = codeElem.GetString() ?? "";
+                                        if (code.StartsWith("1.") || code.StartsWith("0.")) code = code.Substring(2);
+                                        if (!string.IsNullOrEmpty(code))
+                                        {
+                                            _p2QuoteCache.TryAdd(code, item.GetRawText());
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        await Task.Delay(500, cancellationToken);
+                        catch (Exception ex) { Log.Error(ex, "Failed to parse batch quote JSON"); }
                     }
                 }
                 catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                 finally
                 {
-                    int c2 = Interlocked.Increment(ref p2Downloaded);
-                    if (c2 % 50 == 0 || c2 == p2Missing.Count)
-                    {
-                        progress?.Report(new TurtleScanReport { ProgressValue = c2 });
-                    }
+                    int c2 = Interlocked.Add(ref p2Downloaded, batch.Count);
+                    progress?.Report(new TurtleScanReport { ProgressValue = c2 });
                     semaphore2.Release();
                 }
             }));
@@ -91,8 +113,8 @@ public class TurtleScannerService
         foreach (var item in targetPool)
         {
             if (_p2QuoteCache.TryGetValue(item.Code, out var value) && 
-                ParseSnapshot(value, out var amount, out _) && 
-                amount >= parameters.MinAmount)
+                ParseSnapshot(value, out var amount, out var turnover) && 
+                amount >= parameters.MinAmount && turnover >= parameters.MinTurnover && turnover <= parameters.MaxTurnover)
             {
                 p2List.Add((item.Code, item.Name));
             }
@@ -100,43 +122,32 @@ public class TurtleScannerService
 
         if (p2List.Count == 0) return new List<(string, string, string)>();
 
-        // Phase 3
         var p3Missing = p2List.Where(s => !_p3KlineCache.ContainsKey(s.Code)).ToList();
         if (p3Missing.Count > 0)
         {
-            ReportLog(progress, $"\n🔬 [阶段 3] 东财拉取 K 线数据 (待下载:{p3Missing.Count} 只)...");
+            ReportLog(progress, $"\n🔬 [阶段 3] 极速网关拉取 K 线数据 (待下载:{p3Missing.Count} 只)...");
             int p3Downloaded = 0;
             progress?.Report(new TurtleScanReport { ProgressMax = p3Missing.Count, ProgressValue = 0 });
 
-            using var semaphore = new SemaphoreSlim(parameters.MaxConcurrency);
+            using var semaphore = new SemaphoreSlim(Math.Min(32, parameters.MaxConcurrency * 4));
             await Task.WhenAll(p3Missing.Select(async stock =>
             {
                 await semaphore.WaitAsync();
                 try
                 {
-                    for (int j = 1; j <= 3; j++)
+                    if (cancellationToken.IsCancellationRequested) return;
+                    var req = StockDataRequest.Parse("/api/kline-all?code=" + stock.Code + "&limit=120");
+                    var res = await _dataProvider.GetDataAsync(req, cancellationToken);
+                    if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
                     {
-                        if (cancellationToken.IsCancellationRequested) break;
-                        try
-                        {
-                            string prefix = stock.Code.StartsWith("6") ? "1." : "0.";
-                            string secid = prefix + stock.Code;
-                            string url = $"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={secid}&klt=101&fqt=1&lmt=100&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61";
-                            string value = await NetworkHelper.GetDataAsync(url);
-                            if (!string.IsNullOrWhiteSpace(value))
-                            {
-                                _p3KlineCache.TryAdd(stock.Code, value);
-                                break;
-                            }
-                        }
-                        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
-                        await Task.Delay(300, cancellationToken);
+                        _p3KlineCache.TryAdd(stock.Code, res.Json);
                     }
                 }
+                catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
                 finally
                 {
                     int c = Interlocked.Increment(ref p3Downloaded);
-                    if (c % 20 == 0 || c == p3Missing.Count)
+                    if (c % 10 == 0 || c == p3Missing.Count)
                     {
                         progress?.Report(new TurtleScanReport { ProgressValue = c });
                     }
@@ -162,7 +173,7 @@ public class TurtleScannerService
 
             if (!_p3KlineCache.TryGetValue(item.Code, out var klineData)) continue;
 
-            var list = ParseEastMoneyKlineForTurtle(klineData);
+            var list = ParseKlineForTurtle(klineData);
             if (list.Count < parameters.N2 + 5)
             {
                 if (Interlocked.Increment(ref location) <= 5)
@@ -173,7 +184,6 @@ public class TurtleScannerService
             }
 
             var lastK = list.Last();
-            if (lastK.Turnover < parameters.MinTurnover || lastK.Turnover > parameters.MaxTurnover) continue;
 
             var sourceN1 = list.Skip(list.Count - 1 - parameters.N1).Take(parameters.N1).ToList();
             var sourceN2 = list.Skip(list.Count - 1 - parameters.N2).Take(parameters.N2).ToList();
@@ -227,20 +237,25 @@ public class TurtleScannerService
     {
         try
         {
-            string text = await NetworkHelper.GetDataAsync("https://push2.eastmoney.com/api/qt/stock/get?secid=1.000001&fields=f43,f169,f170,f171");
-            if (string.IsNullOrWhiteSpace(text)) return (false, 0.0);
-            
-            int num = text.IndexOf('{');
-            int num2 = text.LastIndexOf('}');
-            if (num >= 0 && num2 > num)
+            var req = StockDataRequest.Parse("/api/index?code=sh000001&limit=2");
+            var res = await _dataProvider.GetDataAsync(req, CancellationToken.None);
+            if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
             {
-                text = text.Substring(num, num2 - num + 1);
-            }
-            using JsonDocument jsonDocument = JsonDocument.Parse(text);
-            if (jsonDocument.RootElement.TryGetProperty("data", out var value))
-            {
-                double pctChg = value.TryGetProperty("f170", out var value2) ? value2.GetDouble() : 0.0;
-                return (pctChg <= -2.0, pctChg);
+                using JsonDocument doc = JsonDocument.Parse(res.Json);
+                if (doc.RootElement.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array)
+                {
+                    var elements = dataArr.EnumerateArray().ToList();
+                    if (elements.Count >= 2)
+                    {
+                        double prevClose = elements[elements.Count - 2].TryGetProperty("Close", out var pc) ? pc.GetDouble() / 1000.0 : 0.0;
+                        double close = elements[elements.Count - 1].TryGetProperty("Close", out var c) ? c.GetDouble() / 1000.0 : 0.0;
+                        if (prevClose > 0)
+                        {
+                            double pctChg = (close - prevClose) / prevClose * 100.0;
+                            return (pctChg <= -2.0, pctChg);
+                        }
+                    }
+                }
             }
         }
         catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
@@ -250,72 +265,50 @@ public class TurtleScannerService
     private bool ParseSnapshot(string json, out double amount, out double turnover)
     {
         amount = turnover = 0.0;
-        if (string.IsNullOrWhiteSpace(json)) return false;
         try
         {
-            using JsonDocument jsonDocument = JsonDocument.Parse(json);
-            JsonElement rootElement = jsonDocument.RootElement;
-            JsonElement jsonElement = rootElement.ValueKind == JsonValueKind.Array ? rootElement : 
-                (rootElement.TryGetProperty("data", out var value) ? 
-                    (value.ValueKind == JsonValueKind.Array ? value : (value.TryGetProperty("list", out var value2) ? value2 : default)) 
-                    : default);
-            
-            if (jsonElement.ValueKind == JsonValueKind.Array && jsonElement.GetArrayLength() > 0)
+            using JsonDocument doc = JsonDocument.Parse(json);
+            var item = doc.RootElement;
+            if (item.TryGetProperty("K", out var kElem) && kElem.TryGetProperty("Close", out var closeElem))
             {
-                JsonElement jsonElement2 = jsonElement[0];
-                if (!jsonElement2.TryGetProperty("K", out var value3)) return false;
-                if (value3.GetProperty("Close").GetDouble() / 1000.0 <= 0.001) return false;
-                
-                double num = jsonElement2.TryGetProperty("Amount", out var value4) ? value4.GetDouble() : 
-                            (jsonElement2.TryGetProperty("TotalAmount", out var value5) ? value5.GetDouble() : 0.0);
-                amount = num < 0.001 ? 0.0 : num;
-                return true;
+                double close = closeElem.GetDouble() / 1000.0;
+                if (close <= 0.001) return false;
             }
+
+            amount = item.TryGetProperty("Amount", out var a) ? a.GetDouble() : 0.0;
+            turnover = item.TryGetProperty("Turnover", out var t) ? t.GetDouble() : 0.0;
+            return true;
         }
-        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
+        catch { }
         return false;
     }
 
-    private List<(double High, double Low, double Close, double Turnover)> ParseEastMoneyKlineForTurtle(string json)
+    private List<(double High, double Low, double Close)> ParseKlineForTurtle(string json)
     {
-        var list = new List<(double, double, double, double)>();
-        if (string.IsNullOrWhiteSpace(json)) return list;
-        int num = json.IndexOf('{');
-        int num2 = json.LastIndexOf('}');
-        if (num >= 0 && num2 > num)
+        var list = new List<(double, double, double)>();
+        try
         {
-            json = json.Substring(num, num2 - num + 1);
-            try
+            using JsonDocument doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array)
             {
-                using JsonDocument jsonDocument = JsonDocument.Parse(json);
-                if (jsonDocument.RootElement.TryGetProperty("data", out var value) && value.ValueKind == JsonValueKind.Object)
+                foreach (JsonElement item in dataArr.EnumerateArray())
                 {
-                    if (value.TryGetProperty("klines", out var value2) && value2.ValueKind == JsonValueKind.Array)
+                    if (item.TryGetProperty("High", out var highElem) &&
+                        item.TryGetProperty("Low", out var lowElem) &&
+                        item.TryGetProperty("Close", out var closeElem))
                     {
-                        foreach (JsonElement item in value2.EnumerateArray())
+                        double high = highElem.GetDouble() / 1000.0;
+                        double low = lowElem.GetDouble() / 1000.0;
+                        double close = closeElem.GetDouble() / 1000.0;
+                        if (close > 0)
                         {
-                            try
-                            {
-                                string[] array = item.GetString()!.Split(',');
-                                if (array.Length >= 11)
-                                {
-                                    double.TryParse(array[3], out var result);
-                                    double.TryParse(array[4], out var result2);
-                                    double.TryParse(array[2], out var result3);
-                                    double.TryParse(array[10], out var result4);
-                                    if (result3 > 0.0)
-                                    {
-                                        list.Add((result, result2, result3, result4));
-                                    }
-                                }
-                            }
-                            catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
+                            list.Add((high, low, close));
                         }
                     }
                 }
             }
-            catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         }
+        catch { }
         return list;
     }
 
@@ -330,10 +323,10 @@ public class TurtleScannerService
         {
             Directory.CreateDirectory(text);
         }
-        string path = Path.Combine(text, $"海龟突破_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+        string path = Path.Combine(text, $"海龟突破高速版_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
         using (StreamWriter writer = new StreamWriter(path, append: false, Encoding.UTF8))
         {
-            await writer.WriteLineAsync($"【海龟法则】突破选股\n生成时间: {DateTime.Now}\n入围数量: {results.Count}\n=======================================");
+            await writer.WriteLineAsync($"【海龟法则高速版】突破选股\n生成时间: {DateTime.Now}\n入围数量: {results.Count}\n=======================================");
             foreach (var item in results)
             {
                 await writer.WriteLineAsync($"代码: {item.Code} \t名称: {item.Name} \t说明: {item.Reason}");
@@ -341,3 +334,4 @@ public class TurtleScannerService
         }
     }
 }
+

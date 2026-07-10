@@ -93,7 +93,7 @@ public partial class SparrowViewModel : ObservableObject
     public SparrowViewModel(MainViewModel mainVm)
     {
         _mainVm = mainVm;
-        _scannerService = new SparrowScannerService(new EastMoneySpiderService());
+        _scannerService = new SparrowScannerService(mainVm.DataProvider);
     }
 
     private void AppendLog(string msg, bool isHighlight = false)
