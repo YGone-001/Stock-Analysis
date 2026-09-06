@@ -25,50 +25,33 @@ public partial class SparrowViewModel : ObservableObject
     private readonly SparrowScannerService _scannerService;
     private readonly SparrowClassicScanner _classicScanner;
     private readonly SparrowComparisonService _comparisonService;
+    private readonly SparrowParameterUiState _parameterState = new();
     private CancellationTokenSource _cts;
 
     public IReadOnlyList<SparrowStrategyMode> AvailableStrategyModes { get; } =
         Enum.GetValues<SparrowStrategyMode>();
 
-    private SparrowStrategyMode _strategyMode = SparrowStrategyMode.V2;
     public SparrowStrategyMode StrategyMode
     {
-        get => _strategyMode;
-        set
-        {
-            if (_strategyMode != value)
-            {
-                _strategyMode = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(StartButtonText));
-            }
-        }
+        get => _parameterState.StrategyMode;
+        set => _parameterState.StrategyMode = value;
     }
 
-    // Parameters
-    private SparrowScanParameters _parameters = new SparrowScanParameters
-    {
-        MacroDef = true,
-        MinRise = 0,
-        MaxRise = 9.9,
-        VolRatio = 1.0,
-        MinAmount = 5000, // This is internally * 10000
-        CheckMA60 = true,
-        MinAdhesion = 0,
-        MaxAdhesion = 15,
-        MinTurnover = 3,
-        MaxTurnover = 30,
-        MomentumThreshold = 0,
-        CheckAlpha = true,
-        MaxConcurrency = 8,
-        UseCache = true
-    };
-
-    public SparrowScanParameters Parameters
-    {
-        get => _parameters;
-        set { _parameters = value; OnPropertyChanged(); }
-    }
+    public ISparrowStrategyUiParameters Parameters => _parameterState.ActiveParameters;
+    public SparrowClassicUiParameters ClassicParameters => _parameterState.ClassicParameters;
+    public SparrowV2UiParameters V2Parameters => _parameterState.V2Parameters;
+    public SparrowSystemSettings SystemSettings => _parameterState.SystemSettings;
+    public bool IsClassicMode => _parameterState.IsClassicMode;
+    public bool IsV2Mode => _parameterState.IsV2Mode;
+    public bool IsCompareMode => _parameterState.IsCompareMode;
+    public bool ShowBaseParameters => _parameterState.ShowBaseParameters;
+    public bool ShowV2Parameters => _parameterState.ShowV2Parameters;
+    public bool ShowSystemParameters => _parameterState.ShowSystemParameters;
+    public string StrategyDescription => _parameterState.StrategyDescription;
+    public string BaseParametersHeader => _parameterState.BaseParametersHeader;
+    public string V2ParametersHeader => _parameterState.V2ParametersHeader;
+    public string ComparisonHint => _parameterState.ComparisonHint;
+    public string CurrentPresetName => _parameterState.CurrentPresetName;
 
     // UI States
     private bool _isScanning;
@@ -121,6 +104,18 @@ public partial class SparrowViewModel : ObservableObject
     public SparrowViewModel(MainViewModel mainVm)
     {
         _mainVm = mainVm;
+        _parameterState.PropertyChanged += (_, args) =>
+        {
+            OnPropertyChanged(args.PropertyName);
+            if (args.PropertyName == nameof(SparrowParameterUiState.ActiveParameters))
+            {
+                OnPropertyChanged(nameof(Parameters));
+            }
+            if (args.PropertyName == nameof(SparrowParameterUiState.StrategyMode))
+            {
+                OnPropertyChanged(nameof(StartButtonText));
+            }
+        };
         var sharedKlineCache = new SparrowMarketDataCache();
         _scannerService = new SparrowScannerService(mainVm.DataProvider, sharedKlineCache);
         _classicScanner = new SparrowClassicScanner(mainVm.DataProvider, klineCache: sharedKlineCache);
@@ -131,6 +126,14 @@ public partial class SparrowViewModel : ObservableObject
     {
         string prefix = $"[{DateTime.Now:HH:mm:ss}] {(isHighlight ? "🔍 " : "")}";
         LogText += $"{prefix}{msg}\n";
+    }
+
+    [RelayCommand]
+    private void ResetRecommendedDefaults()
+    {
+        _parameterState.ResetRecommendedDefaults();
+        OnPropertyChanged(nameof(Parameters));
+        AppendLog("已恢复当前模式的推荐默认（14:30 均衡）；缓存与并发设置保持不变。");
     }
 
     [RelayCommand]
@@ -172,6 +175,15 @@ public partial class SparrowViewModel : ObservableObject
             return;
         }
 
+        SparrowParameterValidationResult validation = SparrowParameterValidator.Validate(
+            StrategyMode, ClassicParameters, V2Parameters, SystemSettings);
+        if (!validation.IsValid)
+        {
+            AppendLog("❌ 参数校验失败：" + validation.Error, true);
+            Growl.Warning(validation.Error);
+            return;
+        }
+
         var stockNameMap = _mainVm.StockVM?.StockNameMap;
         if (stockNameMap == null || stockNameMap.Count == 0) return;
 
@@ -189,37 +201,18 @@ public partial class SparrowViewModel : ObservableObject
         _cts = new CancellationTokenSource();
         ProgressValue = 0;
 
-        // Apply parameter scaling
-        var activeParams = new SparrowScanParameters
+        SparrowClassicScanParameters classicParams;
+        SparrowScanParameters activeParams;
+        if (StrategyMode == SparrowStrategyMode.Compare)
         {
-            MacroDef = Parameters.MacroDef,
-            MinRise = Parameters.MinRise,
-            MaxRise = Parameters.MaxRise,
-            VolRatio = Parameters.VolRatio,
-            MinAmount = Parameters.MinAmount * 10000.0,
-            CheckMA60 = Parameters.CheckMA60,
-            MinAdhesion = Parameters.MinAdhesion / 100.0,
-            MaxAdhesion = Parameters.MaxAdhesion / 100.0,
-            MinTurnover = Parameters.MinTurnover,
-            MaxTurnover = Parameters.MaxTurnover,
-            MomentumThreshold = Parameters.MomentumThreshold,
-            CheckAlpha = Parameters.CheckAlpha,
-            MaxConcurrency = Parameters.MaxConcurrency,
-            UseCache = Parameters.UseCache
-        };
-        var classicParams = new SparrowClassicScanParameters
+            (classicParams, activeParams) = SparrowParameterMapper.ToComparison(
+                ClassicParameters, V2Parameters, SystemSettings);
+        }
+        else
         {
-            MacroDef = activeParams.MacroDef,
-            MinRise = activeParams.MinRise,
-            MaxRise = activeParams.MaxRise,
-            VolRatio = activeParams.VolRatio,
-            MinAmount = activeParams.MinAmount,
-            CheckMA60 = activeParams.CheckMA60,
-            MinAdhesion = activeParams.MinAdhesion,
-            MaxAdhesion = activeParams.MaxAdhesion,
-            MaxConcurrency = activeParams.MaxConcurrency,
-            UseCache = activeParams.UseCache
-        };
+            classicParams = SparrowParameterMapper.ToClassic(ClassicParameters, SystemSettings);
+            activeParams = SparrowParameterMapper.ToV2(V2Parameters, SystemSettings);
+        }
 
         var v2Progress = new Progress<SparrowScanReport>(report =>
         {
