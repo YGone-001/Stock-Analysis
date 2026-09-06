@@ -54,6 +54,7 @@ public interface ISparrowStrategyUiParameters : INotifyPropertyChanged
     bool CheckMA60 { get; set; }
     double MinAdhesion { get; set; }
     double MaxAdhesion { get; set; }
+    string AdhesionRangeText { get; }
     bool IsRecommended { get; }
     void MarkRecommended();
 }
@@ -78,8 +79,29 @@ public abstract class SparrowStrategyUiParameters : ISparrowStrategyUiParameters
     public double MinAmount { get => _minAmount; set => Set(ref _minAmount, value); }
     public double VolRatio { get => _volRatio; set => Set(ref _volRatio, value); }
     public bool CheckMA60 { get => _checkMa60; set => Set(ref _checkMa60, value); }
-    public double MinAdhesion { get => _minAdhesion; set => Set(ref _minAdhesion, value); }
-    public double MaxAdhesion { get => _maxAdhesion; set => Set(ref _maxAdhesion, value); }
+    public double MinAdhesion
+    {
+        get => _minAdhesion;
+        set
+        {
+            if (Set(ref _minAdhesion, value))
+            {
+                OnPropertyChanged(nameof(AdhesionRangeText));
+            }
+        }
+    }
+    public double MaxAdhesion
+    {
+        get => _maxAdhesion;
+        set
+        {
+            if (Set(ref _maxAdhesion, value))
+            {
+                OnPropertyChanged(nameof(AdhesionRangeText));
+            }
+        }
+    }
+    public string AdhesionRangeText => $"当前范围：{MinAdhesion:F1}% ~ {MaxAdhesion:F1}%";
     public bool IsRecommended => _isRecommended;
 
     public void MarkRecommended()
@@ -117,8 +139,29 @@ public sealed class SparrowV2UiParameters : SparrowStrategyUiParameters
     private double _momentumThreshold;
     private bool _checkAlpha;
 
-    public double MinTurnover { get => _minTurnover; set => Set(ref _minTurnover, value); }
-    public double MaxTurnover { get => _maxTurnover; set => Set(ref _maxTurnover, value); }
+    public double MinTurnover
+    {
+        get => _minTurnover;
+        set
+        {
+            if (Set(ref _minTurnover, value))
+            {
+                OnPropertyChanged(nameof(TurnoverRangeText));
+            }
+        }
+    }
+    public double MaxTurnover
+    {
+        get => _maxTurnover;
+        set
+        {
+            if (Set(ref _maxTurnover, value))
+            {
+                OnPropertyChanged(nameof(TurnoverRangeText));
+            }
+        }
+    }
+    public string TurnoverRangeText => $"当前范围：{MinTurnover:F1}% ~ {MaxTurnover:F1}%";
     public double MomentumThreshold { get => _momentumThreshold; set => Set(ref _momentumThreshold, value); }
     public bool CheckAlpha { get => _checkAlpha; set => Set(ref _checkAlpha, value); }
 }
@@ -311,6 +354,9 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         }
     }
 
+    public string AdhesionRangeText => ActiveParameters.AdhesionRangeText;
+    public string TurnoverRangeText => V2Parameters.TurnoverRangeText;
+
     public void ResetRecommendedDefaults()
     {
         switch (StrategyMode)
@@ -327,11 +373,25 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
                 break;
         }
         OnPropertyChanged(nameof(CurrentPresetName));
+        OnPropertyChanged(nameof(AdhesionRangeText));
+        OnPropertyChanged(nameof(TurnoverRangeText));
     }
 
     private void StrategyParametersChanged(object? sender, PropertyChangedEventArgs e)
     {
         OnPropertyChanged(nameof(CurrentPresetName));
+        if (e.PropertyName is nameof(ISparrowStrategyUiParameters.MinAdhesion)
+            or nameof(ISparrowStrategyUiParameters.MaxAdhesion)
+            or nameof(ISparrowStrategyUiParameters.AdhesionRangeText))
+        {
+            OnPropertyChanged(nameof(AdhesionRangeText));
+        }
+        if (e.PropertyName is nameof(SparrowV2UiParameters.MinTurnover)
+            or nameof(SparrowV2UiParameters.MaxTurnover)
+            or nameof(SparrowV2UiParameters.TurnoverRangeText))
+        {
+            OnPropertyChanged(nameof(TurnoverRangeText));
+        }
     }
 
     private void RaiseModeProperties()
@@ -349,6 +409,8 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         OnPropertyChanged(nameof(V2ParametersHeader));
         OnPropertyChanged(nameof(ComparisonHint));
         OnPropertyChanged(nameof(CurrentPresetName));
+        OnPropertyChanged(nameof(AdhesionRangeText));
+        OnPropertyChanged(nameof(TurnoverRangeText));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>

@@ -331,6 +331,58 @@ public sealed class SparrowUiParametersTests
         Assert.Equal(SparrowClassicP3RejectReason.None, res5.RejectReason);
     }
 
+    [Fact]
+    public void AdhesionRangeText_TracksMinAndMaxValues()
+    {
+        var state = new SparrowParameterUiState();
+        Assert.Equal("当前范围：0.0% ~ 4.0%", state.AdhesionRangeText);
+        Assert.Equal("当前范围：0.0% ~ 4.0%", state.ClassicParameters.AdhesionRangeText);
+
+        state.ClassicParameters.MinAdhesion = 1.5;
+        Assert.Equal("当前范围：1.5% ~ 4.0%", state.AdhesionRangeText);
+
+        state.ClassicParameters.MaxAdhesion = 3.5;
+        Assert.Equal("当前范围：1.5% ~ 3.5%", state.AdhesionRangeText);
+    }
+
+    [Fact]
+    public void TurnoverRangeText_TracksMinAndMaxValues()
+    {
+        var state = new SparrowParameterUiState();
+        Assert.Equal("当前范围：3.0% ~ 30.0%", state.TurnoverRangeText);
+        Assert.Equal("当前范围：3.0% ~ 30.0%", state.V2Parameters.TurnoverRangeText);
+
+        state.V2Parameters.MinTurnover = 5.0;
+        Assert.Equal("当前范围：5.0% ~ 30.0%", state.TurnoverRangeText);
+
+        state.V2Parameters.MaxTurnover = 25.0;
+        Assert.Equal("当前范围：5.0% ~ 25.0%", state.TurnoverRangeText);
+    }
+
+    [Fact]
+    public void ResetRecommendedDefaults_ResetsAdhesionAndTurnover()
+    {
+        var state = new SparrowParameterUiState();
+        state.ClassicParameters.MinAdhesion = 2.0;
+        state.ClassicParameters.MaxAdhesion = 8.0;
+        Assert.Equal("当前范围：2.0% ~ 8.0%", state.AdhesionRangeText);
+
+        state.ResetRecommendedDefaults();
+        Assert.Equal(0.0, state.ClassicParameters.MinAdhesion);
+        Assert.Equal(4.0, state.ClassicParameters.MaxAdhesion);
+        Assert.Equal("当前范围：0.0% ~ 4.0%", state.AdhesionRangeText);
+
+        state.StrategyMode = SparrowStrategyMode.V2;
+        state.V2Parameters.MinTurnover = 5.0;
+        state.V2Parameters.MaxTurnover = 20.0;
+        Assert.Equal("当前范围：5.0% ~ 20.0%", state.TurnoverRangeText);
+
+        state.ResetRecommendedDefaults();
+        Assert.Equal(3.0, state.V2Parameters.MinTurnover);
+        Assert.Equal(30.0, state.V2Parameters.MaxTurnover);
+        Assert.Equal("当前范围：3.0% ~ 30.0%", state.TurnoverRangeText);
+    }
+
     private static void RunOnStaThread(Action action)
     {
         Exception? error = null;

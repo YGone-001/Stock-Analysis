@@ -1,7 +1,9 @@
 using System;
 using System.CodeDom.Compiler;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -30,6 +32,11 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
     internal CheckBox ChkUseCache;
     internal RangeSlider SldAdhesion;
     internal RangeSlider SldTurnover;
+    internal NumericUpDown NumMinAdhesion;
+    internal NumericUpDown NumMaxAdhesion;
+    internal NumericUpDown NumMinTurnover;
+    internal NumericUpDown NumMaxTurnover;
+    internal NumericUpDown? LegacyConcurrencyControl { get; private set; }
     internal NumericUpDown NumMomentum;
     internal Button BtnStart;
     internal Button BtnTest;
@@ -76,8 +83,12 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         ChkUseCache.SetBinding(CheckBox.IsCheckedProperty, new Binding("SystemSettings.UseCache") { Mode = BindingMode.TwoWay });
         SldAdhesion.SetBinding(RangeSlider.ValueStartProperty, new Binding("Parameters.MinAdhesion") { Mode = BindingMode.TwoWay });
         SldAdhesion.SetBinding(RangeSlider.ValueEndProperty, new Binding("Parameters.MaxAdhesion") { Mode = BindingMode.TwoWay });
+        NumMinAdhesion.SetBinding(NumericUpDown.ValueProperty, new Binding("Parameters.MinAdhesion") { Mode = BindingMode.TwoWay });
+        NumMaxAdhesion.SetBinding(NumericUpDown.ValueProperty, new Binding("Parameters.MaxAdhesion") { Mode = BindingMode.TwoWay });
         SldTurnover.SetBinding(RangeSlider.ValueStartProperty, new Binding("V2Parameters.MinTurnover") { Mode = BindingMode.TwoWay });
         SldTurnover.SetBinding(RangeSlider.ValueEndProperty, new Binding("V2Parameters.MaxTurnover") { Mode = BindingMode.TwoWay });
+        NumMinTurnover.SetBinding(NumericUpDown.ValueProperty, new Binding("V2Parameters.MinTurnover") { Mode = BindingMode.TwoWay });
+        NumMaxTurnover.SetBinding(NumericUpDown.ValueProperty, new Binding("V2Parameters.MaxTurnover") { Mode = BindingMode.TwoWay });
         NumMomentum.SetBinding(NumericUpDown.ValueProperty, new Binding("V2Parameters.MomentumThreshold") { Mode = BindingMode.TwoWay });
         NumConcurrency.SetBinding(NumericUpDown.ValueProperty, new Binding("SystemSettings.MaxConcurrency") { Mode = BindingMode.TwoWay });
 
@@ -137,6 +148,12 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
             parameterGroup.Header = "麻雀策略参数";
         }
 
+        if (LegacyConcurrencyControl == null && NumConcurrency != null)
+        {
+            LegacyConcurrencyControl = NumConcurrency;
+            RemoveLegacyConcurrencyControl(LegacyConcurrencyControl);
+        }
+
         // Recreate only the parameter controls so each can be placed in the strategy-aware layout below.
         ChkMacroDef = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
         ChkMA60 = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
@@ -148,8 +165,14 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumMinAmount = new NumericUpDown { Minimum = 0, Maximum = 1_000_000, Width = 90 };
         NumMomentum = new NumericUpDown { Minimum = 0, Maximum = 100, Width = 75, Increment = 0.01 };
         NumConcurrency = new NumericUpDown { Minimum = 1, Maximum = 32, Width = 65 };
-        SldAdhesion = new RangeSlider { Minimum = 0, Maximum = 100, Width = 150 };
-        SldTurnover = new RangeSlider { Minimum = 0, Maximum = 50, Width = 150 };
+
+        NumMinAdhesion = new NumericUpDown { Minimum = 0, Maximum = 15, Increment = 0.1, Width = 65 };
+        NumMaxAdhesion = new NumericUpDown { Minimum = 0, Maximum = 15, Increment = 0.1, Width = 65 };
+        SldAdhesion = new RangeSlider { Minimum = 0, Maximum = 15, SmallChange = 0.1, TickFrequency = 0.5, Width = 160 };
+
+        NumMinTurnover = new NumericUpDown { Minimum = 0, Maximum = 50, Increment = 0.5, Width = 65 };
+        NumMaxTurnover = new NumericUpDown { Minimum = 0, Maximum = 50, Increment = 0.5, Width = 65 };
+        SldTurnover = new RangeSlider { Minimum = 0, Maximum = 50, SmallChange = 0.5, TickFrequency = 5.0, Width = 160 };
 
         var modePanel = new StackPanel
         {
@@ -193,8 +216,10 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumMaxRise.ToolTip = "最高当日涨幅；降低可减少追高标的。";
         NumMinAmount.ToolTip = "最低成交额，单位万元。";
         NumVolRatio.ToolTip = "要求外盘 > 内盘 × 此比例。";
+
+        NumMinAdhesion.ToolTip = "最低均线黏合度（%）；通常为 0.0%。";
+        NumMaxAdhesion.ToolTip = "最高均线黏合度（%）；越小越紧，推荐上限 4.0%。";
         SldAdhesion.ToolTip = "MA5/MA10/MA20 最大离散程度；越低代表均线越紧。";
-        SldAdhesion.Maximum = 100;
 
         var marketParameters = new WrapPanel();
         marketParameters.Children.Add(ChkMacroDef);
@@ -205,10 +230,15 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         marketParameters.Children.Add(CreateEditor("外盘 / 内盘比", NumVolRatio,
             "要求外盘 > 内盘 × 此比例。"));
 
-        var trendParameters = new WrapPanel();
+        var trendParameters = new StackPanel();
         trendParameters.Children.Add(ChkMA60);
-        trendParameters.Children.Add(CreateEditor("均线黏合度（%）", SldAdhesion,
-            "MA5/MA10/MA20 最大离散程度；越低代表均线越紧。"));
+        trendParameters.Children.Add(CreateRangeSliderEditor(
+            "均线黏合度（%）",
+            NumMinAdhesion,
+            SldAdhesion,
+            NumMaxAdhesion,
+            "AdhesionRangeText",
+            "越小 = 均线越紧；推荐上限 4.0%"));
 
         var baseContent = new StackPanel();
         baseContent.Children.Add(SectionLabel("市场与资金"));
@@ -225,16 +255,48 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
 
         ChkAlpha.Content = "Alpha 基准确认";
         ChkAlpha.ToolTip = "仅 V2：要求个股当日表现不弱于上证基准。";
-        SldTurnover.ToolTip = "仅 V2：换手率范围。";
+        NumMinTurnover.ToolTip = "最低当日换手率（%）；推荐 3.0%。";
+        NumMaxTurnover.ToolTip = "最高当日换手率（%）；推荐 30.0%。";
+        SldTurnover.ToolTip = "仅 V2：换手率范围（%）。";
         NumMomentum.ToolTip = "仅 V2：MA5 当前值相对前一窗口的动量阈值。";
-        var v2Panel = new WrapPanel();
-        v2Panel.Children.Add(CreateEditor("换手率范围（%）", SldTurnover, "仅 V2：换手率范围。"));
-        v2Panel.Children.Add(ChkAlpha);
-        v2Panel.Children.Add(CreateEditor("MA5 动量阈值", NumMomentum,
-            "仅 V2：MA5 当前值相对前一窗口的动量阈值。"));
+
+        var v2Content = new StackPanel();
+        v2Content.Children.Add(CreateRangeSliderEditor(
+            "换手率范围（%）",
+            NumMinTurnover,
+            SldTurnover,
+            NumMaxTurnover,
+            "TurnoverRangeText",
+            "推荐：3.0% ~ 30.0%"));
+
+        var v2OtherPanel = new WrapPanel();
+        v2OtherPanel.Children.Add(ChkAlpha);
+        var momentumPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 15, 10),
+            ToolTip = "仅 V2：MA5 当前值相对前一窗口的动量阈值。"
+        };
+        momentumPanel.Children.Add(new TextBlock
+        {
+            Text = "MA5 动量阈值：",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        });
+        momentumPanel.Children.Add(NumMomentum);
+        momentumPanel.Children.Add(new TextBlock
+        {
+            Text = "当前规则：Momentum 必须严格 > 该值",
+            Foreground = System.Windows.Media.Brushes.Gray,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0)
+        });
+        v2OtherPanel.Children.Add(momentumPanel);
+        v2Content.Children.Add(v2OtherPanel);
+
         var v2Group = new GroupBox
         {
-            Content = v2Panel,
+            Content = v2Content,
             Margin = new Thickness(0, 0, 0, 8),
             Padding = new Thickness(8)
         };
@@ -348,6 +410,143 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         });
         panel.Children.Add(maximum);
         return panel;
+    }
+
+    private static StackPanel CreateRangeSliderEditor(
+        string title,
+        NumericUpDown minEditor,
+        RangeSlider slider,
+        NumericUpDown maxEditor,
+        string currentRangeBindingPath,
+        string hint)
+    {
+        var panel = new StackPanel
+        {
+            Margin = new Thickness(0, 2, 15, 10)
+        };
+
+        var titleBlock = new TextBlock
+        {
+            Text = title,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        panel.Children.Add(titleBlock);
+
+        var controlsRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        minEditor.VerticalAlignment = VerticalAlignment.Center;
+        slider.VerticalAlignment = VerticalAlignment.Center;
+        slider.Margin = new Thickness(8, 0, 8, 0);
+        maxEditor.VerticalAlignment = VerticalAlignment.Center;
+
+        controlsRow.Children.Add(minEditor);
+        controlsRow.Children.Add(slider);
+        controlsRow.Children.Add(maxEditor);
+        panel.Children.Add(controlsRow);
+
+        var infoRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        var rangeText = new TextBlock
+        {
+            Foreground = System.Windows.Media.Brushes.DimGray,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        rangeText.SetBinding(TextBlock.TextProperty, new Binding(currentRangeBindingPath));
+        infoRow.Children.Add(rangeText);
+
+        if (!string.IsNullOrEmpty(hint))
+        {
+            var hintText = new TextBlock
+            {
+                Text = hint,
+                Foreground = System.Windows.Media.Brushes.Gray,
+                Margin = new Thickness(12, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            infoRow.Children.Add(hintText);
+        }
+        panel.Children.Add(infoRow);
+
+        return panel;
+    }
+
+    private void RemoveLegacyConcurrencyControl(NumericUpDown legacy)
+    {
+        legacy.Visibility = Visibility.Collapsed;
+
+        DependencyObject? parent = LogicalTreeHelper.GetParent(legacy)
+            ?? (legacy is Visual v ? VisualTreeHelper.GetParent(v) : null);
+
+        if (parent is Panel panel)
+        {
+            var concurrencyLabels = new List<FrameworkElement>();
+            foreach (UIElement child in panel.Children)
+            {
+                if (child is TextBlock tb && (tb.Text.Contains("并发") || tb.Text.Contains("Concurrency")))
+                {
+                    concurrencyLabels.Add(tb);
+                }
+                else if (child is Label lbl && lbl.Content?.ToString()?.Contains("并发") == true)
+                {
+                    concurrencyLabels.Add(lbl);
+                }
+            }
+
+            bool isDedicatedWrapper = panel.Children.Count <= 3
+                && concurrencyLabels.Count > 0
+                && !panel.Children.OfType<Button>().Any()
+                && !panel.Children.OfType<ProgressBar>().Any();
+
+            if (isDedicatedWrapper)
+            {
+                panel.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                foreach (var label in concurrencyLabels)
+                {
+                    label.Visibility = Visibility.Collapsed;
+                }
+            }
+        }
+
+        if (Content is Grid mainGrid)
+        {
+            foreach (UIElement child in mainGrid.Children)
+            {
+                if (Grid.GetRow(child) != 0)
+                {
+                    HideConcurrencyElementsInSubtree(child);
+                }
+            }
+        }
+    }
+
+    private static void HideConcurrencyElementsInSubtree(DependencyObject node)
+    {
+        if (node is TextBlock tb && (tb.Text.Contains("并发") || tb.Text.Contains("Concurrency")))
+        {
+            tb.Visibility = Visibility.Collapsed;
+        }
+        else if (node is Label lbl && (lbl.Content?.ToString()?.Contains("并发") == true || lbl.Content?.ToString()?.Contains("Concurrency") == true))
+        {
+            lbl.Visibility = Visibility.Collapsed;
+        }
+
+        foreach (object? child in LogicalTreeHelper.GetChildren(node))
+        {
+            if (child is DependencyObject d)
+            {
+                HideConcurrencyElementsInSubtree(d);
+            }
+        }
     }
 
     private void BtnStart_Click(object sender, RoutedEventArgs e)

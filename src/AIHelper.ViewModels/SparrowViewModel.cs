@@ -60,6 +60,8 @@ public partial class SparrowViewModel : ObservableObject
     public string V2ParametersHeader => _parameterState.V2ParametersHeader;
     public string ComparisonHint => _parameterState.ComparisonHint;
     public string CurrentPresetName => _parameterState.CurrentPresetName;
+    public string AdhesionRangeText => _parameterState.AdhesionRangeText;
+    public string TurnoverRangeText => _parameterState.TurnoverRangeText;
 
     // UI States
     private bool _isScanning;
