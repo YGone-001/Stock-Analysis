@@ -11,6 +11,7 @@ using AIHelper.Helpers;
 
 using AIHelper.Models;
 using AIHelper.Services.StockData;
+using AIHelper.Services.StockData.Sparrow;
 using HandyControl.Controls;
 using Serilog;
 
@@ -21,7 +22,7 @@ namespace AIHelper.ViewModels;
 public partial class SparrowLegacyViewModel : ObservableObject
 {
     private readonly MainViewModel _mainVm;
-    private readonly SparrowLegacyScannerService _scannerService;
+    private readonly SparrowClassicScanner _scannerService;
     private CancellationTokenSource _cts;
 
     private SparrowLegacyScanParameters _parameters = new SparrowLegacyScanParameters();
@@ -89,7 +90,7 @@ public partial class SparrowLegacyViewModel : ObservableObject
     public SparrowLegacyViewModel(MainViewModel mainVm)
     {
         _mainVm = mainVm;
-        _scannerService = new SparrowLegacyScannerService(mainVm.DataProvider);
+        _scannerService = new SparrowClassicScanner(mainVm.DataProvider);
     }
 
     private void AppendLog(string msg, bool isHighlight = false)
@@ -132,7 +133,7 @@ public partial class SparrowLegacyViewModel : ObservableObject
         StatsDesc = "";
 
         // Apply parameter scaling
-        var activeParams = new SparrowLegacyScanParameters
+        var activeParams = new SparrowClassicScanParameters
         {
             MacroDef = Parameters.MacroDef,
             MinRise = Parameters.MinRise,
@@ -146,7 +147,7 @@ public partial class SparrowLegacyViewModel : ObservableObject
             UseCache = Parameters.UseCache
         };
 
-        var progress = new Progress<SparrowLegacyScanReport>(report =>
+        var progress = new Progress<SparrowClassicScanReport>(report =>
         {
             if (report.LogMessage != null)
             {
