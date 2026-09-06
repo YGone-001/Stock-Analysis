@@ -46,11 +46,6 @@ public sealed class SparrowClassicScanner
             .Select(group => group.First())
             .ToList();
 
-        if (!parameters.UseCache)
-        {
-            _klineCache.Clear();
-        }
-
         // Scan-local session state: never leaks across scans or between different parameter sets
         var p2Processed = new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
         var p2Survivors = new ConcurrentDictionary<string, (string Code, string Name)>(StringComparer.Ordinal);
@@ -63,7 +58,7 @@ public sealed class SparrowClassicScanner
         if (parameters.MacroDef)
         {
             ReportLog(progress, "🧭 [Sparrow Classic][Market] 开始市场环境检查...");
-            SparrowMarketRegime regime = await _marketRegimeService.EvaluateAsync(cancellationToken);
+            SparrowMarketRegime regime = await _marketRegimeService.EvaluateAsync(forceRefresh: !parameters.UseCache, cancellationToken);
 
             ReportLog(progress,
                 $"🧭 [Market]\n" +
@@ -283,7 +278,7 @@ public sealed class SparrowClassicScanner
 
         List<SparrowClassicCandidate> results = p3Winners.Values.OrderBy(candidate => candidate.Code).ToList();
         ReportLog(progress, $"\n🏆 [Sparrow Classic] 漏斗完成，共入围 {results.Count} 只。Strategy = {SparrowClassicCandidate.StrategyName}");
-        ReportLog(progress, $"🧭 [Sparrow Classic][Cache] Kline: {_klineCache.Statistics}");
+        ReportLog(progress, $"🧭 [Sparrow Classic][Cache Lifetime Totals] Kline: {_klineCache.Statistics}");
         if (results.Count > 0)
         {
             await OutputResultsAsync(results, progress);

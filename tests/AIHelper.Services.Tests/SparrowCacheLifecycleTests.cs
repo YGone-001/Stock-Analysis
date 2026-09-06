@@ -535,6 +535,314 @@ public sealed class SparrowCacheLifecycleTests
     }
 
     // =========================================================================
+    // Test 14: V2 UseCache=False Fresh Kline Still Reaches P3 (P0 Bug Fix)
+    // =========================================================================
+
+    [Fact]
+    public async Task V2_UseCacheFalse_FreshKlineStillReachesP3()
+    {
+        var fakeProvider = new LifecycleFakeStockDataProvider();
+        var klineCache = new SparrowMarketDataCache();
+        var scanner = new SparrowScannerService(fakeProvider, klineCache);
+
+        fakeProvider.SetResponse("/api/quote?code=600000&refresh=1", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
+        fakeProvider.SetResponse("/api/kline-all?code=600000&limit=120&refresh=1", BuildPassingKlineJson(10.0, count: 120));
+
+        var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
+        var parameters = new SparrowScanParameters
+        {
+            MacroDef = false,
+            UseCache = false, // Critical: bypass shared cache read
+            CheckAlpha = false,
+            MinRise = 0.5,
+            MaxRise = 5.0,
+            MinAmount = 10_000_000,
+            VolRatio = 1.0,
+            MinAdhesion = 0.0,
+            MaxAdhesion = 0.5,
+            MomentumThreshold = 0.0,
+            MaxConcurrency = 4
+        };
+
+        var results = await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);
+
+        // Before hotfix, results was empty because P3 evaluated TryGet(key, useCache: false) which returned false!
+        Assert.Single(results);
+        Assert.Equal("600000", results[0].Code);
+    }
+
+    // =========================================================================
+    // Test 15: V2 Fresh Kline Replaces Stale Cached Kline
+    // =========================================================================
+
+    [Fact]
+    public async Task V2_FreshKlineReplacesStaleCachedKline()
+    {
+        var fakeProvider = new LifecycleFakeStockDataProvider();
+        var klineCache = new SparrowMarketDataCache();
+        var scanner = new SparrowScannerService(fakeProvider, klineCache);
+
+        // Pre-fill cache with failing stale Kline (< 60 bars)
+        string cacheKey = SparrowDataCachePolicy.GetKlineKey("600000", 120, "day");
+        string staleFailingKline = BuildPassingKlineJson(10.0, count: 30); // 30 bars fails P3 check (< 60)
+        klineCache.Set(cacheKey, staleFailingKline, TimeSpan.FromSeconds(300));
+
+        fakeProvider.SetResponse("/api/quote?code=600000&refresh=1", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
+        string freshPassingKline = BuildPassingKlineJson(10.0, count: 120);
+        fakeProvider.SetResponse("/api/kline-all?code=600000&limit=120&refresh=1", freshPassingKline);
+
+        var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
+        var parameters = new SparrowScanParameters
+        {
+            MacroDef = false,
+            UseCache = false, // Bypasses cache read, fetches fresh data
+            CheckAlpha = false,
+            MinRise = 0.5,
+            MaxRise = 5.0,
+            MinAmount = 10_000_000,
+            VolRatio = 1.0,
+            MinAdhesion = 0.0,
+            MaxAdhesion = 0.5,
+            MomentumThreshold = 0.0,
+            MaxConcurrency = 4
+        };
+
+        var results = await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);
+
+        // P3 must have used fresh data B (not stale failing data A)
+        Assert.Single(results);
+
+        // After scan, shared cache must be updated with fresh data B
+        Assert.True(klineCache.TryGet(cacheKey, true, out var updatedCached));
+        Assert.Equal(freshPassingKline, updatedCached);
+    }
+
+    // =========================================================================
+    // Test 16: V2 UseCache=True Hits Cache Without Upstream Call
+    // =========================================================================
+
+    [Fact]
+    public async Task V2_UseCacheTrue_KlineHitStillWorks()
+    {
+        var fakeProvider = new LifecycleFakeStockDataProvider();
+        var klineCache = new SparrowMarketDataCache();
+        var scanner = new SparrowScannerService(fakeProvider, klineCache);
+
+        // Pre-fill cache with valid passing Kline
+        string cacheKey = SparrowDataCachePolicy.GetKlineKey("600000", 120, "day");
+        string cachedPassingKline = BuildPassingKlineJson(10.0, count: 120);
+        klineCache.Set(cacheKey, cachedPassingKline, TimeSpan.FromSeconds(300));
+
+        fakeProvider.SetResponse("/api/quote?code=600000", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
+        // Note: fakeProvider does NOT have /api/kline-all configured! If called, it would fail.
+
+        var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
+        var parameters = new SparrowScanParameters
+        {
+            MacroDef = false,
+            UseCache = true, // Must hit cache
+            CheckAlpha = false,
+            MinRise = 0.5,
+            MaxRise = 5.0,
+            MinAmount = 10_000_000,
+            VolRatio = 1.0,
+            MinAdhesion = 0.0,
+            MaxAdhesion = 0.5,
+            MomentumThreshold = 0.0,
+            MaxConcurrency = 4
+        };
+
+        var results = await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);
+
+        Assert.Single(results);
+        Assert.Equal(0, fakeProvider.CountRequestsMatching("/api/kline-all"));
+    }
+
+    // =========================================================================
+    // Test 17: Classic UseCache=False Trend Refresh Propagated
+    // =========================================================================
+
+    [Fact]
+    public async Task Classic_UseCacheFalse_TrendRefresh()
+    {
+        var fakeProvider = new LifecycleFakeStockDataProvider();
+        var scanner = new SparrowClassicScanner(fakeProvider);
+
+        fakeProvider.SetResponse("/api/trend?code=1.000001&refresh=1", BuildTrendJson(100, 101, 102, 103, 104));
+        fakeProvider.SetResponse("/api/trend?code=1.000852&refresh=1", BuildTrendJson(100, 101, 102, 103, 104));
+        fakeProvider.SetResponse("/api/quote?code=600000&refresh=1", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
+        fakeProvider.SetResponse("/api/kline-all?code=600000&type=day&limit=65&refresh=1", BuildPassingKlineJson(10.0));
+
+        var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
+        var parameters = new SparrowClassicScanParameters
+        {
+            MacroDef = true,
+            UseCache = false,
+            MinRise = 0.5,
+            MaxRise = 5.0,
+            MinAmount = 10_000_000,
+            VolRatio = 1.0,
+            MinAdhesion = 0.0,
+            MaxAdhesion = 0.5
+        };
+
+        await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);
+
+        var trendRequests = fakeProvider.RecordedRequests.Where(r => r.Path == "/api/trend").ToList();
+        Assert.Equal(2, trendRequests.Count);
+        Assert.All(trendRequests, r => Assert.True(r.ForceRefresh));
+    }
+
+    // =========================================================================
+    // Test 18: Classic UseCache=True Trend Does Not Set Refresh
+    // =========================================================================
+
+    [Fact]
+    public async Task Classic_UseCacheTrue_TrendNoRefresh()
+    {
+        var fakeProvider = new LifecycleFakeStockDataProvider();
+        var scanner = new SparrowClassicScanner(fakeProvider);
+
+        fakeProvider.SetResponse("/api/trend?code=1.000001", BuildTrendJson(100, 101, 102, 103, 104));
+        fakeProvider.SetResponse("/api/trend?code=1.000852", BuildTrendJson(100, 101, 102, 103, 104));
+        fakeProvider.SetResponse("/api/quote?code=600000", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
+        fakeProvider.SetResponse("/api/kline-all?code=600000&type=day&limit=65", BuildPassingKlineJson(10.0));
+
+        var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
+        var parameters = new SparrowClassicScanParameters
+        {
+            MacroDef = true,
+            UseCache = true,
+            MinRise = 0.5,
+            MaxRise = 5.0,
+            MinAmount = 10_000_000,
+            VolRatio = 1.0,
+            MinAdhesion = 0.0,
+            MaxAdhesion = 0.5
+        };
+
+        await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);
+
+        var trendRequests = fakeProvider.RecordedRequests.Where(r => r.Path == "/api/trend").ToList();
+        Assert.Equal(2, trendRequests.Count);
+        Assert.All(trendRequests, r => Assert.False(r.ForceRefresh));
+    }
+
+    // =========================================================================
+    // Test 19: Legacy UseCache=False Trend Refresh Propagated
+    // =========================================================================
+
+    [Fact]
+    public async Task Legacy_UseCacheFalse_TrendRefresh()
+    {
+        var fakeProvider = new LifecycleFakeStockDataProvider();
+        var scanner = new SparrowLegacyScannerService(fakeProvider);
+
+        fakeProvider.SetResponse("/api/trend?code=1.000001&refresh=1", BuildTrendJson(100, 101, 102, 103, 104));
+        fakeProvider.SetResponse("/api/trend?code=1.000852&refresh=1", BuildTrendJson(100, 101, 102, 103, 104));
+        fakeProvider.SetResponse("/api/quote?code=600000&refresh=1", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
+        fakeProvider.SetResponse("/api/kline-all?code=600000&limit=65&refresh=1", BuildPassingKlineJson(10.0));
+
+        var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
+        var parameters = new SparrowLegacyScanParameters
+        {
+            MacroDef = true,
+            UseCache = false,
+            MinRise = 0.5,
+            MaxRise = 5.0,
+            MinAmount = 10_000_000,
+            VolRatio = 1.0,
+            MinAdhesion = 0.0,
+            MaxAdhesion = 0.5,
+            MaxConcurrency = 4
+        };
+
+        await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);
+
+        var trendRequests = fakeProvider.RecordedRequests.Where(r => r.Path == "/api/trend").ToList();
+        Assert.Equal(2, trendRequests.Count);
+        Assert.All(trendRequests, r => Assert.True(r.ForceRefresh));
+    }
+
+    // =========================================================================
+    // Test 20: V2 UseCache=False Index Refresh Propagated
+    // =========================================================================
+
+    [Fact]
+    public async Task V2_UseCacheFalse_IndexRefresh()
+    {
+        var fakeProvider = new LifecycleFakeStockDataProvider();
+        var scanner = new SparrowScannerService(fakeProvider);
+
+        fakeProvider.SetResponse("/api/index?code=sh000001&limit=2&refresh=1", BuildIndexJson(3000, 3030));
+        fakeProvider.SetResponse("/api/quote?code=600000&refresh=1", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
+        fakeProvider.SetResponse("/api/kline-all?code=600000&limit=120&refresh=1", BuildPassingKlineJson(10.0, count: 120));
+
+        var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
+        var parameters = new SparrowScanParameters
+        {
+            MacroDef = true,
+            UseCache = false, // Must request /api/index with refresh=1
+            CheckAlpha = false,
+            MinRise = 0.5,
+            MaxRise = 5.0,
+            MinAmount = 10_000_000,
+            VolRatio = 1.0,
+            MinAdhesion = 0.0,
+            MaxAdhesion = 0.5,
+            MomentumThreshold = 0.0,
+            MaxConcurrency = 4
+        };
+
+        await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);
+
+        var indexReq = fakeProvider.RecordedRequests.FirstOrDefault(r => r.Path == "/api/index");
+        Assert.NotNull(indexReq);
+        Assert.True(indexReq.ForceRefresh);
+
+        // Compare with UseCache = true:
+        fakeProvider.RecordedRequests.Clear();
+        fakeProvider.SetResponse("/api/index?code=sh000001&limit=2", BuildIndexJson(3000, 3030));
+        fakeProvider.SetResponse("/api/quote?code=600000", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
+        fakeProvider.SetResponse("/api/kline-all?code=600000&limit=120", BuildPassingKlineJson(10.0, count: 120));
+
+        parameters.UseCache = true;
+        await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);
+
+        var indexReq2 = fakeProvider.RecordedRequests.FirstOrDefault(r => r.Path == "/api/index");
+        Assert.NotNull(indexReq2);
+        Assert.False(indexReq2.ForceRefresh);
+    }
+
+    // =========================================================================
+    // Test 21: V2 Cancellation Propagates To Index Request
+    // =========================================================================
+
+    [Fact]
+    public async Task V2_CancellationPropagatesToIndexRequest()
+    {
+        var fakeProvider = new DelayingIndexFakeStockDataProvider();
+        var scanner = new SparrowScannerService(fakeProvider);
+
+        var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
+        var parameters = new SparrowScanParameters
+        {
+            MacroDef = true,
+            UseCache = true,
+            MaxConcurrency = 4
+        };
+
+        using var cts = new CancellationTokenSource();
+        // Cancel after 20 milliseconds while GetDataAsync is waiting on /api/index
+        cts.CancelAfter(20);
+
+        var results = await scanner.ScanAsync(targetPool, parameters, null, cts.Token);
+
+        Assert.Empty(results);
+        Assert.True(fakeProvider.WasCancelled);
+    }
+
+    // =========================================================================
     // Helper Classes & JSON Builders
     // =========================================================================
 
@@ -551,6 +859,37 @@ public sealed class SparrowCacheLifecycleTests
         public ManualTimeProvider(DateTimeOffset initial) => _utcNow = initial;
         public override DateTimeOffset GetUtcNow() => _utcNow;
         public void Advance(TimeSpan delta) => _utcNow = _utcNow.Add(delta);
+    }
+
+    private sealed class DelayingIndexFakeStockDataProvider : IStockDataProvider
+    {
+        public bool WasCancelled { get; private set; }
+
+        public bool CanHandle(StockDataRequest request) => true;
+
+        public async Task<StockDataResult> GetDataAsync(StockDataRequest request, CancellationToken cancellationToken = default)
+        {
+            if (request.Path == "/api/index")
+            {
+                try
+                {
+                    await Task.Delay(10000, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    WasCancelled = true;
+                    throw;
+                }
+            }
+
+            return new StockDataResult
+            {
+                Endpoint = request.Endpoint,
+                Handled = true,
+                Success = true,
+                Json = "{\"data\":[]}"
+            };
+        }
     }
 
     private sealed class LifecycleFakeStockDataProvider : IStockDataProvider
@@ -578,7 +917,15 @@ public sealed class SparrowCacheLifecycleTests
         public Task<StockDataResult> GetDataAsync(StockDataRequest request, CancellationToken cancellationToken = default)
         {
             RecordedRequests.Add(request);
-            if (_routes.TryGetValue(request.Endpoint, out var match))
+            if (!_routes.TryGetValue(request.Endpoint, out var match))
+            {
+                string stripped = request.Endpoint.Replace("&refresh=1", "", StringComparison.OrdinalIgnoreCase)
+                                                  .Replace("?refresh=1&", "?", StringComparison.OrdinalIgnoreCase)
+                                                  .Replace("?refresh=1", "", StringComparison.OrdinalIgnoreCase);
+                _routes.TryGetValue(stripped, out match);
+            }
+
+            if (match.Success || !string.IsNullOrEmpty(match.Json) || !string.IsNullOrEmpty(match.Error))
             {
                 return Task.FromResult(new StockDataResult
                 {
@@ -620,6 +967,18 @@ public sealed class SparrowCacheLifecycleTests
         });
     }
 
+    private static string BuildIndexJson(double prevClose, double close)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            data = new[]
+            {
+                new { Close = (long)Math.Round(prevClose * 1000) },
+                new { Close = (long)Math.Round(close * 1000) }
+            }
+        });
+    }
+
     private static string BuildQuoteBatchJson(string code, string name, double price, double percent, double amount, double outerVol, double innerVol)
     {
         return BuildMultiQuoteBatchJson((code, name, price, percent, amount, outerVol, innerVol));
@@ -644,13 +1003,13 @@ public sealed class SparrowCacheLifecycleTests
         return JsonSerializer.Serialize(new { data = list });
     }
 
-    private static string BuildPassingKlineJson(double latestPrice)
+    private static string BuildPassingKlineJson(double latestPrice, int count = 65)
     {
-        // Generates 65 daily bars with MA5 > MA10 > MA20 and tight adhesion (< 1.5%)
+        // Generates daily bars with MA5 > MA10 > MA20 and tight adhesion (< 1.5%)
         var rows = new List<object>();
-        for (int i = 0; i < 65; i++)
+        for (int i = 0; i < count; i++)
         {
-            double basePrice = latestPrice - (65 - i) * 0.05;
+            double basePrice = latestPrice - (count - i) * 0.05;
             rows.Add(new
             {
                 Time = $"2026-06-{(i % 28) + 1:D2}",

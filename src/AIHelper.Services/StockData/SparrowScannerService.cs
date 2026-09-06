@@ -40,14 +40,9 @@ public class SparrowScannerService
     public async Task<List<(string Code, string Name, string Reason)>> ScanAsync(
         List<(string Code, string Name)> targetPool,
         SparrowScanParameters parameters,
-        IProgress<SparrowScanReport> progress,
+        IProgress<SparrowScanReport>? progress,
         CancellationToken ct)
     {
-        if (!parameters.UseCache)
-        {
-            _klineCache.Clear();
-        }
-
         // Scan-local session state: quotes are fresh per scan and never frozen across scans
         var quoteCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         var p3Winners = new ConcurrentDictionary<string, (string Name, string Reason)>(StringComparer.Ordinal);
@@ -57,7 +52,8 @@ public class SparrowScannerService
         double shIndexPctChg = 0;
         if (parameters.MacroDef)
         {
-            var indexResult = await CheckIndexWeakness();
+            var indexResult = await CheckIndexWeakness(forceRefresh: !parameters.UseCache, ct);
+            if (ct.IsCancellationRequested) return new List<(string, string, string)>();
             shIndexPctChg = indexResult.ShIndexPctChg;
             if (indexResult.IsWeak)
             {
@@ -72,7 +68,7 @@ public class SparrowScannerService
         {
             ReportLog(progress, $"\n🌪️ [阶段2] 极速网关并发拉取盘口快照 (待下载:{p2Missing.Count} 只)...");
             int p2Downloaded = 0;
-            progress.Report(new SparrowScanReport { ProgressMax = p2Missing.Count, ProgressValue = 0 });
+            progress?.Report(new SparrowScanReport { ProgressMax = p2Missing.Count, ProgressValue = 0 });
             
             var batches = p2Missing.Select((x, i) => new { Index = i, Value = x })
                 .GroupBy(x => x.Index / 50)
@@ -118,7 +114,7 @@ public class SparrowScannerService
                 finally
                 {
                     int c = Interlocked.Add(ref p2Downloaded, batch.Count);
-                    progress.Report(new SparrowScanReport { ProgressValue = c });
+                    progress?.Report(new SparrowScanReport { ProgressValue = c });
                     semaphore.Release();
                 }
             }));
@@ -191,12 +187,28 @@ public class SparrowScannerService
 
         if (p2List.Count == 0) return new List<(string, string, string)>();
 
-        var p3Missing = p2List.Where(s => !_klineCache.TryGet(SparrowDataCachePolicy.GetKlineKey(s.Code, 120, "day"), parameters.UseCache, out _)).ToList();
+        // Scan-local Kline dictionary: stores data to evaluate during this scan session
+        var klineData = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+
+        var p3Missing = new List<(string Code, string Name)>();
+        foreach (var stock in p2List)
+        {
+            string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, 120, "day");
+            if (parameters.UseCache && _klineCache.TryGet(cacheKey, true, out var cachedJson) && !string.IsNullOrWhiteSpace(cachedJson))
+            {
+                klineData[stock.Code] = cachedJson;
+            }
+            else
+            {
+                p3Missing.Add(stock);
+            }
+        }
+
         if (p3Missing.Count > 0)
         {
             ReportLog(progress, $"\n🔭 [阶段3] 极速网关拉取 K 线 (待下载:{p3Missing.Count} 只)...");
             int p3Downloaded = 0;
-            progress.Report(new SparrowScanReport { ProgressMax = p3Missing.Count, ProgressValue = 0 });
+            progress?.Report(new SparrowScanReport { ProgressMax = p3Missing.Count, ProgressValue = 0 });
 
             string refreshParam = parameters.UseCache ? "" : "&refresh=1";
             int p3Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
@@ -211,6 +223,7 @@ public class SparrowScannerService
                     var res = await _dataProvider.GetDataAsync(req, ct);
                     if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
                     {
+                        klineData[stock.Code] = res.Json;
                         string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, 120, "day");
                         _klineCache.Set(cacheKey, res.Json, SparrowDataCachePolicy.DefaultKlineTtl);
                     }
@@ -220,7 +233,7 @@ public class SparrowScannerService
                     int c = Interlocked.Increment(ref p3Downloaded);
                     if (c % 10 == 0 || c == p3Missing.Count)
                     {
-                        progress.Report(new SparrowScanReport { ProgressValue = c });
+                        progress?.Report(new SparrowScanReport { ProgressValue = c });
                     }
                     semaphore.Release();
                 }
@@ -230,7 +243,7 @@ public class SparrowScannerService
         if (ct.IsCancellationRequested) return new List<(string, string, string)>();
 
         ReportLog(progress, $"\n🧠 正在根据当前参数对 {p2List.Count} 只股票进行 K 线深度核验...");
-        progress.Report(new SparrowScanReport { ProgressMax = p2List.Count, ProgressValue = 0 });
+        progress?.Report(new SparrowScanReport { ProgressMax = p2List.Count, ProgressValue = 0 });
         int memCheckCount = 0;
 
         foreach (var item in p2List)
@@ -238,11 +251,10 @@ public class SparrowScannerService
             memCheckCount++;
             if (memCheckCount % 10 == 0 || memCheckCount == p2List.Count)
             {
-                progress.Report(new SparrowScanReport { ProgressValue = memCheckCount });
+                progress?.Report(new SparrowScanReport { ProgressValue = memCheckCount });
             }
 
-            string cacheKey = SparrowDataCachePolicy.GetKlineKey(item.Code, 120, "day");
-            if (!_klineCache.TryGet(cacheKey, parameters.UseCache, out var value) || string.IsNullOrWhiteSpace(value)) continue;
+            if (!klineData.TryGetValue(item.Code, out var value) || string.IsNullOrWhiteSpace(value)) continue;
 
             var list = ParseKline(value, out var latestPrice, out var latestPctChg);
             if (list.Count < 60)
@@ -278,25 +290,26 @@ public class SparrowScannerService
         }
 
         ReportLog(progress, $"\n🏆 漏斗完成！共诞生长短腿战斗机 {p3Winners.Count} 只！");
-        ReportLog(progress, $"🧭 [Sparrow V2][Cache] Kline: {_klineCache.Statistics}");
+        ReportLog(progress, $"🧭 [Sparrow V2][Cache Lifetime Totals] Kline: {_klineCache.Statistics}");
 
         var results = p3Winners.Select(kvp => (kvp.Key, kvp.Value.Name, kvp.Value.Reason)).ToList();
         await OutputResultsToFileAsync(results);
         return results;
     }
 
-    private void ReportLog(IProgress<SparrowScanReport> progress, string msg, bool isHighlight = false)
+    private void ReportLog(IProgress<SparrowScanReport>? progress, string msg, bool isHighlight = false)
     {
         progress?.Report(new SparrowScanReport { LogMessage = msg, IsHighlight = isHighlight });
     }
 
-    private async Task<(bool IsWeak, double ShIndexPctChg)> CheckIndexWeakness()
+    private async Task<(bool IsWeak, double ShIndexPctChg)> CheckIndexWeakness(bool forceRefresh, CancellationToken cancellationToken)
     {
         double shIndexPctChg = 0.0;
         try
         {
-            var req = StockDataRequest.Parse("/api/index?code=sh000001&limit=2");
-            var res = await _dataProvider.GetDataAsync(req, CancellationToken.None);
+            string url = forceRefresh ? "/api/index?code=sh000001&limit=2&refresh=1" : "/api/index?code=sh000001&limit=2";
+            var req = StockDataRequest.Parse(url);
+            var res = await _dataProvider.GetDataAsync(req, cancellationToken);
             if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
             {
                 using JsonDocument doc = JsonDocument.Parse(res.Json);
@@ -315,6 +328,10 @@ public class SparrowScannerService
                     }
                 }
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return (false, 0.0);
         }
         catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         return (false, 0.0);

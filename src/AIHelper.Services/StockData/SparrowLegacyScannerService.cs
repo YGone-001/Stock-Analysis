@@ -37,14 +37,9 @@ public class SparrowLegacyScannerService
     public async Task<List<(string Code, string Name, string Reason)>> ScanAsync(
         List<(string Code, string Name)> targetPool,
         SparrowLegacyScanParameters parameters,
-        IProgress<SparrowLegacyScanReport> progress,
+        IProgress<SparrowLegacyScanReport>? progress,
         CancellationToken cancellationToken)
     {
-        if (!parameters.UseCache)
-        {
-            _klineCache.Clear();
-        }
-
         // Scan-local session state
         var p2Processed = new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
         var p2Survivors = new ConcurrentBag<(string Code, string Name)>();
@@ -55,7 +50,7 @@ public class SparrowLegacyScannerService
         if (parameters.MacroDef)
         {
             ReportLog(progress, "🛡️ [阶段1] 检测大盘宏观安全度...");
-            var regime = await _marketRegimeService.EvaluateAsync(cancellationToken);
+            var regime = await _marketRegimeService.EvaluateAsync(forceRefresh: !parameters.UseCache, cancellationToken);
             if (regime.Defensive)
             {
                 ReportLog(progress, "❌ [熔断] 大盘环境极度恶化，空仓防御！", true);
@@ -276,7 +271,7 @@ public class SparrowLegacyScannerService
         }
 
         ReportLog(progress, $"\n🏆 漏斗完成！共诞生长短腿麻雀 {p3Winners.Count} 只！");
-        ReportLog(progress, $"🧭 [Sparrow Legacy][Cache] Kline: {_klineCache.Statistics}");
+        ReportLog(progress, $"🧭 [Sparrow Legacy][Cache Lifetime Totals] Kline: {_klineCache.Statistics}");
         
         var results = p3Winners.ToList();
         if (results.Count > 0)

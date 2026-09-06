@@ -400,7 +400,15 @@ public sealed class SparrowMarketRegimeServiceTests
         public Task<StockDataResult> GetDataAsync(StockDataRequest request, CancellationToken cancellationToken = default)
         {
             RequestedEndpoints.Add(request.Endpoint);
-            if (_routes.TryGetValue(request.Endpoint, out var match))
+            if (!_routes.TryGetValue(request.Endpoint, out var match))
+            {
+                string stripped = request.Endpoint.Replace("&refresh=1", "", StringComparison.OrdinalIgnoreCase)
+                                                  .Replace("?refresh=1&", "?", StringComparison.OrdinalIgnoreCase)
+                                                  .Replace("?refresh=1", "", StringComparison.OrdinalIgnoreCase);
+                _routes.TryGetValue(stripped, out match);
+            }
+
+            if (match.Success || !string.IsNullOrEmpty(match.Json) || !string.IsNullOrEmpty(match.Error))
             {
                 return Task.FromResult(new StockDataResult
                 {

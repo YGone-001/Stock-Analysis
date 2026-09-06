@@ -30,24 +30,41 @@ public sealed class SparrowMarketRegimeService
     /// <summary>
     /// Evaluates both Shanghai and CSI 1000 indices and returns the combined market regime.
     /// </summary>
-    public async Task<SparrowMarketRegime> EvaluateAsync(CancellationToken cancellationToken = default)
+    public Task<SparrowMarketRegime> EvaluateAsync(CancellationToken cancellationToken = default)
+        => EvaluateAsync(forceRefresh: false, cancellationToken);
+
+    /// <summary>
+    /// Evaluates both Shanghai and CSI 1000 indices with explicit refresh control and returns the combined market regime.
+    /// </summary>
+    public async Task<SparrowMarketRegime> EvaluateAsync(bool forceRefresh, CancellationToken cancellationToken = default)
     {
-        SparrowIndexSnapshot shanghai = await EvaluateIndexAsync(DefaultShanghaiCode, "上证指数", cancellationToken);
-        SparrowIndexSnapshot csi1000 = await EvaluateIndexAsync(DefaultCsi1000Code, "中证1000", cancellationToken);
+        SparrowIndexSnapshot shanghai = await EvaluateIndexAsync(DefaultShanghaiCode, "上证指数", forceRefresh, cancellationToken);
+        SparrowIndexSnapshot csi1000 = await EvaluateIndexAsync(DefaultCsi1000Code, "中证1000", forceRefresh, cancellationToken);
         return Combine(shanghai, csi1000);
     }
 
     /// <summary>
     /// Evaluates an individual index by fetching its intraday trend data.
     /// </summary>
+    public Task<SparrowIndexSnapshot> EvaluateIndexAsync(
+        string code,
+        string name,
+        CancellationToken cancellationToken = default)
+        => EvaluateIndexAsync(code, name, forceRefresh: false, cancellationToken);
+
+    /// <summary>
+    /// Evaluates an individual index by fetching its intraday trend data with explicit refresh control.
+    /// </summary>
     public async Task<SparrowIndexSnapshot> EvaluateIndexAsync(
         string code,
         string name,
+        bool forceRefresh,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var request = StockDataRequest.Parse("/api/trend?code=" + code);
+            string url = forceRefresh ? $"/api/trend?code={code}&refresh=1" : $"/api/trend?code={code}";
+            var request = StockDataRequest.Parse(url);
             StockDataResult result = await _dataProvider.GetDataAsync(request, cancellationToken);
             if (!result.Success || string.IsNullOrWhiteSpace(result.Json))
             {
