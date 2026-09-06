@@ -11,6 +11,7 @@ using AIHelper.Helpers;
 
 using AIHelper.Models;
 using AIHelper.Services.StockData;
+using AIHelper.Services.StockData.Sparrow;
 using HandyControl.Controls;
 using Serilog;
 
@@ -22,7 +23,27 @@ public partial class SparrowViewModel : ObservableObject
 {
     private readonly MainViewModel _mainVm;
     private readonly SparrowScannerService _scannerService;
+    private readonly SparrowClassicScanner _classicScanner;
+    private readonly SparrowComparisonService _comparisonService;
     private CancellationTokenSource _cts;
+
+    public IReadOnlyList<SparrowStrategyMode> AvailableStrategyModes { get; } =
+        Enum.GetValues<SparrowStrategyMode>();
+
+    private SparrowStrategyMode _strategyMode = SparrowStrategyMode.V2;
+    public SparrowStrategyMode StrategyMode
+    {
+        get => _strategyMode;
+        set
+        {
+            if (_strategyMode != value)
+            {
+                _strategyMode = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(StartButtonText));
+            }
+        }
+    }
 
     // Parameters
     private SparrowScanParameters _parameters = new SparrowScanParameters
@@ -65,7 +86,14 @@ public partial class SparrowViewModel : ObservableObject
         }
     }
 
-    public string StartButtonText => IsScanning ? "⏹ 停止扫描" : "🚀 执行漏斗选股 (东财直连引擎)";
+    public string StartButtonText => IsScanning
+        ? "⏹ 停止扫描"
+        : StrategyMode switch
+        {
+            SparrowStrategyMode.Classic => "🚀 执行麻雀 Classic (14:30)",
+            SparrowStrategyMode.Compare => "🧪 执行 Classic / V2 对照",
+            _ => "🚀 执行麻雀 V2"
+        };
 
     private string _logText = "⚡ 东财引擎已就绪！【智能 Cookie 轮换系统】已实装，随时准备金蝉脱壳！\n";
     public string LogText
@@ -93,7 +121,10 @@ public partial class SparrowViewModel : ObservableObject
     public SparrowViewModel(MainViewModel mainVm)
     {
         _mainVm = mainVm;
-        _scannerService = new SparrowScannerService(mainVm.DataProvider);
+        var sharedKlineCache = new SparrowMarketDataCache();
+        _scannerService = new SparrowScannerService(mainVm.DataProvider, sharedKlineCache);
+        _classicScanner = new SparrowClassicScanner(mainVm.DataProvider, klineCache: sharedKlineCache);
+        _comparisonService = new SparrowComparisonService(mainVm.DataProvider, klineCache: sharedKlineCache);
     }
 
     private void AppendLog(string msg, bool isHighlight = false)
@@ -176,8 +207,21 @@ public partial class SparrowViewModel : ObservableObject
             MaxConcurrency = Parameters.MaxConcurrency,
             UseCache = Parameters.UseCache
         };
+        var classicParams = new SparrowClassicScanParameters
+        {
+            MacroDef = activeParams.MacroDef,
+            MinRise = activeParams.MinRise,
+            MaxRise = activeParams.MaxRise,
+            VolRatio = activeParams.VolRatio,
+            MinAmount = activeParams.MinAmount,
+            CheckMA60 = activeParams.CheckMA60,
+            MinAdhesion = activeParams.MinAdhesion,
+            MaxAdhesion = activeParams.MaxAdhesion,
+            MaxConcurrency = activeParams.MaxConcurrency,
+            UseCache = activeParams.UseCache
+        };
 
-        var progress = new Progress<SparrowScanReport>(report =>
+        var v2Progress = new Progress<SparrowScanReport>(report =>
         {
             if (report.LogMessage != null)
             {
@@ -195,48 +239,79 @@ public partial class SparrowViewModel : ObservableObject
 
         try
         {
-            var results = await _scannerService.ScanAsync(targetPool, activeParams, progress, _cts.Token);
-            
-            if (results != null && results.Count > 0 && !_cts.Token.IsCancellationRequested)
+            switch (StrategyMode)
             {
-                var list = new List<StockModel>();
-                foreach (var item in results)
+                case SparrowStrategyMode.Classic:
                 {
-                    int level = 0;
-                    try
+                    AppendLog("Classic ignores V2-only parameters: Turnover, Momentum, Alpha.");
+                    var classicProgress = new Progress<SparrowClassicScanReport>(report =>
                     {
-                        var stockGroups = _mainVm.StockVM.StockGroups;
-                        foreach (var group in stockGroups)
+                        if (report.LogMessage != null)
                         {
-                            foreach (var stock in group.Stocks)
-                            {
-                                if (stock.Code == item.Code)
-                                {
-                                    if (group.Header?.Contains("选股") == true)
-                                    {
-                                        level = 2;
-                                        break;
-                                    }
-                                    if (level == 0) level = 1;
-                                }
-                            }
-                            if (level == 2) break;
+                            AppendLog(report.LogMessage, report.IsHighlight);
                         }
-                    }
-                    catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
-
-                    list.Add(new StockModel
-                    {
-                        Code = item.Code,
-                        Name = item.Name,
-                        IsChecked = true,
-                        HighlightLevel = level
+                        if (report.ProgressMax.HasValue) ProgressMax = report.ProgressMax.Value;
+                        if (report.ProgressValue.HasValue) ProgressValue = report.ProgressValue.Value;
                     });
+                    List<SparrowClassicCandidate> results = await _classicScanner.ScanAsync(
+                        targetPool, classicParams, classicProgress, _cts.Token);
+                    if (!_cts.Token.IsCancellationRequested && results.Count > 0)
+                    {
+                        AddResultGroup($"麻雀_Classic_{DateTime.Now:MMdd}",
+                            results.Select(item => (item.Code, item.Name)));
+                        Growl.Success($"Sparrow Classic 执行完毕，入围 {results.Count} 只！");
+                    }
+                    break;
                 }
-
-                _mainVm.StockVM.AddGroup($"DC选股_{DateTime.Now:MMdd}", list);
-                Growl.Success($"东财引擎执行完毕，入围 {results.Count} 只！");
+                case SparrowStrategyMode.Compare:
+                {
+                    var compareProgress = new Progress<SparrowComparisonProgress>(report =>
+                    {
+                        if (report.LogMessage != null)
+                        {
+                            AppendLog(report.LogMessage, report.IsHighlight);
+                        }
+                        if (report.ProgressMax.HasValue) ProgressMax = report.ProgressMax.Value;
+                        if (report.ProgressValue.HasValue) ProgressValue = report.ProgressValue.Value;
+                    });
+                    SparrowComparisonResult result = await _comparisonService.CompareAsync(
+                        targetPool, classicParams, activeParams, compareProgress, _cts.Token);
+                    if (!_cts.Token.IsCancellationRequested)
+                    {
+                        AddResultGroup($"麻雀_双选_{DateTime.Now:MMdd}",
+                            result.Rows.Where(row => row.Category == SparrowComparisonCategory.Both)
+                                .Select(row => (row.Code, row.Name)));
+                        AddResultGroup($"麻雀_ClassicOnly_{DateTime.Now:MMdd}",
+                            result.Rows.Where(row => row.Category == SparrowComparisonCategory.ClassicOnly)
+                                .Select(row => (row.Code, row.Name)));
+                        AddResultGroup($"麻雀_V2Only_{DateTime.Now:MMdd}",
+                            result.Rows.Where(row => row.Category == SparrowComparisonCategory.V2Only)
+                                .Select(row => (row.Code, row.Name)));
+                        Growl.Success(
+                            $"A/B 对照完成：双选 {result.Metrics.IntersectionCount}，" +
+                            $"ClassicOnly {result.Metrics.ClassicOnlyCount}，V2Only {result.Metrics.V2OnlyCount}。");
+                    }
+                    break;
+                }
+                default:
+                {
+                    List<(string Code, string Name, string Reason)> results = await _scannerService.ScanAsync(
+                        targetPool, activeParams, v2Progress, _cts.Token);
+                    if (!_cts.Token.IsCancellationRequested && results.Count > 0)
+                    {
+                        AddResultGroup($"麻雀_V2_{DateTime.Now:MMdd}",
+                            results.Select(item => (item.Code, item.Name)));
+                        Growl.Success($"Sparrow V2 执行完毕，入围 {results.Count} 只！");
+                    }
+                    break;
+                }
             }
+        }
+        catch (OperationCanceledException) when (_cts.Token.IsCancellationRequested)
+        {
+            AppendLog(StrategyMode == SparrowStrategyMode.Compare
+                ? "Comparison cancelled; no incomplete CSV or stock groups were created."
+                : "扫描已取消。");
         }
         catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
             AppendLog("❌ 引擎崩溃: " + ex.Message);
@@ -245,5 +320,44 @@ public partial class SparrowViewModel : ObservableObject
         {
             IsScanning = false;
         }
+    }
+
+    private void AddResultGroup(string groupName, IEnumerable<(string Code, string Name)> results)
+    {
+        var list = new List<StockModel>();
+        foreach ((string code, string name) in results)
+        {
+            int level = 0;
+            try
+            {
+                foreach (StockGroupModel group in _mainVm.StockVM.StockGroups)
+                {
+                    foreach (StockModel stock in group.Stocks)
+                    {
+                        if (stock.Code != code) continue;
+                        if (group.Header?.Contains("选股") == true)
+                        {
+                            level = 2;
+                            break;
+                        }
+                        if (level == 0) level = 1;
+                    }
+                    if (level == 2) break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to calculate Sparrow result highlight");
+            }
+
+            list.Add(new StockModel
+            {
+                Code = code,
+                Name = name,
+                IsChecked = true,
+                HighlightLevel = level
+            });
+        }
+        _mainVm.StockVM.AddGroup(groupName, list);
     }
 }

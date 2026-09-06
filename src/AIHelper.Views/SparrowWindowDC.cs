@@ -14,6 +14,7 @@ namespace AIHelper.Views;
 public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
 {
     private bool _contentLoaded;
+    private bool _strategyModeSelectorAdded;
     private readonly SparrowViewModel _vm;
 
     internal CheckBox ChkMacroDef;
@@ -45,6 +46,8 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
 
     private void SparrowWindowDC_Loaded(object sender, RoutedEventArgs e)
     {
+        InsertStrategyModeSelector();
+
         // Two-way bindings for parameters
         ChkMacroDef.SetBinding(CheckBox.IsCheckedProperty, new Binding("Parameters.MacroDef") { Mode = BindingMode.TwoWay });
         NumMinRise.SetBinding(NumericUpDown.ValueProperty, new Binding("Parameters.MinRise") { Mode = BindingMode.TwoWay });
@@ -74,6 +77,66 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
                 TxtLog.ScrollToEnd();
             }
         };
+    }
+
+    private void InsertStrategyModeSelector()
+    {
+        if (_strategyModeSelectorAdded
+            || !TryFindLinearLayoutParent(ChkMacroDef, out Panel? parent, out UIElement? sibling)
+                && !TryFindLinearLayoutParent(BtnStart, out parent, out sibling))
+        {
+            return;
+        }
+
+        var modePanel = new StackPanel
+        {
+            Name = "SparrowStrategyModePanel",
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        modePanel.Children.Add(new TextBlock
+        {
+            Text = "策略模式",
+            Width = 88,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        var modeSelector = new System.Windows.Controls.ComboBox
+        {
+            Width = 160,
+            MinHeight = 28
+        };
+        modeSelector.SetBinding(ItemsControl.ItemsSourceProperty, new Binding("AvailableStrategyModes"));
+        modeSelector.SetBinding(System.Windows.Controls.ComboBox.SelectedItemProperty, new Binding("StrategyMode")
+        {
+            Mode = BindingMode.TwoWay
+        });
+        modePanel.Children.Add(modeSelector);
+
+        int index = parent.Children.IndexOf(sibling);
+        parent.Children.Insert(Math.Max(0, index), modePanel);
+        _strategyModeSelectorAdded = true;
+    }
+
+    private static bool TryFindLinearLayoutParent(
+        FrameworkElement element,
+        out Panel? parent,
+        out UIElement? directChild)
+    {
+        DependencyObject current = element;
+        while (LogicalTreeHelper.GetParent(current) is DependencyObject candidate)
+        {
+            if (candidate is StackPanel or WrapPanel or DockPanel)
+            {
+                parent = (Panel)candidate;
+                directChild = current as UIElement;
+                return directChild != null;
+            }
+            current = candidate;
+        }
+
+        parent = null;
+        directChild = null;
+        return false;
     }
 
     private void BtnStart_Click(object sender, RoutedEventArgs e)

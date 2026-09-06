@@ -256,36 +256,14 @@ public class SparrowScannerService
 
             if (!klineData.TryGetValue(item.Code, out var value) || string.IsNullOrWhiteSpace(value)) continue;
 
-            var list = ParseKline(value, out var latestPrice, out var latestPctChg);
-            if (list.Count < 60)
+            SparrowKlineSnapshot? snapshot = SparrowV2RuleEvaluator.ParseKline(value);
+            SparrowTechnicalEvaluation technical = SparrowV2RuleEvaluator.Evaluate(
+                snapshot, shIndexPctChg, parameters);
+            if (technical.Rule.Passed)
             {
-                continue;
-            }
-
-            if (parameters.CheckAlpha && latestPctChg < shIndexPctChg) continue;
-
-            double ma5 = list.Take(5).Average();
-            double ma10 = list.Take(10).Average();
-            double ma20 = list.Take(20).Average();
-            double ma60 = list.Take(60).Average();
-
-            if (ma5 < ma10 || ma10 < ma20 || (parameters.CheckMA60 && (latestPrice <= ma60 || ma20 < ma60))) continue;
-
-            double prevMa5 = list.Skip(3).Take(5).Average();
-            double momentum = (ma5 - prevMa5) / prevMa5;
-
-            if (momentum > parameters.MomentumThreshold)
-            {
-                double maxMa = Math.Max(ma5, Math.Max(ma10, ma20));
-                double minMa = Math.Min(ma5, Math.Min(ma10, ma20));
-                double adhesion = (maxMa - minMa) / minMa;
-
-                if (adhesion >= parameters.MinAdhesion && adhesion <= parameters.MaxAdhesion)
-                {
-                    string reason = $"黏合:{adhesion * 100.0:F1}% 动量:{momentum * 100.0:F1}%";
-                    p3Winners[item.Code] = (item.Name, reason);
-                    ReportLog(progress, $"🎯 [入围] {item.Name}({item.Code}) {reason}");
-                }
+                string reason = $"黏合:{technical.Adhesion * 100.0:F1}% 动量:{technical.Momentum * 100.0:F1}%";
+                p3Winners[item.Code] = (item.Name, reason);
+                ReportLog(progress, $"🎯 [入围] {item.Name}({item.Code}) {reason}");
             }
         }
 
@@ -335,44 +313,6 @@ public class SparrowScannerService
         }
         catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         return (false, 0.0);
-    }
-
-    private List<double> ParseKline(string json, out double latestPrice, out double latestPctChg)
-    {
-        List<double> list = new List<double>();
-        latestPrice = 0.0;
-        latestPctChg = 0.0;
-        try
-        {
-            using JsonDocument doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array)
-            {
-                var elements = dataArr.EnumerateArray().ToList();
-                for (int i = elements.Count - 1; i >= 0; i--)
-                {
-                    var item = elements[i];
-                    if (item.TryGetProperty("Close", out var closeElem))
-                    {
-                        double close = closeElem.GetDouble() / 1000.0;
-                        if (close > 0)
-                        {
-                            list.Add(close);
-                        }
-                        if (i == elements.Count - 1)
-                        {
-                            latestPrice = close;
-                            if (i > 0 && elements[i - 1].TryGetProperty("Close", out var prevCloseElem))
-                            {
-                                double prevClose = prevCloseElem.GetDouble() / 1000.0;
-                                latestPctChg = prevClose > 0 ? (close - prevClose) / prevClose * 100.0 : 0.0;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        catch { }
-        return list;
     }
 
     private async Task OutputResultsToFileAsync(List<(string Code, string Name, string Reason)> results)
