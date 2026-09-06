@@ -6,8 +6,11 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Markup;
+using AIHelper.Models;
 using AIHelper.ViewModels;
 using HandyControl.Controls;
+using Serilog;
+using System.Windows.Media;
 
 namespace AIHelper.Views;
 
@@ -41,12 +44,26 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         InitializeComponent();
         _vm = new SparrowViewModel(mainVm);
         this.DataContext = _vm;
+        BuildStrategyAwareParameterUi(reportFailure: false);
         this.Loaded += SparrowWindowDC_Loaded;
+    }
+
+    internal static T? FindAncestor<T>(DependencyObject? current)
+        where T : DependencyObject
+    {
+        return SparrowUiTreeHelper.FindAncestor<T>(current);
     }
 
     private void SparrowWindowDC_Loaded(object sender, RoutedEventArgs e)
     {
-        BuildStrategyAwareParameterUi();
+        BuildStrategyAwareParameterUi(reportFailure: true);
+
+        if (!_strategyModeSelectorAdded)
+        {
+            Growl.Error("麻雀策略参数界面初始化失败，请重新打开窗口。");
+            BtnStart.IsEnabled = false;
+            return;
+        }
 
         // Two-way bindings for parameters
         ChkMacroDef.SetBinding(CheckBox.IsCheckedProperty, new Binding("Parameters.MacroDef") { Mode = BindingMode.TwoWay });
@@ -79,21 +96,48 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         };
     }
 
-    private void BuildStrategyAwareParameterUi()
+    private void BuildStrategyAwareParameterUi(bool reportFailure = true)
     {
-        if (_strategyModeSelectorAdded
-            || ChkMacroDef.Parent is not WrapPanel originalPanel
-            || LogicalTreeHelper.GetParent(originalPanel) is not GroupBox parameterGroup)
+        if (_strategyModeSelectorAdded)
+            return;
+
+        GroupBox? parameterGroup = FindAncestor<GroupBox>(ChkMacroDef);
+        Border? parameterBorder = null;
+        if (parameterGroup == null)
         {
+            // In SparrowWindowDC.baml, parameters are hosted inside the Row 0 Border of the layout Grid.
+            DependencyObject? node = ChkMacroDef;
+            while (node != null)
+            {
+                if (node is Border b && b.Parent is Grid && Grid.GetRow(b) == 0)
+                {
+                    parameterBorder = b;
+                    break;
+                }
+                node = LogicalTreeHelper.GetParent(node) ?? (node is Visual v ? VisualTreeHelper.GetParent(v) : null);
+            }
+        }
+
+        if (parameterGroup == null && parameterBorder == null)
+        {
+            if (reportFailure)
+            {
+                Log.Error(
+                    "Failed to locate Sparrow parameter GroupBox; " +
+                    "strategy-aware UI was not created.");
+                Growl.Error("麻雀策略参数界面初始化失败，请重新打开窗口。");
+                BtnStart.IsEnabled = false;
+            }
             return;
         }
 
-        originalPanel.Children.Clear();
         Title = "麻雀策略";
-        parameterGroup.Header = "麻雀策略参数";
+        if (parameterGroup != null)
+        {
+            parameterGroup.Header = "麻雀策略参数";
+        }
 
-        // The BAML layout owned several editors through nested panels. Recreate only the
-        // parameter controls so each can be placed in the strategy-aware layout below.
+        // Recreate only the parameter controls so each can be placed in the strategy-aware layout below.
         ChkMacroDef = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
         ChkMA60 = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
         ChkAlpha = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
@@ -121,11 +165,13 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         });
         var modeSelector = new System.Windows.Controls.ComboBox
         {
-            Width = 160,
-            MinHeight = 28
+            Width = 180,
+            MinHeight = 28,
+            DisplayMemberPath = nameof(SparrowStrategyModeOption.DisplayName),
+            SelectedValuePath = nameof(SparrowStrategyModeOption.Mode)
         };
-        modeSelector.SetBinding(ItemsControl.ItemsSourceProperty, new Binding("AvailableStrategyModes"));
-        modeSelector.SetBinding(System.Windows.Controls.ComboBox.SelectedItemProperty, new Binding("StrategyMode")
+        modeSelector.SetBinding(ItemsControl.ItemsSourceProperty, new Binding("AvailableStrategyModeOptions"));
+        modeSelector.SetBinding(System.Windows.Controls.ComboBox.SelectedValueProperty, new Binding("StrategyMode")
         {
             Mode = BindingMode.TwoWay
         });
@@ -252,7 +298,14 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         root.Children.Add(compareHint);
         root.Children.Add(presetPanel);
         root.Children.Add(systemExpander);
-        parameterGroup.Content = root;
+        if (parameterGroup != null)
+        {
+            parameterGroup.Content = root;
+        }
+        else if (parameterBorder != null)
+        {
+            parameterBorder.Child = root;
+        }
         _strategyModeSelectorAdded = true;
     }
 

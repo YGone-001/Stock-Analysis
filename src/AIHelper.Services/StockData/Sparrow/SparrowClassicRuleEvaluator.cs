@@ -19,7 +19,7 @@ public static class SparrowClassicRuleEvaluator
         // The original strategy required 60 daily closes even when the MA60 guard was disabled.
         if (closesNewestFirst.Count < 60)
         {
-            return default;
+            return new SparrowClassicTechnicalResult(false, 0, 0, 0, 0, 0, SparrowClassicP3RejectReason.KlineMissing);
         }
 
         double ma5 = Average(closesNewestFirst, 5);
@@ -29,24 +29,32 @@ public static class SparrowClassicRuleEvaluator
 
         if (ma5 < ma10 || ma10 < ma20)
         {
-            return new SparrowClassicTechnicalResult(false, ma5, ma10, ma20, ma60, 0);
+            return new SparrowClassicTechnicalResult(false, ma5, ma10, ma20, ma60, 0, SparrowClassicP3RejectReason.MaOrder);
         }
 
         if (parameters.CheckMA60 && (latestPrice <= ma60 || ma20 < ma60))
         {
-            return new SparrowClassicTechnicalResult(false, ma5, ma10, ma20, ma60, 0);
+            return new SparrowClassicTechnicalResult(false, ma5, ma10, ma20, ma60, 0, SparrowClassicP3RejectReason.Ma60);
         }
 
         double minMa = Math.Min(ma5, Math.Min(ma10, ma20));
         if (minMa <= 0)
         {
-            return new SparrowClassicTechnicalResult(false, ma5, ma10, ma20, ma60, 0);
+            return new SparrowClassicTechnicalResult(false, ma5, ma10, ma20, ma60, 0, SparrowClassicP3RejectReason.MinMaInvalid);
         }
 
         double maxMa = Math.Max(ma5, Math.Max(ma10, ma20));
         double adhesion = (maxMa - minMa) / minMa;
-        bool passed = adhesion >= parameters.MinAdhesion && adhesion <= parameters.MaxAdhesion;
-        return new SparrowClassicTechnicalResult(passed, ma5, ma10, ma20, ma60, adhesion);
+        if (adhesion > parameters.MaxAdhesion)
+        {
+            return new SparrowClassicTechnicalResult(false, ma5, ma10, ma20, ma60, adhesion, SparrowClassicP3RejectReason.AdhesionHigh);
+        }
+        if (adhesion < parameters.MinAdhesion)
+        {
+            return new SparrowClassicTechnicalResult(false, ma5, ma10, ma20, ma60, adhesion, SparrowClassicP3RejectReason.AdhesionLow);
+        }
+
+        return new SparrowClassicTechnicalResult(true, ma5, ma10, ma20, ma60, adhesion, SparrowClassicP3RejectReason.None);
     }
 
     private static double Average(IReadOnlyList<double> values, int count)

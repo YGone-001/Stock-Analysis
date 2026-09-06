@@ -51,7 +51,22 @@ public sealed class SparrowClassicScanner
         var p2Survivors = new ConcurrentDictionary<string, (string Code, string Name)>(StringComparer.Ordinal);
         var p3Winners = new ConcurrentDictionary<string, SparrowClassicCandidate>(StringComparer.Ordinal);
 
-        ReportLog(progress, $"🦅 [Sparrow Classic] 开始扫描。Strategy = {SparrowClassicCandidate.StrategyName}，初始标的: {classicPool.Count} 只");
+        string scanTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        ReportLog(progress,
+            $"🦅 [Sparrow Classic]\n" +
+            $"扫描时间: {scanTime}\n\n" +
+            $"【实际参数】\n" +
+            $"MacroDef       = {(parameters.MacroDef ? "ON" : "OFF")}\n" +
+            $"Rise           = {parameters.MinRise:F2}% ~ {parameters.MaxRise:F2}%\n" +
+            $"MinAmount      = {(parameters.MinAmount / 10000.0):F0} 万\n" +
+            $"Outer/Inner    = {parameters.VolRatio:F2}\n" +
+            $"MA60           = {(parameters.CheckMA60 ? "ON" : "OFF")}\n" +
+            $"Adhesion       = {parameters.MinAdhesion * 100:F2}% ~ {parameters.MaxAdhesion * 100:F2}%\n\n" +
+            $"UseCache       = {(parameters.UseCache ? "ON" : "OFF")}\n" +
+            $"Concurrency    = {parameters.MaxConcurrency}\n\n" +
+            $"初始标的: {classicPool.Count} 只");
+
+        string p1Status = "OFF";
 
         // MacroDef is ALWAYS re-evaluated for every new ScanAsync call when MacroDef == true.
         // It is NEVER skipped due to cached data or non-empty p2Processed.
@@ -68,7 +83,9 @@ public sealed class SparrowClassicScanner
 
             if (regime.Defensive)
             {
+                p1Status = "BLOCKED";
                 ReportLog(progress, "🛡️ [Sparrow Classic] 双指数弱势，进入防守模式，本次不执行选股。", true);
+                OutputFunnelReport(progress, classicPool.Count, p1Status, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
                 return new List<SparrowClassicCandidate>();
             }
 
@@ -77,20 +94,22 @@ public sealed class SparrowClassicScanner
                 ReportLog(progress, "⚠️ [Sparrow Classic][Market] 市场数据部分不可用 (Market data unavailable)，按历史策略放行 (Fail-open)。");
             }
 
+            p1Status = "PASS";
             ReportLog(progress, "✅ [Sparrow Classic][第一阶段通过] 允许开启个股海选。");
         }
+
+        int batchQuoteLoaded = 0;
+        int quoteDataUnavailable = 0;
+        int coarseSurvivors = 0;
+        int outerInnerValid = 0;
+        int outerInnerUnavailable = 0;
+        int volRatioPassed = 0;
 
         var p2Pending = classicPool.Where(stock => !p2Processed.ContainsKey(stock.Code)).ToList();
         if (p2Pending.Count > 0)
         {
             ReportLog(progress, $"\n🌪️ [Sparrow Classic][阶段2] 快照扫描 (待处理:{p2Pending.Count} / 总计:{classicPool.Count})...");
             progress?.Report(new SparrowClassicScanReport { ProgressMax = classicPool.Count, ProgressValue = p2Processed.Count });
-            int batchQuoteLoaded = 0;
-            int quoteDataUnavailable = 0;
-            int coarseSurvivors = 0;
-            int outerInnerValid = 0;
-            int outerInnerUnavailable = 0;
-            int volRatioPassed = 0;
 
             var batches = p2Pending.Select((stock, index) => new { stock, index })
                 .GroupBy(item => item.index / 50)
@@ -191,6 +210,7 @@ public sealed class SparrowClassicScanner
         }
         else
         {
+            volRatioPassed = p2Survivors.Count;
             ReportLog(progress, $"\n♻️ [Sparrow Classic][盘口缓存] 阶段2完成，幸存者: {p2Survivors.Count} 只");
         }
 
@@ -207,6 +227,17 @@ public sealed class SparrowClassicScanner
         progress?.Report(new SparrowClassicScanReport { ProgressMax = p2List.Count, ProgressValue = 0 });
 
         int p3Completed = 0;
+        int p3KlineValid = 0;
+        int p3MaOrderPassed = 0;
+        int p3Ma60Passed = 0;
+        int p3AdhesionPassed = 0;
+
+        int rejectKlineMissing = 0;
+        int rejectMaOrder = 0;
+        int rejectMa60 = 0;
+        int rejectAdhesionHigh = 0;
+        int rejectAdhesionLow = 0;
+
         int p3Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
         using var klineSemaphore = new SemaphoreSlim(Math.Max(1, Math.Min(32, p3Concurrency * 4)));
         await Task.WhenAll(p2List.Select(async stock =>
@@ -232,16 +263,51 @@ public sealed class SparrowClassicScanner
 
                 if (string.IsNullOrWhiteSpace(klineJson))
                 {
+                    Interlocked.Increment(ref rejectKlineMissing);
                     return;
                 }
 
                 List<double> closes = ParseKlineClosesNewestFirst(klineJson, out double latestPrice);
                 SparrowClassicTechnicalResult technical = SparrowClassicRuleEvaluator.Evaluate(closes, latestPrice, parameters);
+                if (technical.RejectReason == SparrowClassicP3RejectReason.KlineMissing)
+                {
+                    Interlocked.Increment(ref rejectKlineMissing);
+                    return;
+                }
+
+                Interlocked.Increment(ref p3KlineValid);
+                if (technical.RejectReason == SparrowClassicP3RejectReason.MaOrder)
+                {
+                    Interlocked.Increment(ref rejectMaOrder);
+                    return;
+                }
+
+                Interlocked.Increment(ref p3MaOrderPassed);
+                if (technical.RejectReason == SparrowClassicP3RejectReason.Ma60)
+                {
+                    Interlocked.Increment(ref rejectMa60);
+                    return;
+                }
+
+                Interlocked.Increment(ref p3Ma60Passed);
+                if (technical.RejectReason == SparrowClassicP3RejectReason.AdhesionHigh)
+                {
+                    Interlocked.Increment(ref rejectAdhesionHigh);
+                    return;
+                }
+                if (technical.RejectReason is SparrowClassicP3RejectReason.AdhesionLow
+                    or SparrowClassicP3RejectReason.MinMaInvalid)
+                {
+                    Interlocked.Increment(ref rejectAdhesionLow);
+                    return;
+                }
+
                 if (!technical.Passed)
                 {
                     return;
                 }
 
+                Interlocked.Increment(ref p3AdhesionPassed);
                 var candidate = new SparrowClassicCandidate
                 {
                     Code = stock.Code,
@@ -279,11 +345,77 @@ public sealed class SparrowClassicScanner
         List<SparrowClassicCandidate> results = p3Winners.Values.OrderBy(candidate => candidate.Code).ToList();
         ReportLog(progress, $"\n🏆 [Sparrow Classic] 漏斗完成，共入围 {results.Count} 只。Strategy = {SparrowClassicCandidate.StrategyName}");
         ReportLog(progress, $"🧭 [Sparrow Classic][Cache Lifetime Totals] Kline: {_klineCache.Statistics}");
+
+        OutputFunnelReport(progress,
+            classicPool.Count,
+            p1Status,
+            batchQuoteLoaded,
+            coarseSurvivors,
+            outerInnerValid,
+            volRatioPassed,
+            p3KlineValid,
+            p3MaOrderPassed,
+            p3Ma60Passed,
+            p3AdhesionPassed,
+            results.Count,
+            rejectMaOrder,
+            rejectMa60,
+            rejectAdhesionHigh,
+            rejectKlineMissing,
+            rejectAdhesionLow);
+
         if (results.Count > 0)
         {
             await OutputResultsAsync(results, progress);
         }
         return results;
+    }
+
+    private static void OutputFunnelReport(
+        IProgress<SparrowClassicScanReport>? progress,
+        int initialCount,
+        string p1Status,
+        int p2QuoteLoaded,
+        int coarseSurvivors,
+        int outerInnerValid,
+        int volRatioPassed,
+        int p3KlineValid,
+        int p3MaOrderPassed,
+        int p3Ma60Passed,
+        int p3AdhesionPassed,
+        int finalWinners,
+        int rejectMaOrder,
+        int rejectMa60,
+        int rejectAdhesionHigh,
+        int rejectKlineMissing,
+        int rejectAdhesionLow)
+    {
+        string adhesionLowLine = rejectAdhesionLow > 0
+            ? $"ADHESION_LOW    {rejectAdhesionLow}\n"
+            : "";
+
+        string funnel =
+            "\n========== Classic 漏斗统计 ==========\n\n" +
+            $"初始股票:             {initialCount}\n\n" +
+            $"P1 大盘防守:\n{p1Status}\n\n" +
+            $"P2 Quote loaded:      {p2QuoteLoaded}\n\n" +
+            $"涨幅+成交额通过:       {coarseSurvivors}\n" +
+            $"外/内盘数据有效:       {outerInnerValid}\n" +
+            $"外/内盘比例通过:       {volRatioPassed}\n\n" +
+            $"P3 K线有效:            {p3KlineValid}\n" +
+            $"MA5/10/20通过:         {p3MaOrderPassed}\n" +
+            $"MA60通过:              {p3Ma60Passed}\n" +
+            $"黏合度通过:            {p3AdhesionPassed}\n\n" +
+            $"最终入围:              {finalWinners}\n\n" +
+            "=====================================\n\n" +
+            "P3 Reject Reasons\n\n" +
+            $"MA_ORDER        {rejectMaOrder}\n" +
+            $"MA60            {rejectMa60}\n" +
+            $"ADHESION_HIGH   {rejectAdhesionHigh}\n" +
+            $"KLINE_MISSING   {rejectKlineMissing}\n" +
+            adhesionLowLine;
+
+        ReportLog(progress, funnel);
     }
 
     public static bool IsEligibleStock(string? code, string? name)

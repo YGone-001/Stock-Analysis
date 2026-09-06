@@ -17,3 +17,4 @@ using System.Windows.Resources;
 [assembly: TargetPlatform("Windows7.0")]
 [assembly: SupportedOSPlatform("Windows7.0")]
 [assembly: AssemblyVersion("1.0.0.0")]
+[assembly: InternalsVisibleTo("AIHelper.Services.Tests")]

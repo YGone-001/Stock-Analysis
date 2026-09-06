@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -30,6 +30,14 @@ public partial class SparrowViewModel : ObservableObject
 
     public IReadOnlyList<SparrowStrategyMode> AvailableStrategyModes { get; } =
         Enum.GetValues<SparrowStrategyMode>();
+
+    public IReadOnlyList<SparrowStrategyModeOption> AvailableStrategyModeOptions { get; } =
+        new SparrowStrategyModeOption[]
+        {
+            new(SparrowStrategyMode.Classic),
+            new(SparrowStrategyMode.V2),
+            new(SparrowStrategyMode.Compare)
+        };
 
     public SparrowStrategyMode StrategyMode
     {

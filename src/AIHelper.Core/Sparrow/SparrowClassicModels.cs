@@ -39,10 +39,22 @@ public sealed class SparrowClassicCandidate
     public required string Reason { get; init; }
 }
 
+public enum SparrowClassicP3RejectReason
+{
+    None = 0,
+    KlineMissing,
+    MaOrder,
+    Ma60,
+    AdhesionHigh,
+    AdhesionLow,
+    MinMaInvalid
+}
+
 public readonly record struct SparrowClassicTechnicalResult(
     bool Passed,
     double MA5,
     double MA10,
     double MA20,
     double MA60,
-    double Adhesion);
+    double Adhesion,
+    SparrowClassicP3RejectReason RejectReason = SparrowClassicP3RejectReason.None);
