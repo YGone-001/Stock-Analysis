@@ -135,6 +135,11 @@ async def minute_trade_all(
     return await app.state.eastmoney.ticks(code, date=date)
 
 
+@app.get("/api/trend")
+async def trend(code: str = Query("")) -> dict[str, Any]:
+    return await app.state.eastmoney.trend(code)
+
+
 @app.get("/api/search")
 async def search(keyword: str = Query("")) -> dict[str, Any]:
     return await app.state.eastmoney.search(keyword)

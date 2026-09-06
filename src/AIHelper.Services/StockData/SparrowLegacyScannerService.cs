@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -23,9 +23,12 @@ public class SparrowLegacyScannerService
     private readonly ConcurrentDictionary<string, string> _p3KlineCache = new();
     private readonly ConcurrentBag<(string Code, string Name, string Reason)> _p3Winners = new();
 
-    public SparrowLegacyScannerService(IStockDataProvider dataProvider)
+    private readonly SparrowMarketRegimeService _marketRegimeService;
+
+    public SparrowLegacyScannerService(IStockDataProvider dataProvider, SparrowMarketRegimeService? marketRegimeService = null)
     {
         _dataProvider = dataProvider;
+        _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
     }
 
     public async Task<List<(string Code, string Name, string Reason)>> ScanAsync(
@@ -47,10 +50,15 @@ public class SparrowLegacyScannerService
         if (parameters.MacroDef && _p2Processed.Count == 0)
         {
             ReportLog(progress, "🛡️ [阶段1] 检测大盘宏观安全度...");
-            if (await CheckIndexWeakness("sh000001") && await CheckIndexWeakness("sh000852"))
+            var regime = await _marketRegimeService.EvaluateAsync(cancellationToken);
+            if (regime.Defensive)
             {
                 ReportLog(progress, "❌ [熔断] 大盘环境极度恶化，空仓防御！", true);
                 return new List<(string, string, string)>();
+            }
+            if (regime.Shanghai == SparrowMarketState.Unknown || regime.Csi1000 == SparrowMarketState.Unknown)
+            {
+                ReportLog(progress, "⚠️ 市场数据部分不可用，按历史策略放行。");
             }
             ReportLog(progress, "✅ [第一阶段通过] 允许开启个股海选。");
         }
@@ -275,32 +283,6 @@ public class SparrowLegacyScannerService
     private void ReportLog(IProgress<SparrowLegacyScanReport> progress, string msg, bool isHighlight = false)
     {
         progress?.Report(new SparrowLegacyScanReport { LogMessage = msg, IsHighlight = isHighlight });
-    }
-
-    private async Task<bool> CheckIndexWeakness(string secid)
-    {
-        try
-        {
-            var req = StockDataRequest.Parse("/api/index?code=" + secid + "&limit=5");
-            var res = await _dataProvider.GetDataAsync(req, CancellationToken.None);
-            if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
-            {
-                using JsonDocument doc = JsonDocument.Parse(res.Json);
-                if (doc.RootElement.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array)
-                {
-                    var elements = dataArr.EnumerateArray().ToList();
-                    if (elements.Count >= 5)
-                    {
-                        double current = elements.Last().TryGetProperty("Close", out var c1) ? c1.GetDouble() / 1000.0 : 0.0;
-                        double avg = elements.Skip(elements.Count - 5).Average(x => x.TryGetProperty("Close", out var c2) ? c2.GetDouble() / 1000.0 : 0.0);
-                        double oldAvg = elements.Take(5).Average(x => x.TryGetProperty("Close", out var c3) ? c3.GetDouble() / 1000.0 : 0.0); // Rough approximation of 5 days ago if we only requested 5.
-                        return current < avg && avg < oldAvg;
-                    }
-                }
-            }
-        }
-        catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
-        return false;
     }
 
     private List<double> ParseKlineClosesEnhanced(string json, out double latestPrice)

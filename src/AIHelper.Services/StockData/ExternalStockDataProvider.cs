@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
@@ -16,7 +16,7 @@ public sealed class ExternalStockDataProvider : IStockDataProvider
 
 	private static readonly HashSet<string> SupportedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 	{
-		"/api/quote", "/api/kline-all", "/api/index", "/api/minute", "/api/minute-trade-all", "/api/search", "/api/codes", "/api/etf", "/api/workday"
+		"/api/quote", "/api/kline-all", "/api/index", "/api/minute", "/api/minute-trade-all", "/api/trend", "/api/search", "/api/codes", "/api/etf", "/api/workday"
 	};
 
 	public ExternalStockDataProvider(HttpClient client)
@@ -120,6 +120,7 @@ public sealed class ExternalStockDataProvider : IStockDataProvider
 			"/api/etf" => "{\"data\":{\"list\":[]}}",
 			"/api/minute" or "/api/minute-trade-all" => "{\"data\":{\"List\":[]}}",
 			"/api/workday" => "{\"data\":{\"is_workday\":false,\"previous\":[]}}",
+			"/api/trend" => "{\"data\":{}}",
 			_ => "{\"data\":[]}"
 		};
 	}

@@ -251,6 +251,31 @@ class EastMoneyProvider:
             return self.memory_cache.set(cache_key, result, ttl_seconds=10)
         return result
 
+    async def trend(self, code: str) -> dict[str, Any]:
+        normalized = normalize_code(code)
+        if len(normalized) != 6:
+            return {"data": {}}
+        cache_key = f"trend:{normalized}:{code}"
+        cached = self.memory_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        payload = await self._get_json(
+            "https://push2his.eastmoney.com/api/qt/stock/trends2/get",
+            params={
+                "secid": to_secid(normalized, raw_code=code),
+                "ndays": "1",
+                "iscr": "0",
+                "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+            },
+        )
+        data = payload.get("data") or {}
+        result = {"data": data}
+        if data and data.get("trends"):
+            return self.memory_cache.set(cache_key, result, ttl_seconds=10)
+        return result
+
     async def ticks(self, code: str, date: str | None = None) -> dict[str, Any]:
         normalized = normalize_code(code)
         if len(normalized) != 6:

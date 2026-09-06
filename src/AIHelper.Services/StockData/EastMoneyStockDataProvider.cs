@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -26,7 +26,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 
 	private static readonly HashSet<string> SupportedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 	{
-		"/api/quote", "/api/kline-all", "/api/index", "/api/minute", "/api/minute-trade-all", "/api/search", "/api/codes", "/api/etf", "/api/workday"
+		"/api/quote", "/api/kline-all", "/api/index", "/api/minute", "/api/minute-trade-all", "/api/trend", "/api/search", "/api/codes", "/api/etf", "/api/workday"
 	};
 
 	public EastMoneyStockDataProvider(HttpClient client, LocalStockCacheProvider cache)
@@ -52,6 +52,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			"/api/kline-all" or "/api/index" => await GetKlineAsync(request, cancellationToken),
 			"/api/minute" => await GetMinuteAsync(request, cancellationToken),
 			"/api/minute-trade-all" => await GetTicksAsync(request, cancellationToken),
+			"/api/trend" => await GetTrendAsync(request, cancellationToken),
 			"/api/search" => await SearchAsync(request, cancellationToken),
 			"/api/codes" => await SyncCodeTableAsync(request, "stock", cancellationToken),
 			"/api/etf" => await SyncCodeTableAsync(request, "etf", cancellationToken),
@@ -400,6 +401,37 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		}
 	}
 
+	private async Task<StockDataResult> GetTrendAsync(StockDataRequest request, CancellationToken cancellationToken)
+	{
+		string rawCode = request.Get("code");
+		string code = NormalizeCode(rawCode);
+		if (code.Length != 6)
+		{
+			return Failure(request, "{\"data\":{}}", "Invalid code for trend");
+		}
+		string secid = ToSecId(rawCode, code);
+		long ts = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+		string url = "https://push2.eastmoney.com/api/qt/stock/trends2/get?fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ut=fa5fd1943c7b386f172d6893dbfba10b&iscr=0&ndays=1&secid=" + secid + "&_=" + ts;
+		try
+		{
+			string json = await SendGetWithRetryAsync(url, cancellationToken);
+			if (string.IsNullOrWhiteSpace(json))
+			{
+				return Failure(request, "{\"data\":{}}", "Empty trend response", url, null, code);
+			}
+			return Success(request, json, url, code, "trend");
+		}
+		catch (OperationCanceledException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			Serilog.Log.Warning(ex, "GetTrendAsync failed for {Code}", code);
+			return Failure(request, "{\"data\":{}}", ex.Message, url, ex, code);
+		}
+	}
+
 	private async Task<string> SendGetWithRetryAsync(string url, CancellationToken cancellationToken, int maxAttempts = 2, int timeoutSeconds = 5)
 	{
 		Exception lastException = null;
@@ -487,13 +519,22 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		return new StockDataResult { Endpoint = request.Endpoint, Handled = true, Success = false, Json = json, Source = "EastMoney", Error = error };
 	}
 
-	private static string NormalizeCode(string code) => (code ?? "").Trim().ToLowerInvariant().Replace("sh", "").Replace("sz", "").Replace("bj", "");
+	private static string NormalizeCode(string code)
+	{
+		string val = (code ?? "").Trim().ToLowerInvariant().Replace("sh", "").Replace("sz", "").Replace("bj", "");
+		if (val.StartsWith("1.") || val.StartsWith("0."))
+		{
+			val = val[2..];
+		}
+		return val;
+	}
 
 	private static string ToSecId(string code) => (code.StartsWith("6") || code.StartsWith("5") ? "1." : "0.") + code;
 
 	private static string ToSecId(string rawCode, string code)
 	{
 		string raw = (rawCode ?? "").Trim().ToLowerInvariant();
+		if (raw.StartsWith("1.") || raw.StartsWith("0.")) return raw;
 		if (raw.StartsWith("sh")) return "1." + code;
 		if (raw.StartsWith("sz") || raw.StartsWith("bj")) return "0." + code;
 		return ToSecId(code);

@@ -15,14 +15,18 @@ namespace AIHelper.Services.StockData.Sparrow;
 public sealed class SparrowClassicScanner
 {
     private readonly IStockDataProvider _dataProvider;
+    private readonly SparrowMarketRegimeService _marketRegimeService;
     private readonly ConcurrentDictionary<string, bool> _p2Processed = new();
     private readonly ConcurrentDictionary<string, (string Code, string Name)> _p2Survivors = new();
     private readonly ConcurrentDictionary<string, string> _p3KlineCache = new();
     private readonly ConcurrentDictionary<string, SparrowClassicCandidate> _p3Winners = new();
 
-    public SparrowClassicScanner(IStockDataProvider dataProvider)
+    public SparrowClassicScanner(
+        IStockDataProvider dataProvider,
+        SparrowMarketRegimeService? marketRegimeService = null)
     {
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
+        _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
     }
 
     public async Task<List<SparrowClassicCandidate>> ScanAsync(
@@ -52,14 +56,26 @@ public sealed class SparrowClassicScanner
 
         if (parameters.MacroDef && _p2Processed.IsEmpty)
         {
-            ReportLog(progress, "🛡️ [阶段1] 检测大盘宏观安全度...");
-            bool shWeak = await CheckIndexWeaknessAsync("sh000001", cancellationToken);
-            bool csi1000Weak = await CheckIndexWeaknessAsync("sh000852", cancellationToken);
-            if (shWeak && csi1000Weak)
+            ReportLog(progress, "🧭 [Sparrow Classic][Market] 开始市场环境检查...");
+            SparrowMarketRegime regime = await _marketRegimeService.EvaluateAsync(cancellationToken);
+
+            ReportLog(progress,
+                $"🧭 [Market]\n" +
+                $"SH: {regime.Shanghai} (Latest: {regime.ShanghaiSnapshot.LatestPrice:F2}, Average: {regime.ShanghaiSnapshot.LatestAverage:F2}, EarlierAverage: {regime.ShanghaiSnapshot.EarlierAverage:F2}, Samples: {regime.ShanghaiSnapshot.Samples})\n" +
+                $"CSI1000: {regime.Csi1000} (Latest: {regime.Csi1000Snapshot.LatestPrice:F2}, Average: {regime.Csi1000Snapshot.LatestAverage:F2}, EarlierAverage: {regime.Csi1000Snapshot.EarlierAverage:F2}, Samples: {regime.Csi1000Snapshot.Samples})\n" +
+                $"Final Regime: Defensive = {regime.Defensive}");
+
+            if (regime.Defensive)
             {
-                ReportLog(progress, "❌ [Sparrow Classic][熔断] 上证指数与中证1000同时恶化，空仓防御！", true);
+                ReportLog(progress, "🛡️ [Sparrow Classic] 双指数弱势，进入防守模式，本次不执行选股。", true);
                 return new List<SparrowClassicCandidate>();
             }
+
+            if (regime.Shanghai == SparrowMarketState.Unknown || regime.Csi1000 == SparrowMarketState.Unknown)
+            {
+                ReportLog(progress, "⚠️ [Sparrow Classic][Market] 市场数据部分不可用 (Market data unavailable)，按历史策略放行 (Fail-open)。");
+            }
+
             ReportLog(progress, "✅ [Sparrow Classic][第一阶段通过] 允许开启个股海选。");
         }
 
@@ -276,39 +292,6 @@ public sealed class SparrowClassicScanner
             && (code.StartsWith("60", StringComparison.Ordinal)
                 || code.StartsWith("00", StringComparison.Ordinal)
                 || code.StartsWith("30", StringComparison.Ordinal));
-    }
-
-    private async Task<bool> CheckIndexWeaknessAsync(string code, CancellationToken cancellationToken)
-    {
-        try
-        {
-            StockDataResult response = await _dataProvider.GetDataAsync(
-                StockDataRequest.Parse("/api/index?code=" + code + "&limit=5"), cancellationToken);
-            if (!response.Success || string.IsNullOrWhiteSpace(response.Json))
-            {
-                return false;
-            }
-
-            List<double> closes = ParseKlineClosesOldestFirst(response.Json);
-            if (closes.Count < 5)
-            {
-                return false;
-            }
-
-            double current = closes[^1];
-            double latestAverage = closes.TakeLast(5).Average();
-            double oldAverage = closes.Take(5).Average();
-            return current < latestAverage && latestAverage < oldAverage;
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "Sparrow Classic market check failed for {Code}", code);
-            return false;
-        }
     }
 
     private static IEnumerable<JsonElement> EnumerateDataArray(string json)
