@@ -89,13 +89,13 @@ async def health() -> dict[str, Any]:
 
 
 @app.get("/api/quote")
-async def quote(code: str = Query("")) -> dict[str, Any]:
+async def quote(code: str = Query(""), refresh: bool = Query(False)) -> dict[str, Any]:
     akshare_result = await app.state.akshare.quote(code)
     if akshare_result is not None and akshare_result.get("data"):
         await supplement_quote_depth_from_eastmoney(akshare_result, code)
         if quote_has_depth(akshare_result):
             return akshare_result
-    eastmoney_result = await app.state.eastmoney.quote(code)
+    eastmoney_result = await app.state.eastmoney.quote(code, refresh=refresh)
     if eastmoney_result.get("data"):
         return eastmoney_result
     raise HTTPException(status_code=503, detail="quote_source_unavailable")
@@ -107,10 +107,11 @@ async def kline_all(
     type: str = Query("day"),
     limit: int = Query(120, ge=1, le=5000),
     source: str = Query("auto"),
+    refresh: bool = Query(False),
 ) -> dict[str, Any]:
     if type.lower() not in {"day", "d", "101"}:
         return {"data": []}
-    return await get_daily_kline(code, limit, source)
+    return await get_daily_kline(code, limit, source, refresh=refresh)
 
 
 @app.get("/api/index")
@@ -119,8 +120,9 @@ async def index_kline(
     type: str = Query("day"),
     limit: int = Query(120, ge=1, le=5000),
     source: str = Query("auto"),
+    refresh: bool = Query(False),
 ) -> dict[str, Any]:
-    return await kline_all(code=code, type=type, limit=limit, source=source)
+    return await kline_all(code=code, type=type, limit=limit, source=source, refresh=refresh)
 
 
 @app.get("/api/minute")
@@ -136,8 +138,8 @@ async def minute_trade_all(
 
 
 @app.get("/api/trend")
-async def trend(code: str = Query("")) -> dict[str, Any]:
-    return await app.state.eastmoney.trend(code)
+async def trend(code: str = Query(""), refresh: bool = Query(False)) -> dict[str, Any]:
+    return await app.state.eastmoney.trend(code, refresh=refresh)
 
 
 @app.get("/api/search")
@@ -191,10 +193,12 @@ async def akshare_macro_money_supply() -> dict[str, Any]:
     return await app.state.akshare.macro_china_money_supply()
 
 
-async def get_daily_kline(code: str, limit: int, source: str) -> dict[str, Any]:
+async def get_daily_kline(
+    code: str, limit: int, source: str, refresh: bool = False
+) -> dict[str, Any]:
     source = source.lower()
     normalized = normalize_code(code)
-    if source in {"cache", "local"}:
+    if not refresh and source in {"cache", "local"}:
         return {"data": store.get_klines(normalized, limit)}
 
     if source in {"auto", "akshare"}:
@@ -216,7 +220,7 @@ async def get_daily_kline(code: str, limit: int, source: str) -> dict[str, Any]:
         if source == "tushare":
             return {"data": []}
 
-    result = await app.state.eastmoney.kline(code, limit=limit)
+    result = await app.state.eastmoney.kline(code, limit=limit, refresh=refresh)
     rows = result.get("data") or []
     if rows:
         store.save_klines(normalized, rows, source="eastmoney")

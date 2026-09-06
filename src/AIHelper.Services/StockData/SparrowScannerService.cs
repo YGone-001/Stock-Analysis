@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using AIHelper.Core.Sparrow;
 using AIHelper.Helpers;
 using AIHelper.Models;
 using AIHelper.Services.StockData.Sparrow;
@@ -26,13 +27,14 @@ public class SparrowScanReport
 public class SparrowScannerService
 {
     private readonly IStockDataProvider _dataProvider;
-    private readonly ConcurrentDictionary<string, string> _p2QuoteCache_DC = new();
-    private readonly ConcurrentDictionary<string, string> _p3KlineCache_DC = new();
-    private readonly ConcurrentDictionary<string, (string Name, string Reason)> _p3Winners_DC = new();
+    private readonly SparrowMarketDataCache _klineCache;
 
-    public SparrowScannerService(IStockDataProvider dataProvider)
+    public SparrowMarketDataCache KlineCache => _klineCache;
+
+    public SparrowScannerService(IStockDataProvider dataProvider, SparrowMarketDataCache? klineCache = null)
     {
         _dataProvider = dataProvider;
+        _klineCache = klineCache ?? new SparrowMarketDataCache();
     }
 
     public async Task<List<(string Code, string Name, string Reason)>> ScanAsync(
@@ -43,10 +45,12 @@ public class SparrowScannerService
     {
         if (!parameters.UseCache)
         {
-            _p2QuoteCache_DC.Clear();
-            _p3KlineCache_DC.Clear();
+            _klineCache.Clear();
         }
-        _p3Winners_DC.Clear();
+
+        // Scan-local session state: quotes are fresh per scan and never frozen across scans
+        var quoteCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        var p3Winners = new ConcurrentDictionary<string, (string Name, string Reason)>(StringComparer.Ordinal);
 
         ReportLog(progress, $"🦅 [麻雀-全景高速版] 引擎点火！初始标的: {targetPool.Count} 只");
 
@@ -63,7 +67,7 @@ public class SparrowScannerService
             ReportLog(progress, $"✅ [第一阶段通过] 上证今日涨幅: {shIndexPctChg:F2}%, 已设为 RPS 参照基准。");
         }
 
-        var p2Missing = targetPool.Where(s => !_p2QuoteCache_DC.ContainsKey(s.Code)).ToList();
+        var p2Missing = targetPool.Where(s => !quoteCache.ContainsKey(s.Code)).ToList();
         if (p2Missing.Count > 0)
         {
             ReportLog(progress, $"\n🌪️ [阶段2] 极速网关并发拉取盘口快照 (待下载:{p2Missing.Count} 只)...");
@@ -75,7 +79,9 @@ public class SparrowScannerService
                 .Select(x => x.Select(v => v.Value).ToList())
                 .ToList();
 
-            using var semaphore = new SemaphoreSlim(Math.Min(8, parameters.MaxConcurrency));
+            string refreshQuery = parameters.UseCache ? "" : "&refresh=1";
+            int p2Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
+            using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(8, p2Concurrency)));
             await Task.WhenAll(batches.Select(async batch =>
             {
                 await semaphore.WaitAsync();
@@ -83,7 +89,7 @@ public class SparrowScannerService
                 {
                     if (ct.IsCancellationRequested) return;
                     string codesStr = string.Join(",", batch.Select(x => x.Code));
-                    var req = StockDataRequest.Parse("/api/quote?code=" + codesStr);
+                    var req = StockDataRequest.Parse("/api/quote?code=" + codesStr + refreshQuery);
                     var res = await _dataProvider.GetDataAsync(req, ct);
                     if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
                     {
@@ -100,7 +106,7 @@ public class SparrowScannerService
                                         if (code.StartsWith("1.") || code.StartsWith("0.")) code = code.Substring(2);
                                         if (!string.IsNullOrEmpty(code))
                                         {
-                                            _p2QuoteCache_DC.TryAdd(code, item.GetRawText());
+                                            quoteCache.TryAdd(code, item.GetRawText());
                                         }
                                     }
                                 }
@@ -129,7 +135,7 @@ public class SparrowScannerService
         int volRatioPassed = 0;
         foreach (var item in targetPool)
         {
-            if (!_p2QuoteCache_DC.TryGetValue(item.Code, out string? value))
+            if (!quoteCache.TryGetValue(item.Code, out string? value))
             {
                 quoteDataUnavailable++;
                 continue;
@@ -177,7 +183,7 @@ public class SparrowScannerService
             }
         }
         ReportLog(progress,
-            $"📊 [Sparrow V2][P2数据] Batch quote loaded: {_p2QuoteCache_DC.Count}; " +
+            $"📊 [Sparrow V2][P2数据] Batch quote loaded: {quoteCache.Count}; " +
             $"Quote data unavailable: {quoteDataUnavailable}; Coarse P2 survivors: {coarseSurvivors}; " +
             $"Detail quote requested: 0; Outer/inner valid: {outerInnerValid}; " +
             $"Outer/inner unavailable: {outerInnerUnavailable}; VolRatio passed: {volRatioPassed}");
@@ -185,25 +191,28 @@ public class SparrowScannerService
 
         if (p2List.Count == 0) return new List<(string, string, string)>();
 
-        var p3Missing = p2List.Where(s => !_p3KlineCache_DC.ContainsKey(s.Code)).ToList();
+        var p3Missing = p2List.Where(s => !_klineCache.TryGet(SparrowDataCachePolicy.GetKlineKey(s.Code, 120, "day"), parameters.UseCache, out _)).ToList();
         if (p3Missing.Count > 0)
         {
             ReportLog(progress, $"\n🔭 [阶段3] 极速网关拉取 K 线 (待下载:{p3Missing.Count} 只)...");
             int p3Downloaded = 0;
             progress.Report(new SparrowScanReport { ProgressMax = p3Missing.Count, ProgressValue = 0 });
 
-            using var semaphore = new SemaphoreSlim(Math.Min(32, parameters.MaxConcurrency * 4));
+            string refreshParam = parameters.UseCache ? "" : "&refresh=1";
+            int p3Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
+            using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(32, p3Concurrency * 4)));
             await Task.WhenAll(p3Missing.Select(async stock =>
             {
                 await semaphore.WaitAsync();
                 try
                 {
                     if (ct.IsCancellationRequested) return;
-                    var req = StockDataRequest.Parse("/api/kline-all?code=" + stock.Code + "&limit=120");
+                    var req = StockDataRequest.Parse("/api/kline-all?code=" + stock.Code + "&limit=120" + refreshParam);
                     var res = await _dataProvider.GetDataAsync(req, ct);
                     if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
                     {
-                        _p3KlineCache_DC.TryAdd(stock.Code, res.Json);
+                        string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, 120, "day");
+                        _klineCache.Set(cacheKey, res.Json, SparrowDataCachePolicy.DefaultKlineTtl);
                     }
                 }
                 finally
@@ -232,7 +241,8 @@ public class SparrowScannerService
                 progress.Report(new SparrowScanReport { ProgressValue = memCheckCount });
             }
 
-            if (!_p3KlineCache_DC.TryGetValue(item.Code, out var value)) continue;
+            string cacheKey = SparrowDataCachePolicy.GetKlineKey(item.Code, 120, "day");
+            if (!_klineCache.TryGet(cacheKey, parameters.UseCache, out var value) || string.IsNullOrWhiteSpace(value)) continue;
 
             var list = ParseKline(value, out var latestPrice, out var latestPctChg);
             if (list.Count < 60)
@@ -261,15 +271,16 @@ public class SparrowScannerService
                 if (adhesion >= parameters.MinAdhesion && adhesion <= parameters.MaxAdhesion)
                 {
                     string reason = $"黏合:{adhesion * 100.0:F1}% 动量:{momentum * 100.0:F1}%";
-                    _p3Winners_DC[item.Code] = (item.Name, reason);
+                    p3Winners[item.Code] = (item.Name, reason);
                     ReportLog(progress, $"🎯 [入围] {item.Name}({item.Code}) {reason}");
                 }
             }
         }
 
-        ReportLog(progress, $"\n🏆 漏斗完成！共诞生长短腿战斗机 {_p3Winners_DC.Count} 只！");
+        ReportLog(progress, $"\n🏆 漏斗完成！共诞生长短腿战斗机 {p3Winners.Count} 只！");
+        ReportLog(progress, $"🧭 [Sparrow V2][Cache] Kline: {_klineCache.Statistics}");
 
-        var results = _p3Winners_DC.Select(kvp => (kvp.Key, kvp.Value.Name, kvp.Value.Reason)).ToList();
+        var results = p3Winners.Select(kvp => (kvp.Key, kvp.Value.Name, kvp.Value.Reason)).ToList();
         await OutputResultsToFileAsync(results);
         return results;
     }

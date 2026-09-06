@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using AIHelper.Core.Sparrow;
 using AIHelper.Helpers;
 using AIHelper.Models;
 using Serilog;
@@ -16,17 +17,18 @@ public sealed class SparrowClassicScanner
 {
     private readonly IStockDataProvider _dataProvider;
     private readonly SparrowMarketRegimeService _marketRegimeService;
-    private readonly ConcurrentDictionary<string, bool> _p2Processed = new();
-    private readonly ConcurrentDictionary<string, (string Code, string Name)> _p2Survivors = new();
-    private readonly ConcurrentDictionary<string, string> _p3KlineCache = new();
-    private readonly ConcurrentDictionary<string, SparrowClassicCandidate> _p3Winners = new();
+    private readonly SparrowMarketDataCache _klineCache;
+
+    public SparrowMarketDataCache KlineCache => _klineCache;
 
     public SparrowClassicScanner(
         IStockDataProvider dataProvider,
-        SparrowMarketRegimeService? marketRegimeService = null)
+        SparrowMarketRegimeService? marketRegimeService = null,
+        SparrowMarketDataCache? klineCache = null)
     {
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
         _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
+        _klineCache = klineCache ?? new SparrowMarketDataCache();
     }
 
     public async Task<List<SparrowClassicCandidate>> ScanAsync(
@@ -46,15 +48,19 @@ public sealed class SparrowClassicScanner
 
         if (!parameters.UseCache)
         {
-            _p2Processed.Clear();
-            _p2Survivors.Clear();
-            _p3KlineCache.Clear();
+            _klineCache.Clear();
         }
-        _p3Winners.Clear();
+
+        // Scan-local session state: never leaks across scans or between different parameter sets
+        var p2Processed = new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
+        var p2Survivors = new ConcurrentDictionary<string, (string Code, string Name)>(StringComparer.Ordinal);
+        var p3Winners = new ConcurrentDictionary<string, SparrowClassicCandidate>(StringComparer.Ordinal);
 
         ReportLog(progress, $"🦅 [Sparrow Classic] 开始扫描。Strategy = {SparrowClassicCandidate.StrategyName}，初始标的: {classicPool.Count} 只");
 
-        if (parameters.MacroDef && _p2Processed.IsEmpty)
+        // MacroDef is ALWAYS re-evaluated for every new ScanAsync call when MacroDef == true.
+        // It is NEVER skipped due to cached data or non-empty p2Processed.
+        if (parameters.MacroDef)
         {
             ReportLog(progress, "🧭 [Sparrow Classic][Market] 开始市场环境检查...");
             SparrowMarketRegime regime = await _marketRegimeService.EvaluateAsync(cancellationToken);
@@ -79,11 +85,11 @@ public sealed class SparrowClassicScanner
             ReportLog(progress, "✅ [Sparrow Classic][第一阶段通过] 允许开启个股海选。");
         }
 
-        var p2Pending = classicPool.Where(stock => !_p2Processed.ContainsKey(stock.Code)).ToList();
+        var p2Pending = classicPool.Where(stock => !p2Processed.ContainsKey(stock.Code)).ToList();
         if (p2Pending.Count > 0)
         {
             ReportLog(progress, $"\n🌪️ [Sparrow Classic][阶段2] 快照扫描 (待处理:{p2Pending.Count} / 总计:{classicPool.Count})...");
-            progress?.Report(new SparrowClassicScanReport { ProgressMax = classicPool.Count, ProgressValue = _p2Processed.Count });
+            progress?.Report(new SparrowClassicScanReport { ProgressMax = classicPool.Count, ProgressValue = p2Processed.Count });
             int batchQuoteLoaded = 0;
             int quoteDataUnavailable = 0;
             int coarseSurvivors = 0;
@@ -96,7 +102,9 @@ public sealed class SparrowClassicScanner
                 .Select(group => group.Select(item => item.stock).ToList())
                 .ToList();
 
-            using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(8, parameters.MaxConcurrency)));
+            string refreshQuery = parameters.UseCache ? "" : "&refresh=1";
+            int p2Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
+            using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(8, p2Concurrency)));
             await Task.WhenAll(batches.Select(async batch =>
             {
                 bool entered = false;
@@ -106,7 +114,7 @@ public sealed class SparrowClassicScanner
                     entered = true;
                     string codes = string.Join(",", batch.Select(stock => stock.Code));
                     StockDataResult response = await _dataProvider.GetDataAsync(
-                        StockDataRequest.Parse("/api/quote?code=" + codes), cancellationToken);
+                        StockDataRequest.Parse("/api/quote?code=" + codes + refreshQuery), cancellationToken);
                     if (!response.Success || string.IsNullOrWhiteSpace(response.Json))
                     {
                         return;
@@ -121,7 +129,7 @@ public sealed class SparrowClassicScanner
                             continue;
                         }
 
-                        _p2Processed.TryAdd(stock.Code, true);
+                        p2Processed.TryAdd(stock.Code, true);
                         Interlocked.Increment(ref batchQuoteLoaded);
                         if (!SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote)
                             || !quote.PriceDerivedPercent.HasValue
@@ -152,7 +160,7 @@ public sealed class SparrowClassicScanner
                         if (volumeResult == SparrowVolumeCheckResult.Passed)
                         {
                             Interlocked.Increment(ref volRatioPassed);
-                            _p2Survivors[stock.Code] = stock;
+                            p2Survivors[stock.Code] = stock;
                         }
                     }
                 }
@@ -170,8 +178,8 @@ public sealed class SparrowClassicScanner
                     {
                         progress?.Report(new SparrowClassicScanReport
                         {
-                            ProgressValue = Math.Min(classicPool.Count, _p2Processed.Count),
-                            P2Survivors = _p2Survivors.Count
+                            ProgressValue = Math.Min(classicPool.Count, p2Processed.Count),
+                            P2Survivors = p2Survivors.Count
                         });
                         semaphore.Release();
                     }
@@ -188,23 +196,24 @@ public sealed class SparrowClassicScanner
         }
         else
         {
-            ReportLog(progress, $"\n♻️ [Sparrow Classic][盘口缓存] 阶段2完成，幸存者: {_p2Survivors.Count} 只");
+            ReportLog(progress, $"\n♻️ [Sparrow Classic][盘口缓存] 阶段2完成，幸存者: {p2Survivors.Count} 只");
         }
 
         if (cancellationToken.IsCancellationRequested)
         {
-            ReportLog(progress, $"\n🛑 [Sparrow Classic] 已暂停，阶段2进度: {_p2Processed.Count}/{classicPool.Count}。", true);
+            ReportLog(progress, $"\n🛑 [Sparrow Classic] 已暂停，阶段2进度: {p2Processed.Count}/{classicPool.Count}。", true);
             return new List<SparrowClassicCandidate>();
         }
 
         var poolCodes = classicPool.Select(stock => stock.Code).ToHashSet(StringComparer.Ordinal);
-        var p2List = _p2Survivors.Values.Where(stock => poolCodes.Contains(stock.Code)).ToList();
+        var p2List = p2Survivors.Values.Where(stock => poolCodes.Contains(stock.Code)).ToList();
         ReportLog(progress, $"\n🔪 [Sparrow Classic][阶段2结束] 进入阶段3: {p2List.Count} 只");
         ReportLog(progress, $"\n🔬 [Sparrow Classic][阶段3] K线核验开始 (标的数:{p2List.Count})...");
         progress?.Report(new SparrowClassicScanReport { ProgressMax = p2List.Count, ProgressValue = 0 });
 
         int p3Completed = 0;
-        using var klineSemaphore = new SemaphoreSlim(Math.Max(1, Math.Min(32, parameters.MaxConcurrency * 4)));
+        int p3Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
+        using var klineSemaphore = new SemaphoreSlim(Math.Max(1, Math.Min(32, p3Concurrency * 4)));
         await Task.WhenAll(p2List.Select(async stock =>
         {
             bool entered = false;
@@ -212,16 +221,17 @@ public sealed class SparrowClassicScanner
             {
                 await klineSemaphore.WaitAsync(cancellationToken);
                 entered = true;
-                string? klineJson = null;
-                if (!_p3KlineCache.TryGetValue(stock.Code, out klineJson))
+                string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, 65, "day");
+                if (!_klineCache.TryGet(cacheKey, parameters.UseCache, out string? klineJson))
                 {
+                    string refreshParam = parameters.UseCache ? "" : "&refresh=1";
                     StockDataResult response = await _dataProvider.GetDataAsync(
-                        StockDataRequest.Parse("/api/kline-all?code=" + stock.Code + "&type=day&limit=65"),
+                        StockDataRequest.Parse("/api/kline-all?code=" + stock.Code + "&type=day&limit=65" + refreshParam),
                         cancellationToken);
                     if (response.Success && !string.IsNullOrWhiteSpace(response.Json))
                     {
                         klineJson = response.Json;
-                        _p3KlineCache.TryAdd(stock.Code, klineJson);
+                        _klineCache.Set(cacheKey, klineJson, SparrowDataCachePolicy.DefaultKlineTtl);
                     }
                 }
 
@@ -243,7 +253,7 @@ public sealed class SparrowClassicScanner
                     Name = stock.Name,
                     Reason = $"多头 黏合度:{technical.Adhesion * 100:F2}%"
                 };
-                _p3Winners[stock.Code] = candidate;
+                p3Winners[stock.Code] = candidate;
                 ReportLog(progress, $"🎯 [Sparrow Classic][入围] {stock.Name}({stock.Code}) {candidate.Reason}");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -259,7 +269,7 @@ public sealed class SparrowClassicScanner
                 if (entered)
                 {
                     int completed = Interlocked.Increment(ref p3Completed);
-                    progress?.Report(new SparrowClassicScanReport { ProgressValue = completed, P3Winners = _p3Winners.Count });
+                    progress?.Report(new SparrowClassicScanReport { ProgressValue = completed, P3Winners = p3Winners.Count });
                     klineSemaphore.Release();
                 }
             }
@@ -271,8 +281,9 @@ public sealed class SparrowClassicScanner
             return new List<SparrowClassicCandidate>();
         }
 
-        List<SparrowClassicCandidate> results = _p3Winners.Values.OrderBy(candidate => candidate.Code).ToList();
+        List<SparrowClassicCandidate> results = p3Winners.Values.OrderBy(candidate => candidate.Code).ToList();
         ReportLog(progress, $"\n🏆 [Sparrow Classic] 漏斗完成，共入围 {results.Count} 只。Strategy = {SparrowClassicCandidate.StrategyName}");
+        ReportLog(progress, $"🧭 [Sparrow Classic][Cache] Kline: {_klineCache.Statistics}");
         if (results.Count > 0)
         {
             await OutputResultsAsync(results, progress);

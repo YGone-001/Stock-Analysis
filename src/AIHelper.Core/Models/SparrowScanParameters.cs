@@ -14,6 +14,6 @@ public class SparrowScanParameters
     public double MaxTurnover { get; set; }
     public double MomentumThreshold { get; set; }
     public bool CheckAlpha { get; set; }
-    public int MaxConcurrency { get; set; }
+    public int MaxConcurrency { get; set; } = 8;
     public bool UseCache { get; set; }
 }

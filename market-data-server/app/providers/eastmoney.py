@@ -32,16 +32,17 @@ class EastMoneyProvider:
         self.name_cache = name_cache
         self.etf_name_cache = etf_name_cache
 
-    async def quote(self, codes: str) -> dict[str, Any]:
+    async def quote(self, codes: str, refresh: bool = False) -> dict[str, Any]:
         normalized = unique_codes(codes)
         if not normalized:
             return {"data": []}
 
         # v2 uses endpoint-specific outer/inner mappings and nullable missing values.
         cache_key = "quote:v2:" + ",".join(normalized)
-        cached = self.memory_cache.get(cache_key)
-        if cached is not None:
-            return cached
+        if not refresh:
+            cached = self.memory_cache.get(cache_key)
+            if cached is not None:
+                return cached
 
         if len(normalized) == 1:
             result = await self._single_quote(normalized[0])
@@ -164,15 +165,16 @@ class EastMoneyProvider:
             ]
         }
 
-    async def kline(self, code: str, limit: int = 120) -> dict[str, Any]:
+    async def kline(self, code: str, limit: int = 120, refresh: bool = False) -> dict[str, Any]:
         normalized = normalize_code(code)
         if len(normalized) != 6:
             return {"data": []}
         limit = max(1, min(limit, 5000))
         cache_key = f"kline:{normalized}:{limit}"
-        cached = self.memory_cache.get(cache_key)
-        if cached is not None:
-            return cached
+        if not refresh:
+            cached = self.memory_cache.get(cache_key)
+            if cached is not None:
+                return cached
 
         payload = await self._get_json(
             "https://push2his.eastmoney.com/api/qt/stock/kline/get",
@@ -251,14 +253,15 @@ class EastMoneyProvider:
             return self.memory_cache.set(cache_key, result, ttl_seconds=10)
         return result
 
-    async def trend(self, code: str) -> dict[str, Any]:
+    async def trend(self, code: str, refresh: bool = False) -> dict[str, Any]:
         normalized = normalize_code(code)
         if len(normalized) != 6:
             return {"data": {}}
         cache_key = f"trend:{normalized}:{code}"
-        cached = self.memory_cache.get(cache_key)
-        if cached is not None:
-            return cached
+        if not refresh:
+            cached = self.memory_cache.get(cache_key)
+            if cached is not None:
+                return cached
 
         payload = await self._get_json(
             "https://push2his.eastmoney.com/api/qt/stock/trends2/get",

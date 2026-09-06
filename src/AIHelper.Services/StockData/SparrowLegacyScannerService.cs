@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using AIHelper.Core.Sparrow;
 using AIHelper.Helpers;
 using AIHelper.Models;
 using AIHelper.Services.StockData.Sparrow;
@@ -18,17 +19,19 @@ namespace AIHelper.Services.StockData;
 public class SparrowLegacyScannerService
 {
     private readonly IStockDataProvider _dataProvider;
-    private readonly ConcurrentDictionary<string, bool> _p2Processed = new();
-    private readonly ConcurrentBag<(string Code, string Name)> _p2Survivors = new();
-    private readonly ConcurrentDictionary<string, string> _p3KlineCache = new();
-    private readonly ConcurrentBag<(string Code, string Name, string Reason)> _p3Winners = new();
-
     private readonly SparrowMarketRegimeService _marketRegimeService;
+    private readonly SparrowMarketDataCache _klineCache;
 
-    public SparrowLegacyScannerService(IStockDataProvider dataProvider, SparrowMarketRegimeService? marketRegimeService = null)
+    public SparrowMarketDataCache KlineCache => _klineCache;
+
+    public SparrowLegacyScannerService(
+        IStockDataProvider dataProvider,
+        SparrowMarketRegimeService? marketRegimeService = null,
+        SparrowMarketDataCache? klineCache = null)
     {
         _dataProvider = dataProvider;
         _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
+        _klineCache = klineCache ?? new SparrowMarketDataCache();
     }
 
     public async Task<List<(string Code, string Name, string Reason)>> ScanAsync(
@@ -39,15 +42,17 @@ public class SparrowLegacyScannerService
     {
         if (!parameters.UseCache)
         {
-            _p2Processed.Clear();
-            _p2Survivors.Clear();
-            _p3KlineCache.Clear();
+            _klineCache.Clear();
         }
-        _p3Winners.Clear();
+
+        // Scan-local session state
+        var p2Processed = new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
+        var p2Survivors = new ConcurrentBag<(string Code, string Name)>();
+        var p3Winners = new ConcurrentBag<(string Code, string Name, string Reason)>();
 
         ReportLog(progress, $"🦅 [麻雀 4.0-高速版] 引擎点火！初始标的: {targetPool.Count} 只");
 
-        if (parameters.MacroDef && _p2Processed.Count == 0)
+        if (parameters.MacroDef)
         {
             ReportLog(progress, "🛡️ [阶段1] 检测大盘宏观安全度...");
             var regime = await _marketRegimeService.EvaluateAsync(cancellationToken);
@@ -63,7 +68,7 @@ public class SparrowLegacyScannerService
             ReportLog(progress, "✅ [第一阶段通过] 允许开启个股海选。");
         }
 
-        var p2Pending = targetPool.Where(s => !_p2Processed.ContainsKey(s.Code)).ToList();
+        var p2Pending = targetPool.Where(s => !p2Processed.ContainsKey(s.Code)).ToList();
         if (p2Pending.Count > 0)
         {
             ReportLog(progress, $"\n🌪️ [阶段2] 极速网关并发快照扫描 (待处理:{p2Pending.Count} / 总计:{targetPool.Count})...");
@@ -75,14 +80,16 @@ public class SparrowLegacyScannerService
             int outerInnerValid = 0;
             int outerInnerUnavailable = 0;
             int volRatioPassed = 0;
-            progress?.Report(new SparrowLegacyScanReport { ProgressMax = targetPool.Count, ProgressValue = _p2Processed.Count });
+            progress?.Report(new SparrowLegacyScanReport { ProgressMax = targetPool.Count, ProgressValue = p2Processed.Count });
 
             var batches = p2Pending.Select((x, i) => new { Index = i, Value = x })
                 .GroupBy(x => x.Index / 50)
                 .Select(x => x.Select(v => v.Value).ToList())
                 .ToList();
 
-            using var semaphore2 = new SemaphoreSlim(Math.Min(8, parameters.MaxConcurrency));
+            string refreshQuery = parameters.UseCache ? "" : "&refresh=1";
+            int p2Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
+            using var semaphore2 = new SemaphoreSlim(Math.Max(1, Math.Min(8, p2Concurrency)));
             await Task.WhenAll(batches.Select(async batch =>
             {
                 await semaphore2.WaitAsync();
@@ -90,7 +97,7 @@ public class SparrowLegacyScannerService
                 {
                     if (cancellationToken.IsCancellationRequested) return;
                     string codesStr = string.Join(",", batch.Select(x => x.Code));
-                    var req = StockDataRequest.Parse("/api/quote?code=" + codesStr);
+                    var req = StockDataRequest.Parse("/api/quote?code=" + codesStr + refreshQuery);
                     var res = await _dataProvider.GetDataAsync(req, cancellationToken);
                     if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
                     {
@@ -110,7 +117,7 @@ public class SparrowLegacyScannerService
                                             var stock = batch.FirstOrDefault(s => s.Code == code);
                                             if (stock.Code != null)
                                             {
-                                                _p2Processed.TryAdd(stock.Code, true);
+                                                p2Processed.TryAdd(stock.Code, true);
                                                 Interlocked.Increment(ref batchQuoteLoaded);
                                                 if (Interlocked.Increment(ref p2SampleCount) <= 2)
                                                 {
@@ -145,7 +152,7 @@ public class SparrowLegacyScannerService
                                                 if (volumeResult == SparrowVolumeCheckResult.Passed)
                                                 {
                                                     Interlocked.Increment(ref volRatioPassed);
-                                                    _p2Survivors.Add((stock.Code, stock.Name));
+                                                    p2Survivors.Add((stock.Code, stock.Name));
                                                 }
                                             }
                                         }
@@ -162,7 +169,7 @@ public class SparrowLegacyScannerService
                     int c = Interlocked.Add(ref p2Completed, batch.Count);
                     if (c % 50 == 0 || c == p2Pending.Count)
                     {
-                        progress?.Report(new SparrowLegacyScanReport { ProgressValue = _p2Processed.Count, P2Survivors = _p2Survivors.Count });
+                        progress?.Report(new SparrowLegacyScanReport { ProgressValue = p2Processed.Count, P2Survivors = p2Survivors.Count });
                     }
                     semaphore2.Release();
                 }
@@ -178,43 +185,42 @@ public class SparrowLegacyScannerService
         }
         else
         {
-            ReportLog(progress, $"\n♻️ [盘口缓存激活] 阶段2瞬间完成。当前幸存者: {_p2Survivors.Count} 只");
+            ReportLog(progress, $"\n♻️ [盘口缓存激活] 阶段2瞬间完成。当前幸存者: {p2Survivors.Count} 只");
         }
 
         if (cancellationToken.IsCancellationRequested)
         {
-            ReportLog(progress, $"\n🛑 已安全暂停！阶段2 进度: {_p2Processed.Count}/{targetPool.Count}。勾选[使用缓存]再次启动可断点续传！", true);
+            ReportLog(progress, $"\n🛑 已安全暂停！阶段2 进度: {p2Processed.Count}/{targetPool.Count}。勾选[使用缓存]再次启动可断点续传！", true);
             return new List<(string, string, string)>();
         }
 
-        ReportLog(progress, $"\n🔪 [阶段2结束] 进入下阶段: {_p2Survivors.Count} 只");
-        var p2List = _p2Survivors.ToList();
+        ReportLog(progress, $"\n🔪 [阶段2结束] 进入下阶段: {p2Survivors.Count} 只");
+        var p2List = p2Survivors.ToList();
 
         ReportLog(progress, $"\n🔬 [阶段3] K线极速核验开始 (标的数:{p2List.Count})...");
         int p3Completed = 0;
         int p3SampleCount = 0;
         progress?.Report(new SparrowLegacyScanReport { ProgressMax = p2List.Count, ProgressValue = 0 });
 
-        using var semaphore = new SemaphoreSlim(Math.Min(32, parameters.MaxConcurrency * 4));
+        int p3Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
+        using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(32, p3Concurrency * 4)));
         await Task.WhenAll(p2List.Select(async stock =>
         {
             await semaphore.WaitAsync();
             try
             {
                 string klineJson = null;
-                if (_p3KlineCache.TryGetValue(stock.Code, out var value))
-                {
-                    klineJson = value;
-                }
-                else
+                string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, 65, "day");
+                if (!_klineCache.TryGet(cacheKey, parameters.UseCache, out klineJson))
                 {
                     if (cancellationToken.IsCancellationRequested) return;
-                    var req = StockDataRequest.Parse("/api/kline-all?code=" + stock.Code + "&limit=65");
+                    string refreshParam = parameters.UseCache ? "" : "&refresh=1";
+                    var req = StockDataRequest.Parse("/api/kline-all?code=" + stock.Code + "&limit=65" + refreshParam);
                     var res = await _dataProvider.GetDataAsync(req, cancellationToken);
                     if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
                     {
                         klineJson = res.Json;
-                        _p3KlineCache.TryAdd(stock.Code, klineJson);
+                        _klineCache.Set(cacheKey, klineJson, SparrowDataCachePolicy.DefaultKlineTtl);
                     }
                 }
 
@@ -246,7 +252,7 @@ public class SparrowLegacyScannerService
                         if (adhesion >= parameters.MinAdhesion && adhesion <= parameters.MaxAdhesion)
                         {
                             string reason = $"多头 黏合度:{adhesion * 100:F2}%";
-                            _p3Winners.Add((stock.Code, stock.Name, reason));
+                            p3Winners.Add((stock.Code, stock.Name, reason));
                             ReportLog(progress, $"🎯 [入围] {stock.Name}({stock.Code}) 黏合度:{adhesion * 100:F2}%");
                         }
                     }
@@ -256,7 +262,7 @@ public class SparrowLegacyScannerService
             finally
             {
                 int c = Interlocked.Increment(ref p3Completed);
-                progress?.Report(new SparrowLegacyScanReport { ProgressValue = c, P3Winners = _p3Winners.Count });
+                progress?.Report(new SparrowLegacyScanReport { ProgressValue = c, P3Winners = p3Winners.Count });
                 semaphore.Release();
             }
         }));
@@ -269,9 +275,10 @@ public class SparrowLegacyScannerService
             return new List<(string, string, string)>();
         }
 
-        ReportLog(progress, $"\n🏆 漏斗完成！共诞生长短腿麻雀 {_p3Winners.Count} 只！");
+        ReportLog(progress, $"\n🏆 漏斗完成！共诞生长短腿麻雀 {p3Winners.Count} 只！");
+        ReportLog(progress, $"🧭 [Sparrow Legacy][Cache] Kline: {_klineCache.Statistics}");
         
-        var results = _p3Winners.ToList();
+        var results = p3Winners.ToList();
         if (results.Count > 0)
         {
             await OutputResultsAsync(results, progress);
