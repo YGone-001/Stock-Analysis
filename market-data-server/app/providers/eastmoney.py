@@ -37,7 +37,8 @@ class EastMoneyProvider:
         if not normalized:
             return {"data": []}
 
-        cache_key = "quote:" + ",".join(normalized)
+        # v2 uses endpoint-specific outer/inner mappings and nullable missing values.
+        cache_key = "quote:v2:" + ",".join(normalized)
         cached = self.memory_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -61,8 +62,8 @@ class EastMoneyProvider:
                 "f17",
                 "f18",
                 "f8",
-                "f49",
-                "f161",
+                "f34",
+                "f35",
             ]
         )
         payload = await self._get_json(
@@ -73,29 +74,36 @@ class EastMoneyProvider:
         data = []
         for item in rows:
             code = str(item.get("f12") or "")
-            close = as_float(item.get("f2"))
-            preclose = as_float(item.get("f18"))
-            amount = as_float(item.get("f6"))
+            close = optional_float(item.get("f2"))
+            preclose = optional_float(item.get("f18"))
+            amount = optional_float(item.get("f6"))
             data.append(
                 {
+                    "QuoteSchemaVersion": 2,
+                    "SourceEndpoint": "ulist.np/get",
                     "Code": code,
                     "Name": str(item.get("f14") or ""),
-                    "TotalHand": as_float(item.get("f5")),
+                    "TotalHand": optional_float(item.get("f5")),
                     "Amount": amount,
                     "TotalAmount": amount,
-                    "Wp": as_float(item.get("f49")),
-                    "Np": as_float(item.get("f161")),
-                    "Turnover": as_float(item.get("f8")),
-                    "Percent": as_float(item.get("f3")),
+                    "Price": optional_float(item.get("f2")),
+                    "PreClose": optional_float(item.get("f18")),
+                    "Volume": optional_float(item.get("f5")),
+                    "OuterVolume": optional_float(item.get("f34")),
+                    "InnerVolume": optional_float(item.get("f35")),
+                    "Wp": optional_float(item.get("f34")),
+                    "Np": optional_float(item.get("f35")),
+                    "Turnover": optional_float(item.get("f8")),
+                    "Percent": optional_float(item.get("f3")),
                     "BuyLevel": [],
                     "SellLevel": [],
                     "K": {
-                        "Close": to_milli(close),
-                        "Last": to_milli(preclose),
-                        "PreClose": to_milli(preclose),
-                        "Open": to_milli(as_float(item.get("f17"))),
-                        "High": to_milli(as_float(item.get("f15"))),
-                        "Low": to_milli(as_float(item.get("f16"))),
+                        "Close": to_nullable_milli(close),
+                        "Last": to_nullable_milli(preclose),
+                        "PreClose": to_nullable_milli(preclose),
+                        "Open": to_nullable_milli(optional_float(item.get("f17"))),
+                        "High": to_nullable_milli(optional_float(item.get("f15"))),
+                        "Low": to_nullable_milli(optional_float(item.get("f16"))),
                     },
                 }
             )
@@ -121,29 +129,36 @@ class EastMoneyProvider:
         item = payload.get("data") or {}
         if not item:
             return {"data": []}
-        close = as_float(item.get("f43"))
-        preclose = as_float(item.get("f60"))
+        close = optional_float(item.get("f43"))
+        preclose = optional_float(item.get("f60"))
         return {
             "data": [
                 {
+                    "QuoteSchemaVersion": 2,
+                    "SourceEndpoint": "stock/get",
                     "Code": str(item.get("f57") or code),
                     "Name": str(item.get("f58") or ""),
-                    "TotalHand": as_float(item.get("f47")),
-                    "Amount": as_float(item.get("f48")),
-                    "TotalAmount": as_float(item.get("f48")),
-                    "Wp": as_float(item.get("f49")),
-                    "Np": as_float(item.get("f161")),
-                    "Turnover": as_float(item.get("f168")),
-                    "Percent": as_float(item.get("f170")),
+                    "TotalHand": optional_float(item.get("f47")),
+                    "Amount": optional_float(item.get("f48")),
+                    "TotalAmount": optional_float(item.get("f48")),
+                    "Price": optional_float(item.get("f43")),
+                    "PreClose": optional_float(item.get("f60")),
+                    "Volume": optional_float(item.get("f47")),
+                    "OuterVolume": optional_float(item.get("f49")),
+                    "InnerVolume": optional_float(item.get("f161")),
+                    "Wp": optional_float(item.get("f49")),
+                    "Np": optional_float(item.get("f161")),
+                    "Turnover": optional_float(item.get("f168")),
+                    "Percent": optional_float(item.get("f170")),
                     "BuyLevel": [],
                     "SellLevel": [],
                     "K": {
-                        "Close": to_milli(close),
-                        "Last": to_milli(preclose),
-                        "PreClose": to_milli(preclose),
-                        "Open": to_milli(as_float(item.get("f46"))),
-                        "High": to_milli(as_float(item.get("f44"))),
-                        "Low": to_milli(as_float(item.get("f45"))),
+                        "Close": to_nullable_milli(close),
+                        "Last": to_nullable_milli(preclose),
+                        "PreClose": to_nullable_milli(preclose),
+                        "Open": to_nullable_milli(optional_float(item.get("f46"))),
+                        "High": to_nullable_milli(optional_float(item.get("f44"))),
+                        "Low": to_nullable_milli(optional_float(item.get("f45"))),
                     },
                 }
             ]
@@ -420,7 +435,25 @@ def as_float(value: Any) -> float:
         return 0.0
 
 
+def optional_float(value: Any) -> float | None:
+    """Preserve unavailable quote fields as None; numeric zero remains a real value."""
+    if value is None or value == "" or value == "-":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def to_milli(value: float) -> int:
+    if value <= 0:
+        return 0
+    return round(value * 1000)
+
+
+def to_nullable_milli(value: float | None) -> int | None:
+    if value is None:
+        return None
     if value <= 0:
         return 0
     return round(value * 1000)

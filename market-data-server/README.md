@@ -78,6 +78,23 @@ GET /api/akshare/concept
 GET /api/akshare/macro/money-supply
 ```
 
+### `/api/quote` contract (schema v2)
+
+| Property | East Money batch (`ulist.np/get`) | East Money single (`stock/get`) | Unit | Missing |
+| --- | --- | --- | --- | --- |
+| `Code` / `Name` | `f12` / `f14` | `f57` / `f58` | text | empty string |
+| `Price` / `PreClose` | `f2` / `f18` | `f43` / `f60` | RMB/share | `null` |
+| `Percent` | `f3` | `f170` | percentage points | `null` |
+| `Amount` | `f6` | `f48` | RMB | `null` |
+| `Volume` | `f5` | `f47` | hands (100 shares) | `null` |
+| `Turnover` | `f8` | `f168` | percentage points | `null` |
+| `OuterVolume` / `Wp` | `f34` | `f49` | hands (100 shares) | `null` |
+| `InnerVolume` / `Np` | `f35` | `f161` | hands (100 shares) | `null` |
+
+Field identifiers are endpoint-specific. In particular, `stock/get` order-book
+fields must not be used as fallbacks for outer/inner volume. Numeric zero is a
+real upstream value and is distinct from `null` (unavailable).
+
 ## Notes
 
 - The service uses short in-memory TTL cache for realtime endpoints.

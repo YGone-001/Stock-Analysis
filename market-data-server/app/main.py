@@ -227,7 +227,7 @@ async def supplement_quote_depth_from_eastmoney(
     rows = akshare_result.get("data") or []
     if not rows:
         return
-    if all(as_float_like(row.get("Wp")) > 0 and as_float_like(row.get("Np")) > 0 for row in rows):
+    if all(has_numeric_quote_field(row.get("Wp")) and has_numeric_quote_field(row.get("Np")) for row in rows):
         return
     try:
         eastmoney_result = await app.state.eastmoney.quote(code)
@@ -240,8 +240,18 @@ async def supplement_quote_depth_from_eastmoney(
         supplement = eastmoney_rows.get(str(row.get("Code") or ""))
         if not supplement:
             continue
-        for key in ("Wp", "Np", "Turnover", "Percent"):
-            if as_float_like(row.get(key)) <= 0 and as_float_like(supplement.get(key)) > 0:
+        for key in (
+            "Price",
+            "PreClose",
+            "Volume",
+            "OuterVolume",
+            "InnerVolume",
+            "Wp",
+            "Np",
+            "Turnover",
+            "Percent",
+        ):
+            if not has_numeric_quote_field(row.get(key)) and has_numeric_quote_field(supplement.get(key)):
                 row[key] = supplement.get(key)
     akshare_result["supplement"] = "eastmoney"
 
@@ -255,9 +265,20 @@ def as_float_like(value: Any) -> float:
         return 0.0
 
 
+def has_numeric_quote_field(value: Any) -> bool:
+    if value is None or value == "" or value == "-":
+        return False
+    try:
+        float(value)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
 def quote_has_depth(result: dict[str, Any]) -> bool:
     rows = result.get("data") or []
     return bool(rows) and all(
-        as_float_like(row.get("Wp")) > 0 and as_float_like(row.get("Np")) > 0
+        has_numeric_quote_field(row.get("Wp"))
+        and has_numeric_quote_field(row.get("Np"))
         for row in rows
     )

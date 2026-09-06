@@ -46,12 +46,17 @@ public sealed class StockDataDiagnostics
 						hasDepthValues = bl.EnumerateArray().Concat(sl.EnumerateArray()).Any(level => level.TryGetProperty("Available", out var available) && available.ValueKind == JsonValueKind.True);
 					}
 					
-					double amount = GetNumber(first, "Amount");
-					double outer = GetNumber(first, "Wp");
-					double inner = GetNumber(first, "Np");
-					double turnover = GetNumber(first, "Turnover");
-					bool ok = quote.Success && amount > 0 && outer > 0 && inner > 0;
-					string message = BuildMessage(quote, 1) + "；成交额 " + amount.ToString("F0", CultureInfo.InvariantCulture) + "；外盘 " + outer.ToString("F0", CultureInfo.InvariantCulture) + "；内盘 " + inner.ToString("F0", CultureInfo.InvariantCulture) + "；换手 " + turnover.ToString("F2", CultureInfo.InvariantCulture);
+					double? amount = GetNullableNumber(first, "Amount");
+					double? outer = GetNullableNumber(first, "OuterVolume") ?? GetNullableNumber(first, "Wp");
+					double? inner = GetNullableNumber(first, "InnerVolume") ?? GetNullableNumber(first, "Np");
+					double? turnover = GetNullableNumber(first, "Turnover");
+					bool ok = quote.Success && amount > 0 && outer.HasValue && inner.HasValue;
+					string message = BuildMessage(quote, 1)
+						+ "；成交额 " + FormatNullable(amount, "F0")
+						+ "；外盘 " + FormatNullable(outer, "F0")
+						+ "；内盘 " + FormatNullable(inner, "F0")
+						+ "；换手 " + FormatNullable(turnover, "F2")
+						+ ((!outer.HasValue || !inner.HasValue) ? "；OuterInnerUnavailable" : "");
 					sparrowQuoteResult = new StockDataDiagnosticItem("麻雀选股盘口字段", ok, message);
 				}
 				else
@@ -90,9 +95,16 @@ public sealed class StockDataDiagnostics
 		return new StockDataDiagnosticItem(name, result.Success && count > 0, BuildMessage(result, count));
 	}
 
-	private static double GetNumber(JsonElement item, string property)
+	private static double? GetNullableNumber(JsonElement item, string property)
 	{
-		return item.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDouble() : 0;
+		return item.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number
+			? value.GetDouble()
+			: null;
+	}
+
+	private static string FormatNullable(double? value, string format)
+	{
+		return value.HasValue ? value.Value.ToString(format, CultureInfo.InvariantCulture) : "unavailable";
 	}
 
 	private static string BuildMessage(StockDataResult result, int count)

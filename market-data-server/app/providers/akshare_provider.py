@@ -5,7 +5,13 @@ import os
 from datetime import datetime, timedelta
 from typing import Any
 
-from app.providers.eastmoney import as_float, normalize_code, to_milli
+from app.providers.eastmoney import (
+    as_float,
+    normalize_code,
+    optional_float,
+    to_milli,
+    to_nullable_milli,
+)
 
 
 class AkShareProvider:
@@ -73,29 +79,36 @@ class AkShareProvider:
             code = str(item.get("代码") or "").strip()
             if code not in code_set:
                 continue
-            close = as_float(item.get("最新价"))
-            preclose = as_float(item.get("昨收"))
-            amount = as_float(item.get("成交额"))
+            close = optional_float(item.get("最新价"))
+            preclose = optional_float(item.get("昨收"))
+            amount = optional_float(item.get("成交额"))
             rows.append(
                 {
+                    "QuoteSchemaVersion": 2,
+                    "SourceEndpoint": "akshare/stock_zh_a_spot_em",
                     "Code": code,
                     "Name": str(item.get("名称") or ""),
-                    "TotalHand": as_float(item.get("成交量")),
+                    "TotalHand": optional_float(item.get("成交量")),
                     "Amount": amount,
                     "TotalAmount": amount,
-                    "Wp": 0,
-                    "Np": 0,
-                    "Turnover": as_float(item.get("换手率")),
-                    "Percent": as_float(item.get("涨跌幅")),
+                    "Price": close,
+                    "PreClose": preclose,
+                    "Volume": optional_float(item.get("成交量")),
+                    "OuterVolume": None,
+                    "InnerVolume": None,
+                    "Wp": None,
+                    "Np": None,
+                    "Turnover": optional_float(item.get("换手率")),
+                    "Percent": optional_float(item.get("涨跌幅")),
                     "BuyLevel": [],
                     "SellLevel": [],
                     "K": {
-                        "Close": to_milli(close),
-                        "Last": to_milli(preclose),
-                        "PreClose": to_milli(preclose),
-                        "Open": to_milli(as_float(item.get("今开"))),
-                        "High": to_milli(as_float(item.get("最高"))),
-                        "Low": to_milli(as_float(item.get("最低"))),
+                        "Close": to_nullable_milli(close),
+                        "Last": to_nullable_milli(preclose),
+                        "PreClose": to_nullable_milli(preclose),
+                        "Open": to_nullable_milli(optional_float(item.get("今开"))),
+                        "High": to_nullable_milli(optional_float(item.get("最高"))),
+                        "Low": to_nullable_milli(optional_float(item.get("最低"))),
                     },
                 }
             )

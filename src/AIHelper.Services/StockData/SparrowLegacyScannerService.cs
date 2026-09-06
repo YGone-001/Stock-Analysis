@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Helpers;
 using AIHelper.Models;
+using AIHelper.Services.StockData.Sparrow;
 using Serilog;
 
 #pragma warning disable CS8600, CS8602, CS8604
@@ -60,6 +61,12 @@ public class SparrowLegacyScannerService
             ReportLog(progress, $"\n🌪️ [阶段2] 极速网关并发快照扫描 (待处理:{p2Pending.Count} / 总计:{targetPool.Count})...");
             int p2Completed = 0;
             int p2SampleCount = 0;
+            int batchQuoteLoaded = 0;
+            int quoteDataUnavailable = 0;
+            int coarseSurvivors = 0;
+            int outerInnerValid = 0;
+            int outerInnerUnavailable = 0;
+            int volRatioPassed = 0;
             progress?.Report(new SparrowLegacyScanReport { ProgressMax = targetPool.Count, ProgressValue = _p2Processed.Count });
 
             var batches = p2Pending.Select((x, i) => new { Index = i, Value = x })
@@ -96,15 +103,40 @@ public class SparrowLegacyScannerService
                                             if (stock.Code != null)
                                             {
                                                 _p2Processed.TryAdd(stock.Code, true);
+                                                Interlocked.Increment(ref batchQuoteLoaded);
                                                 if (Interlocked.Increment(ref p2SampleCount) <= 2)
                                                 {
                                                     ReportLog(progress, $"📝 [P2抽样] {stock.Name}({stock.Code}) 原始数据片段");
                                                 }
-                                                if (ParseSnapshot(item.GetRawText(), out var risePct, out var outerVol, out var innerVol, out var amount) &&
-                                                    risePct >= parameters.MinRise && risePct <= parameters.MaxRise &&
-                                                    amount >= parameters.MinAmount && outerVol > 0 && innerVol > 0 &&
-                                                    outerVol > innerVol * parameters.VolRatio)
+                                                if (!SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote)
+                                                    || quote.Price is not > 0.001
+                                                    || !quote.Percent.HasValue
+                                                    || !quote.Amount.HasValue)
                                                 {
+                                                    Interlocked.Increment(ref quoteDataUnavailable);
+                                                    continue;
+                                                }
+
+                                                if (quote.Percent.Value < parameters.MinRise
+                                                    || quote.Percent.Value > parameters.MaxRise
+                                                    || quote.Amount.Value < parameters.MinAmount)
+                                                {
+                                                    continue;
+                                                }
+
+                                                Interlocked.Increment(ref coarseSurvivors);
+                                                SparrowVolumeCheckResult volumeResult = SparrowQuoteDataContract.EvaluateVolume(
+                                                    quote.OuterVolume, quote.InnerVolume, parameters.VolRatio);
+                                                if (volumeResult == SparrowVolumeCheckResult.OuterInnerUnavailable)
+                                                {
+                                                    Interlocked.Increment(ref outerInnerUnavailable);
+                                                    continue;
+                                                }
+
+                                                Interlocked.Increment(ref outerInnerValid);
+                                                if (volumeResult == SparrowVolumeCheckResult.Passed)
+                                                {
+                                                    Interlocked.Increment(ref volRatioPassed);
                                                     _p2Survivors.Add((stock.Code, stock.Name));
                                                 }
                                             }
@@ -127,6 +159,14 @@ public class SparrowLegacyScannerService
                     semaphore2.Release();
                 }
             }));
+
+            int missingResponses = Math.Max(0, p2Pending.Count - batchQuoteLoaded);
+            ReportLog(progress,
+                $"📊 [Sparrow Legacy][P2数据] Batch quote loaded: {batchQuoteLoaded}; " +
+                $"Quote data unavailable: {quoteDataUnavailable + missingResponses}; " +
+                $"Coarse P2 survivors: {coarseSurvivors}; Detail quote requested: 0; " +
+                $"Outer/inner valid: {outerInnerValid}; Outer/inner unavailable: {outerInnerUnavailable}; " +
+                $"VolRatio passed: {volRatioPassed}");
         }
         else
         {
@@ -260,31 +300,6 @@ public class SparrowLegacyScannerService
             }
         }
         catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
-        return false;
-    }
-
-    private bool ParseSnapshot(string json, out double risePct, out double outerVol, out double innerVol, out double amount)
-    {
-        risePct = outerVol = innerVol = amount = 0.0;
-        if (string.IsNullOrWhiteSpace(json)) return false;
-        
-        try
-        {
-            using JsonDocument doc = JsonDocument.Parse(json);
-            var item = doc.RootElement;
-            if (item.TryGetProperty("K", out var kElem) && kElem.TryGetProperty("Close", out var closeElem))
-            {
-                double close = closeElem.GetDouble() / 1000.0;
-                if (close <= 0.001) return false;
-            }
-
-            risePct = item.TryGetProperty("Percent", out var p) ? p.GetDouble() : 0.0;
-            amount = item.TryGetProperty("Amount", out var a) ? a.GetDouble() : 0.0;
-            outerVol = item.TryGetProperty("Wp", out var w) ? w.GetDouble() : 0.0;
-            innerVol = item.TryGetProperty("Np", out var n) ? n.GetDouble() : 0.0;
-            return true;
-        }
-        catch { }
         return false;
     }
 

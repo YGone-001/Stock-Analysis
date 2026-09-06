@@ -50,6 +50,20 @@ public sealed class ExternalStockDataProvider : IStockDataProvider
 			using HttpResponseMessage response = await _client.SendAsync(message, cts.Token);
 			response.EnsureSuccessStatusCode();
 			string json = await response.Content.ReadAsStringAsync(cts.Token);
+			if (request.Path == "/api/quote" && !StockQuoteContractValidator.IsCurrentSchema(json))
+			{
+				const string schemaError = "External gateway returned unsupported quote schema; expected v2 nullable outer/inner contract";
+				StockDataLog.Write(request.Path, request.Get("code"), url, null, false, schemaError);
+				return new StockDataResult
+				{
+					Endpoint = request.Endpoint,
+					Handled = true,
+					Success = false,
+					Json = json,
+					Source = "ExternalGateway",
+					Error = schemaError
+				};
+			}
 			StockDataLog.Write(request.Path, request.Get("code"), url, null, false, "external gateway");
 			return new StockDataResult { Endpoint = request.Endpoint, Handled = true, Success = true, Json = json, Source = "ExternalGateway" };
 		}

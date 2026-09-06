@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Helpers;
+using AIHelper.Models;
 
 #pragma warning disable CS8600, CS8604, CS8625
 #pragma warning disable CS8600, CS8604, CS8625
@@ -72,14 +73,14 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			return await GetSingleQuoteAsync(request, codes[0], cancellationToken);
 		}
 
-		var rows = new List<object>();
+        var rows = new List<StockQuoteSnapshot>();
 		string lastUrl = "";
 		int batchSize = 50;
 
 		for (int i = 0; i < codes.Count; i += batchSize)
 		{
 			var batchCodes = codes.Skip(i).Take(batchSize).ToList();
-			string url = "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f14,f2,f3,f5,f6,f8,f15,f16,f17,f18,f19,f20,f21,f22,f23,f24,f25,f26,f27,f28,f31,f32,f33,f34,f35,f36,f37,f38,f39,f40&secids=" + string.Join(",", batchCodes.Select(ToSecId));
+            string url = "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f14,f2,f3,f5,f6,f8,f15,f16,f17,f18,f34,f35&secids=" + string.Join(",", batchCodes.Select(ToSecId));
 			lastUrl = url;
 			try
 			{
@@ -95,30 +96,10 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 					{
 						continue;
 					}
-					double close = GetDouble(item, "f2");
-					double previousClose = GetDouble(item, "f18");
-					rows.Add(new
-					{
-						Code = code,
-						Name = GetString(item, "f14"),
-						TotalHand = GetDouble(item, "f5"),
-						Amount = GetQuoteAmount(item),
-						Wp = GetFirstPositive(item, "f49", "f34"),
-						Np = GetFirstPositive(item, "f161", "f35"),
-						Turnover = GetDouble(item, "f8"),
-						Percent = GetDouble(item, "f3"),
-						BuyLevel = BuildUnavailableLevels(),
-						SellLevel = BuildUnavailableLevels(),
-						K = new
-						{
-							Close = ToMilli(close),
-							Last = ToMilli(previousClose),
-							PreClose = ToMilli(previousClose),
-							Open = ToMilli(GetDouble(item, "f17")),
-							High = ToMilli(GetDouble(item, "f15")),
-							Low = ToMilli(GetDouble(item, "f16"))
-						}
-					});
+                    StockQuoteSnapshot row = EastMoneyQuoteMapper.MapBatch(item);
+                    row.BuyLevel = BuildUnavailableLevels();
+                    row.SellLevel = BuildUnavailableLevels();
+                    rows.Add(row);
 				}
 			}
 			catch (OperationCanceledException)
@@ -148,35 +129,14 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			{
 				return Failure(request, "{\"data\":[]}", "Unexpected single quote response schema", url, null, code);
 			}
-			double close = GetDouble(item, "f43");
-			double previousClose = GetDouble(item, "f60");
-			object[] buyLevels = BuildLevels(item, new string[5] { "f19", "f21", "f23", "f25", "f27" }, new string[5] { "f20", "f22", "f24", "f26", "f28" });
-			object[] sellLevels = BuildLevels(item, new string[5] { "f39", "f37", "f35", "f33", "f31" }, new string[5] { "f40", "f38", "f36", "f34", "f32" });
+            object[] buyLevels = BuildLevels(item, new string[5] { "f19", "f21", "f23", "f25", "f27" }, new string[5] { "f20", "f22", "f24", "f26", "f28" });
+            object[] sellLevels = BuildLevels(item, new string[5] { "f39", "f37", "f35", "f33", "f31" }, new string[5] { "f40", "f38", "f36", "f34", "f32" });
 			// EastMoney no longer exposes reliable five-level depth in these public quote responses.
 			// Keep the fixed shape and mark levels unavailable instead of rendering mismatched fields.
-			var row = new
-			{
-				Code = GetString(item, "f57"),
-				Name = GetString(item, "f58"),
-				TotalHand = GetDouble(item, "f47"),
-				Amount = GetDouble(item, "f48"),
-				Wp = GetDouble(item, "f49"),
-				Np = GetDouble(item, "f161"),
-				Turnover = GetDouble(item, "f168"),
-				Percent = GetDouble(item, "f170"),
-				BuyLevel = buyLevels,
-				SellLevel = sellLevels,
-				K = new
-				{
-					Close = ToMilli(close),
-					Last = ToMilli(previousClose),
-					PreClose = ToMilli(previousClose),
-					Open = ToMilli(GetDouble(item, "f46")),
-					High = ToMilli(GetDouble(item, "f44")),
-					Low = ToMilli(GetDouble(item, "f45"))
-				}
-			};
-			return Success(request, JsonSerializer.Serialize(new { data = new object[] { row } }), url, code, "rows=1, buyLevels=" + buyLevels.Length + ", sellLevels=" + sellLevels.Length);
+            StockQuoteSnapshot row = EastMoneyQuoteMapper.MapSingle(item);
+            row.BuyLevel = buyLevels;
+            row.SellLevel = sellLevels;
+            return Success(request, JsonSerializer.Serialize(new { data = new object[] { row } }), url, code, "rows=1, buyLevels=" + buyLevels.Length + ", sellLevels=" + sellLevels.Length);
 		}
 		catch (OperationCanceledException)
 		{
@@ -552,27 +512,6 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		if (!item.TryGetProperty(name, out var value)) return 0;
 		if (value.ValueKind == JsonValueKind.Number) return value.GetDouble();
 		return value.ValueKind == JsonValueKind.String ? ParseDouble(value.GetString()) : 0;
-	}
-
-	private static double GetFirstPositive(JsonElement item, params string[] names)
-	{
-		foreach (string name in names)
-		{
-			double value = GetDouble(item, name);
-			if (value > 0) return value;
-		}
-		return 0;
-	}
-
-	private static double GetQuoteAmount(JsonElement item)
-	{
-		double amount = GetDouble(item, "f48");
-		if (amount > 10000) return amount;
-		amount = GetDouble(item, "f6");
-		if (amount > 10000) return amount;
-		double volumeHands = GetDouble(item, "f5");
-		double price = GetDouble(item, "f2");
-		return volumeHands > 0 && price > 0 ? volumeHands * price * 100 : 0;
 	}
 
 	private static string GetString(JsonElement item, string name)

@@ -68,6 +68,12 @@ public sealed class SparrowClassicScanner
         {
             ReportLog(progress, $"\n🌪️ [Sparrow Classic][阶段2] 快照扫描 (待处理:{p2Pending.Count} / 总计:{classicPool.Count})...");
             progress?.Report(new SparrowClassicScanReport { ProgressMax = classicPool.Count, ProgressValue = _p2Processed.Count });
+            int batchQuoteLoaded = 0;
+            int quoteDataUnavailable = 0;
+            int coarseSurvivors = 0;
+            int outerInnerValid = 0;
+            int outerInnerUnavailable = 0;
+            int volRatioPassed = 0;
 
             var batches = p2Pending.Select((stock, index) => new { stock, index })
                 .GroupBy(item => item.index / 50)
@@ -100,14 +106,36 @@ public sealed class SparrowClassicScanner
                         }
 
                         _p2Processed.TryAdd(stock.Code, true);
-                        if (TryParseSnapshot(item, out double risePct, out double outerVol, out double innerVol, out double amount)
-                            && risePct >= parameters.MinRise
-                            && risePct <= parameters.MaxRise
-                            && amount >= parameters.MinAmount
-                            && outerVol > 0
-                            && innerVol > 0
-                            && outerVol > innerVol * parameters.VolRatio)
+                        Interlocked.Increment(ref batchQuoteLoaded);
+                        if (!SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote)
+                            || !quote.PriceDerivedPercent.HasValue
+                            || !quote.Amount.HasValue)
                         {
+                            Interlocked.Increment(ref quoteDataUnavailable);
+                            continue;
+                        }
+
+                        double risePct = quote.PriceDerivedPercent.Value;
+                        if (risePct < parameters.MinRise
+                            || risePct > parameters.MaxRise
+                            || quote.Amount.Value < parameters.MinAmount)
+                        {
+                            continue;
+                        }
+
+                        Interlocked.Increment(ref coarseSurvivors);
+                        SparrowVolumeCheckResult volumeResult = SparrowQuoteDataContract.EvaluateVolume(
+                            quote.OuterVolume, quote.InnerVolume, parameters.VolRatio);
+                        if (volumeResult == SparrowVolumeCheckResult.OuterInnerUnavailable)
+                        {
+                            Interlocked.Increment(ref outerInnerUnavailable);
+                            continue;
+                        }
+
+                        Interlocked.Increment(ref outerInnerValid);
+                        if (volumeResult == SparrowVolumeCheckResult.Passed)
+                        {
+                            Interlocked.Increment(ref volRatioPassed);
                             _p2Survivors[stock.Code] = stock;
                         }
                     }
@@ -133,6 +161,14 @@ public sealed class SparrowClassicScanner
                     }
                 }
             }));
+
+            int missingResponses = Math.Max(0, p2Pending.Count - batchQuoteLoaded);
+            ReportLog(progress,
+                $"📊 [Sparrow Classic][P2数据] Batch quote loaded: {batchQuoteLoaded}; " +
+                $"Quote data unavailable: {quoteDataUnavailable + missingResponses}; " +
+                $"Coarse P2 survivors: {coarseSurvivors}; Detail quote requested: 0; " +
+                $"Outer/inner valid: {outerInnerValid}; Outer/inner unavailable: {outerInnerUnavailable}; " +
+                $"VolRatio passed: {volRatioPassed}");
         }
         else
         {
@@ -285,39 +321,6 @@ public sealed class SparrowClassicScanner
         return data.EnumerateArray().Select(item => item.Clone()).ToArray();
     }
 
-    private static bool TryParseSnapshot(
-        JsonElement item,
-        out double risePct,
-        out double outerVol,
-        out double innerVol,
-        out double amount)
-    {
-        risePct = outerVol = innerVol = amount = 0;
-        if (!TryGetPropertyIgnoreCase(item, "K", out JsonElement kline)
-            || !TryGetDouble(kline, "Close", out double closeRaw))
-        {
-            return false;
-        }
-
-        double close = closeRaw / 1000.0;
-        double previousClose = TryGetDouble(kline, "Last", out double lastRaw)
-            ? lastRaw / 1000.0
-            : TryGetDouble(kline, "PreClose", out double previousRaw) ? previousRaw / 1000.0 : 0;
-        if (close <= 0)
-        {
-            return false;
-        }
-        if (previousClose > 0)
-        {
-            risePct = (close - previousClose) / previousClose * 100.0;
-        }
-
-        outerVol = GetFirstAvailable(item, "Wp", "OuterVolume", "OuterDisc");
-        innerVol = GetFirstAvailable(item, "Np", "InnerVolume", "InsideDish");
-        amount = GetFirstAvailable(item, "Amount", "TotalAmount");
-        return true;
-    }
-
     private static List<double> ParseKlineClosesNewestFirst(string json, out double latestPrice)
     {
         List<double> closes = ParseKlineClosesOldestFirst(json);
@@ -387,18 +390,6 @@ public sealed class SparrowClassicScanner
         return property.ValueKind == JsonValueKind.String && double.TryParse(
             property.GetString(), System.Globalization.NumberStyles.Any,
             System.Globalization.CultureInfo.InvariantCulture, out value);
-    }
-
-    private static double GetFirstAvailable(JsonElement element, params string[] names)
-    {
-        foreach (string name in names)
-        {
-            if (TryGetDouble(element, name, out double value))
-            {
-                return value;
-            }
-        }
-        return 0;
     }
 
     private static string GetString(JsonElement element, string name)

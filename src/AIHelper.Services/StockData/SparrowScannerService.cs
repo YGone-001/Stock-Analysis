@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Helpers;
 using AIHelper.Models;
+using AIHelper.Services.StockData.Sparrow;
 using Serilog;
 
 #pragma warning disable CS8618, CS8619
@@ -121,18 +122,65 @@ public class SparrowScannerService
 
         ReportLog(progress, $"\n🧠 正在根据当前参数对 {targetPool.Count} 只股票进行极速盘口核验...");
         var p2List = new List<(string Code, string Name)>();
+        int quoteDataUnavailable = 0;
+        int coarseSurvivors = 0;
+        int outerInnerUnavailable = 0;
+        int outerInnerValid = 0;
+        int volRatioPassed = 0;
         foreach (var item in targetPool)
         {
-            if (_p2QuoteCache_DC.TryGetValue(item.Code, out var value) && 
-                ParseQuote(value, out var risePct, out var outerVol, out var innerVol, out var amount, out var turnover) && 
-                !(risePct < parameters.MinRise) && !(risePct > parameters.MaxRise) && 
-                !(amount < parameters.MinAmount) && !(outerVol <= 0.0) && !(innerVol <= 0.0) && 
-                !(outerVol <= innerVol * parameters.VolRatio) && 
-                (!(turnover > 0.0) || (!(turnover < parameters.MinTurnover) && !(turnover > parameters.MaxTurnover))))
+            if (!_p2QuoteCache_DC.TryGetValue(item.Code, out string? value))
+            {
+                quoteDataUnavailable++;
+                continue;
+            }
+
+            using JsonDocument quoteDocument = JsonDocument.Parse(value);
+            if (!SparrowQuoteDataContract.TryParse(quoteDocument.RootElement, out SparrowQuoteData quote)
+                || quote.Price is not > 0.001
+                || !quote.Percent.HasValue
+                || !quote.Amount.HasValue)
+            {
+                quoteDataUnavailable++;
+                continue;
+            }
+
+            if (quote.Percent.Value < parameters.MinRise
+                || quote.Percent.Value > parameters.MaxRise
+                || quote.Amount.Value < parameters.MinAmount)
+            {
+                continue;
+            }
+
+            coarseSurvivors++;
+            SparrowVolumeCheckResult volumeResult = SparrowQuoteDataContract.EvaluateVolume(
+                quote.OuterVolume, quote.InnerVolume, parameters.VolRatio);
+            if (volumeResult == SparrowVolumeCheckResult.OuterInnerUnavailable)
+            {
+                outerInnerUnavailable++;
+                continue;
+            }
+
+            outerInnerValid++;
+            if (volumeResult != SparrowVolumeCheckResult.Passed)
+            {
+                continue;
+            }
+
+            volRatioPassed++;
+            if (!quote.Turnover.HasValue
+                || quote.Turnover.Value <= 0
+                || quote.Turnover.Value >= parameters.MinTurnover
+                    && quote.Turnover.Value <= parameters.MaxTurnover)
             {
                 p2List.Add((item.Code, item.Name));
             }
         }
+        ReportLog(progress,
+            $"📊 [Sparrow V2][P2数据] Batch quote loaded: {_p2QuoteCache_DC.Count}; " +
+            $"Quote data unavailable: {quoteDataUnavailable}; Coarse P2 survivors: {coarseSurvivors}; " +
+            $"Detail quote requested: 0; Outer/inner valid: {outerInnerValid}; " +
+            $"Outer/inner unavailable: {outerInnerUnavailable}; VolRatio passed: {volRatioPassed}");
         ReportLog(progress, $"✅ 盘口过滤完毕，剩余标的: {p2List.Count} 只");
 
         if (p2List.Count == 0) return new List<(string, string, string)>();
@@ -259,30 +307,6 @@ public class SparrowScannerService
         }
         catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         return (false, 0.0);
-    }
-
-    private bool ParseQuote(string json, out double risePct, out double outerVol, out double innerVol, out double amount, out double turnover)
-    {
-        risePct = outerVol = innerVol = amount = turnover = 0.0;
-        try
-        {
-            using JsonDocument doc = JsonDocument.Parse(json);
-            var item = doc.RootElement;
-            if (item.TryGetProperty("K", out var kElem) && kElem.TryGetProperty("Close", out var closeElem))
-            {
-                double close = closeElem.GetDouble() / 1000.0;
-                if (close <= 0.001) return false;
-            }
-
-            risePct = item.TryGetProperty("Percent", out var p) ? p.GetDouble() : 0.0;
-            amount = item.TryGetProperty("Amount", out var a) ? a.GetDouble() : 0.0;
-            outerVol = item.TryGetProperty("Wp", out var w) ? w.GetDouble() : 0.0;
-            innerVol = item.TryGetProperty("Np", out var n) ? n.GetDouble() : 0.0;
-            turnover = item.TryGetProperty("Turnover", out var t) ? t.GetDouble() : 0.0;
-            return true;
-        }
-        catch { }
-        return false;
     }
 
     private List<double> ParseKline(string json, out double latestPrice, out double latestPctChg)
