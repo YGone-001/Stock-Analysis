@@ -1,0 +1,40 @@
+name: Build release artifact
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore win-x64 dependencies
+        run: dotnet restore .\src\AIHelper.csproj -r win-x64
+
+      - name: Publish self-contained single-file build
+        run: >-
+          dotnet publish .\src\AIHelper.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          --no-restore
+          -o .\artifacts\AIHelper-win-x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AIHelper-win-x64
+          path: artifacts/AIHelper-win-x64/
+          if-no-files-found: error
+          retention-days: 14

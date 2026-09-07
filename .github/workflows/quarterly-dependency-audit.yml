@@ -1,0 +1,28 @@
+name: Quarterly dependency audit
+
+on:
+  schedule:
+    - cron: '43 3 1 1,4,7,10 *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-nuget:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore solution
+        run: dotnet restore .\AIHelper.sln
+
+      - name: Report outdated packages
+        run: dotnet list .\AIHelper.sln package --outdated --include-transitive
+
+      - name: Report vulnerable packages
+        run: dotnet list .\AIHelper.sln package --vulnerable --include-transitive
