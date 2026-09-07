@@ -3,6 +3,9 @@ param(
     [ValidateRange(1, 1024)]
     [int]$MaxSizeMiB = 5,
 
+    [ValidateRange(0, 10240)]
+    [int]$MaxTreeMiB = 3,
+
     [string]$BaseRef = '',
 
     [string]$AllowListPath = '.large-file-allowlist'
@@ -65,13 +68,27 @@ try {
         } |
         Sort-Object MiB -Descending -Unique)
 
+    $treeBytes = (git ls-tree -r -l HEAD |
+        ForEach-Object {
+            if ($_ -match '^\d+\s+blob\s+[0-9a-f]+\s+(\d+)\t') {
+                [double]$Matches[1]
+            }
+        } |
+        Measure-Object -Sum).Sum
+    $treeMiB = [math]::Round($treeBytes / 1MB, 2)
+
+    if ($MaxTreeMiB -gt 0 -and $treeMiB -gt $MaxTreeMiB) {
+        Write-Output "Current HEAD tree uses $treeMiB MiB; budget is $MaxTreeMiB MiB."
+        exit 1
+    }
+
     if ($oversized.Count -gt 0) {
         Write-Output "Found $($oversized.Count) file(s) larger than $MaxSizeMiB MiB in $scanLabel."
         $oversized | Format-Table -AutoSize | Out-Host
         exit 1
     }
 
-    Write-Output "Repository size guard passed: no unapproved file exceeds $MaxSizeMiB MiB in $scanLabel."
+    Write-Output "Repository size guard passed: HEAD is $treeMiB MiB and no unapproved file exceeds $MaxSizeMiB MiB in $scanLabel."
 }
 finally {
     Pop-Location
