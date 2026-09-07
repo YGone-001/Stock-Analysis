@@ -52,6 +52,17 @@ first, while retaining the in-client East Money provider as fallback.
 
 Generated local files such as `StockNameMap.json`, `StockGroups.json`, and export folders are intentionally ignored by Git.
 
+Build outputs (`bin/`, `obj/`, `tmpobj/`, and `publish*/`) are also excluded
+from source control. Keep distributable builds in CI artifacts or GitHub Releases
+rather than committing them to the repository. Run the repository size audit with:
+
+```powershell
+.\tools\Measure-RepositorySize.ps1
+```
+
+New files larger than 5 MiB are rejected by CI unless their path is explicitly
+listed in `.large-file-allowlist` and reviewed.
+
 ## Development Branches
 
 - `main`: stable initialization branch.

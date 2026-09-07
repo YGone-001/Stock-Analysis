@@ -1,0 +1,31 @@
+name: Repository size guard
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+      - xdevelop
+
+permissions:
+  contents: read
+
+jobs:
+  reject-large-blobs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject new files larger than 5 MiB
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          $baseRef = $env:BASE_SHA
+          if ($baseRef -match '^0+$') {
+            $baseRef = ''
+          }
+          ./tools/Test-LargeBlobs.ps1 -BaseRef $baseRef -MaxSizeMiB 5
