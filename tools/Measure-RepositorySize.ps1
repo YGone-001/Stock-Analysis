@@ -40,7 +40,16 @@ try {
                 [System.StringComparison]::OrdinalIgnoreCase
             )
         })
-    $gitFiles = @(Get-ChildItem -LiteralPath $gitDirectory -File -Recurse -Force -ErrorAction SilentlyContinue)
+    $gitObjectStats = @{}
+    git count-objects -v | ForEach-Object {
+        if ($_ -match '^([^:]+):\s+(\d+)$') {
+            $gitObjectStats[$Matches[1]] = [double]$Matches[2]
+        }
+    }
+    $gitObjectKiB =
+        $gitObjectStats['size'] +
+        $gitObjectStats['size-pack'] +
+        $gitObjectStats['size-garbage']
 
     $historyBlobs = @(git rev-list --objects --all |
         git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' |
@@ -60,7 +69,7 @@ try {
         TrackedFiles        = $trackedFiles.Count
         TrackedMiB          = [math]::Round((($trackedFiles | Measure-Object Bytes -Sum).Sum / 1MB), 2)
         WorktreeMiB         = [math]::Round((($workspaceFiles | Measure-Object Length -Sum).Sum / 1MB), 2)
-        GitMiB              = [math]::Round((($gitFiles | Measure-Object Length -Sum).Sum / 1MB), 2)
+        GitMiB              = [math]::Round($gitObjectKiB / 1KB, 2)
         ReachableBlobMiB    = [math]::Round((($historyBlobs | Measure-Object Bytes -Sum).Sum / 1MB), 2)
     }
 
