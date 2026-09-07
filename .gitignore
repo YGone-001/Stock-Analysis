@@ -46,3 +46,5 @@ packages/
 decompiled_original_xaml/
 decompiled_xaml/
 extracted_bundle/
+/recovered-bundle/
+/tmpobj/
