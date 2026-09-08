@@ -105,6 +105,9 @@ public sealed class SparrowComparisonSide
     public double? Rise { get; set; }
     public double? Adhesion { get; set; }
     public double? Momentum { get; set; }
+    public double? AlphaMargin { get; set; }
+    public int? Rank { get; set; }
+    public double? Score { get; set; }
 
     public void RejectFrom(SparrowRuleComparison result)
     {
@@ -167,6 +170,8 @@ public sealed class SparrowComparisonResult
     public required SparrowComparisonMarketSnapshot MarketSnapshot { get; init; }
     public required IReadOnlyList<SparrowComparisonRow> Rows { get; init; }
     public required SparrowComparisonMetrics Metrics { get; init; }
+    public IReadOnlyList<SparrowRankedCandidate> ClassicRanking { get; init; } = Array.Empty<SparrowRankedCandidate>();
+    public IReadOnlyList<SparrowRankedCandidate> V2Ranking { get; init; } = Array.Empty<SparrowRankedCandidate>();
     public string? CsvPath { get; set; }
 }
 

@@ -37,6 +37,7 @@ public sealed class SparrowClassicCandidate
     public required string Name { get; init; }
     public string Strategy => StrategyName;
     public required string Reason { get; init; }
+    public SparrowRankingFeatures? RankingFeatures { get; init; }
 }
 
 public enum SparrowClassicP3RejectReason

@@ -409,7 +409,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			select (s.Code, s.Name)).ToList();
 	}
 
-	public void AddGroup(string groupName, List<StockModel> stocks)
+	public StockGroupModel AddGroup(string groupName, List<StockModel> stocks)
 	{
 		StockGroupModel newGroup = new StockGroupModel
 		{
@@ -430,6 +430,40 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		{
 			StockGroups.Add(newGroup);
 			SelectedGroup = newGroup;
+		});
+		SaveLocalData();
+		return newGroup;
+	}
+
+	public void UpdateGroup(StockGroupModel group, string groupName, List<StockModel> stocks)
+	{
+		if (group == null || group.IsOverview)
+		{
+			return;
+		}
+
+		var resolved = new List<StockModel>(stocks.Count);
+		foreach (StockModel stock in stocks)
+		{
+			if (GlobalStockCache.TryGetValue(stock.PureCode, out StockModel? cached))
+			{
+				resolved.Add(cached);
+				continue;
+			}
+			GlobalStockCache[stock.PureCode] = stock;
+			StockGroups[0].Stocks.Add(stock);
+			resolved.Add(stock);
+		}
+
+		Application.Current?.Dispatcher.Invoke(delegate
+		{
+			group.Header = groupName;
+			group.Stocks.Clear();
+			foreach (StockModel stock in resolved)
+			{
+				group.Stocks.Add(stock);
+			}
+			SelectedGroup = group;
 		});
 		SaveLocalData();
 	}

@@ -43,9 +43,19 @@ public class SparrowScannerService
         IProgress<SparrowScanReport>? progress,
         CancellationToken ct)
     {
+        List<SparrowV2Candidate> candidates = await ScanWithFeaturesAsync(targetPool, parameters, progress, ct);
+        return candidates.Select(candidate => (candidate.Code, candidate.Name, candidate.Reason)).ToList();
+    }
+
+    public async Task<List<SparrowV2Candidate>> ScanWithFeaturesAsync(
+        List<(string Code, string Name)> targetPool,
+        SparrowScanParameters parameters,
+        IProgress<SparrowScanReport>? progress,
+        CancellationToken ct)
+    {
         // Scan-local session state: quotes are fresh per scan and never frozen across scans
         var quoteCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
-        var p3Winners = new ConcurrentDictionary<string, (string Name, string Reason)>(StringComparer.Ordinal);
+        var p3Winners = new ConcurrentDictionary<string, SparrowV2Candidate>(StringComparer.Ordinal);
 
         ReportLog(progress, $"🦅 [麻雀-全景高速版] 引擎点火！初始标的: {targetPool.Count} 只");
 
@@ -53,12 +63,12 @@ public class SparrowScannerService
         if (parameters.MacroDef)
         {
             var indexResult = await CheckIndexWeakness(forceRefresh: !parameters.UseCache, ct);
-            if (ct.IsCancellationRequested) return new List<(string, string, string)>();
+            if (ct.IsCancellationRequested) return new List<SparrowV2Candidate>();
             shIndexPctChg = indexResult.ShIndexPctChg;
             if (indexResult.IsWeak)
             {
                 ReportLog(progress, "❌ [熔断] 大盘环境恶化，空仓防御！", true);
-                return new List<(string, string, string)>();
+                return new List<SparrowV2Candidate>();
             }
             ReportLog(progress, $"✅ [第一阶段通过] 上证今日涨幅: {shIndexPctChg:F2}%, 已设为 RPS 参照基准。");
         }
@@ -120,10 +130,11 @@ public class SparrowScannerService
             }));
         }
 
-        if (ct.IsCancellationRequested) return new List<(string, string, string)>();
+        if (ct.IsCancellationRequested) return new List<SparrowV2Candidate>();
 
         ReportLog(progress, $"\n🧠 正在根据当前参数对 {targetPool.Count} 只股票进行极速盘口核验...");
         var p2List = new List<(string Code, string Name)>();
+        var rankingQuotes = new Dictionary<string, SparrowQuoteData>(StringComparer.Ordinal);
         int quoteDataUnavailable = 0;
         int coarseSurvivors = 0;
         int outerInnerUnavailable = 0;
@@ -176,6 +187,7 @@ public class SparrowScannerService
                     && quote.Turnover.Value <= parameters.MaxTurnover)
             {
                 p2List.Add((item.Code, item.Name));
+                rankingQuotes[item.Code] = quote;
             }
         }
         ReportLog(progress,
@@ -185,7 +197,7 @@ public class SparrowScannerService
             $"Outer/inner unavailable: {outerInnerUnavailable}; VolRatio passed: {volRatioPassed}");
         ReportLog(progress, $"✅ 盘口过滤完毕，剩余标的: {p2List.Count} 只");
 
-        if (p2List.Count == 0) return new List<(string, string, string)>();
+        if (p2List.Count == 0) return new List<SparrowV2Candidate>();
 
         // Scan-local Kline dictionary: stores data to evaluate during this scan session
         var klineData = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
@@ -240,7 +252,7 @@ public class SparrowScannerService
             }));
         }
 
-        if (ct.IsCancellationRequested) return new List<(string, string, string)>();
+        if (ct.IsCancellationRequested) return new List<SparrowV2Candidate>();
 
         ReportLog(progress, $"\n🧠 正在根据当前参数对 {p2List.Count} 只股票进行 K 线深度核验...");
         progress?.Report(new SparrowScanReport { ProgressMax = p2List.Count, ProgressValue = 0 });
@@ -262,7 +274,30 @@ public class SparrowScannerService
             if (technical.Rule.Passed)
             {
                 string reason = $"黏合:{technical.Adhesion * 100.0:F1}% 动量:{technical.Momentum * 100.0:F1}%";
-                p3Winners[item.Code] = (item.Name, reason);
+                SparrowQuoteData quote = rankingQuotes[item.Code];
+                p3Winners[item.Code] = new SparrowV2Candidate
+                {
+                    Code = item.Code,
+                    Name = item.Name,
+                    Reason = reason,
+                    RankingFeatures = new SparrowRankingFeatures
+                    {
+                        Code = item.Code,
+                        Name = item.Name,
+                        RisePercent = quote.Percent,
+                        Amount = quote.Amount,
+                        OuterVolume = quote.OuterVolume,
+                        InnerVolume = quote.InnerVolume,
+                        BuyPressureRatio = SparrowRankingFeatures.CalculateBuyPressureRatio(
+                            quote.OuterVolume, quote.InnerVolume),
+                        Adhesion = technical.Adhesion,
+                        Turnover = quote.Turnover,
+                        Momentum = technical.Momentum,
+                        AlphaMargin = parameters.CheckAlpha
+                            ? technical.LatestPercent - shIndexPctChg
+                            : null
+                    }
+                };
                 ReportLog(progress, $"🎯 [入围] {item.Name}({item.Code}) {reason}");
             }
         }
@@ -270,7 +305,7 @@ public class SparrowScannerService
         ReportLog(progress, $"\n🏆 漏斗完成！共诞生长短腿战斗机 {p3Winners.Count} 只！");
         ReportLog(progress, $"🧭 [Sparrow V2][Cache Lifetime Totals] Kline: {_klineCache.Statistics}");
 
-        var results = p3Winners.Select(kvp => (kvp.Key, kvp.Value.Name, kvp.Value.Reason)).ToList();
+        var results = p3Winners.Values.OrderBy(candidate => candidate.Code, StringComparer.Ordinal).ToList();
         await OutputResultsToFileAsync(results);
         return results;
     }
@@ -315,7 +350,7 @@ public class SparrowScannerService
         return (false, 0.0);
     }
 
-    private async Task OutputResultsToFileAsync(List<(string Code, string Name, string Reason)> results)
+    private async Task OutputResultsToFileAsync(IReadOnlyCollection<SparrowV2Candidate> results)
     {
         if (results.Count == 0) return;
 
@@ -329,7 +364,7 @@ public class SparrowScannerService
             Directory.CreateDirectory(path);
         }
 
-        string fileName = $"麻雀池高速筛选结果_{DateTime.Now:yyyyMMdd_HHmmss}.txt";
+        string fileName = $"麻雀池高速筛选结果_{DateTime.Now:yyyyMMdd_HHmmss_fff}.txt";
         string fullPath = Path.Combine(path, fileName);
 
         using StreamWriter writer = new StreamWriter(fullPath, append: false, Encoding.UTF8);

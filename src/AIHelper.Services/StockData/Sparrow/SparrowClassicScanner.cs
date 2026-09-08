@@ -49,6 +49,7 @@ public sealed class SparrowClassicScanner
         // Scan-local session state: never leaks across scans or between different parameter sets
         var p2Processed = new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
         var p2Survivors = new ConcurrentDictionary<string, (string Code, string Name)>(StringComparer.Ordinal);
+        var rankingQuotes = new ConcurrentDictionary<string, SparrowQuoteData>(StringComparer.Ordinal);
         var p3Winners = new ConcurrentDictionary<string, SparrowClassicCandidate>(StringComparer.Ordinal);
 
         string scanTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
@@ -175,6 +176,7 @@ public sealed class SparrowClassicScanner
                         {
                             Interlocked.Increment(ref volRatioPassed);
                             p2Survivors[stock.Code] = stock;
+                            rankingQuotes[stock.Code] = quote;
                         }
                     }
                 }
@@ -308,11 +310,24 @@ public sealed class SparrowClassicScanner
                 }
 
                 Interlocked.Increment(ref p3AdhesionPassed);
+                rankingQuotes.TryGetValue(stock.Code, out SparrowQuoteData quote);
                 var candidate = new SparrowClassicCandidate
                 {
                     Code = stock.Code,
                     Name = stock.Name,
-                    Reason = $"多头 黏合度:{technical.Adhesion * 100:F2}%"
+                    Reason = $"多头 黏合度:{technical.Adhesion * 100:F2}%",
+                    RankingFeatures = new SparrowRankingFeatures
+                    {
+                        Code = stock.Code,
+                        Name = stock.Name,
+                        RisePercent = quote.PriceDerivedPercent,
+                        Amount = quote.Amount,
+                        OuterVolume = quote.OuterVolume,
+                        InnerVolume = quote.InnerVolume,
+                        BuyPressureRatio = SparrowRankingFeatures.CalculateBuyPressureRatio(
+                            quote.OuterVolume, quote.InnerVolume),
+                        Adhesion = technical.Adhesion
+                    }
                 };
                 p3Winners[stock.Code] = candidate;
                 ReportLog(progress, $"🎯 [Sparrow Classic][入围] {stock.Name}({stock.Code}) {candidate.Reason}");
@@ -546,7 +561,7 @@ public sealed class SparrowClassicScanner
         }
         Directory.CreateDirectory(directory);
 
-        string filePath = Path.Combine(directory, $"麻雀池_Classic_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+        string filePath = Path.Combine(directory, $"麻雀池_Classic_{DateTime.Now:yyyyMMdd_HHmmss_fff}.txt");
         await using var writer = new StreamWriter(filePath, append: false, Encoding.UTF8);
         await writer.WriteLineAsync($"【Sparrow Classic】选股结果\nStrategy: {SparrowClassicCandidate.StrategyName}\n生成时间: {DateTime.Now}\n入围数量: {results.Count}\n=======================================");
         foreach (SparrowClassicCandidate item in results)

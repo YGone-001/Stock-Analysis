@@ -25,7 +25,15 @@ public partial class SparrowViewModel : ObservableObject
     private readonly SparrowScannerService _scannerService;
     private readonly SparrowClassicScanner _classicScanner;
     private readonly SparrowComparisonService _comparisonService;
+    private readonly SparrowRankingEngine _rankingEngine = new();
     private readonly SparrowParameterUiState _parameterState = new();
+    private readonly SparrowRankingSettings _rankingSettings = new();
+    private readonly Dictionary<string, StockGroupModel> _activeResultGroups = new(StringComparer.Ordinal);
+    private IReadOnlyList<SparrowRankedCandidate> _lastClassicRanking = Array.Empty<SparrowRankedCandidate>();
+    private IReadOnlyList<SparrowRankedCandidate> _lastV2Ranking = Array.Empty<SparrowRankedCandidate>();
+    private IReadOnlyList<SparrowComparisonRow> _lastComparisonRows = Array.Empty<SparrowComparisonRow>();
+    private SparrowStrategyMode? _lastCompletedMode;
+    private DateTime _lastCompletedAt;
     private CancellationTokenSource _cts;
 
     public IReadOnlyList<SparrowStrategyMode> AvailableStrategyModes { get; } =
@@ -49,6 +57,12 @@ public partial class SparrowViewModel : ObservableObject
     public SparrowClassicUiParameters ClassicParameters => _parameterState.ClassicParameters;
     public SparrowV2UiParameters V2Parameters => _parameterState.V2Parameters;
     public SparrowSystemSettings SystemSettings => _parameterState.SystemSettings;
+    public SparrowRankingSettings RankingSettings => _rankingSettings;
+    public int TopN
+    {
+        get => _rankingSettings.TopN;
+        set => _rankingSettings.TopN = value;
+    }
     public bool IsClassicMode => _parameterState.IsClassicMode;
     public bool IsV2Mode => _parameterState.IsV2Mode;
     public bool IsCompareMode => _parameterState.IsCompareMode;
@@ -62,6 +76,13 @@ public partial class SparrowViewModel : ObservableObject
     public string CurrentPresetName => _parameterState.CurrentPresetName;
     public string AdhesionRangeText => _parameterState.AdhesionRangeText;
     public string TurnoverRangeText => _parameterState.TurnoverRangeText;
+
+    private string _resultSummary = "尚未生成精选结果";
+    public string ResultSummary
+    {
+        get => _resultSummary;
+        private set { _resultSummary = value; OnPropertyChanged(); }
+    }
 
     // UI States
     private bool _isScanning;
@@ -130,6 +151,15 @@ public partial class SparrowViewModel : ObservableObject
         _scannerService = new SparrowScannerService(mainVm.DataProvider, sharedKlineCache);
         _classicScanner = new SparrowClassicScanner(mainVm.DataProvider, klineCache: sharedKlineCache);
         _comparisonService = new SparrowComparisonService(mainVm.DataProvider, klineCache: sharedKlineCache);
+        _rankingSettings.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(SparrowRankingSettings.TopN)) return;
+            OnPropertyChanged(nameof(TopN));
+            if (!IsScanning)
+            {
+                ApplyCachedTopN();
+            }
+        };
     }
 
     private void AppendLog(string msg, bool isHighlight = false)
@@ -258,11 +288,25 @@ public partial class SparrowViewModel : ObservableObject
                     });
                     List<SparrowClassicCandidate> results = await _classicScanner.ScanAsync(
                         targetPool, classicParams, classicProgress, _cts.Token);
-                    if (!_cts.Token.IsCancellationRequested && results.Count > 0)
+                    if (!_cts.Token.IsCancellationRequested)
                     {
-                        AddResultGroup($"麻雀_Classic_{DateTime.Now:MMdd}",
-                            results.Select(item => (item.Code, item.Name)));
-                        Growl.Success($"Sparrow Classic 执行完毕，入围 {results.Count} 只！");
+                        SparrowRankingFeatures[] frozen = results
+                            .Where(item => item.RankingFeatures != null)
+                            .Select(item => item.RankingFeatures!)
+                            .OrderBy(feature => feature.Code, StringComparer.Ordinal)
+                            .ToArray();
+                        _lastClassicRanking = _rankingEngine.RankClassic(
+                            frozen, classicParams.MinRise, classicParams.MaxRise);
+                        _lastV2Ranking = Array.Empty<SparrowRankedCandidate>();
+                        _lastComparisonRows = Array.Empty<SparrowComparisonRow>();
+                        _lastCompletedMode = SparrowStrategyMode.Classic;
+                        _lastCompletedAt = DateTime.Now;
+                        string csv = await SparrowRankingCsvExporter.ExportClassicAsync(
+                            _lastClassicRanking, TopN, _cts.Token);
+                        AppendLog($"Classic Ranking CSV: {csv}");
+                        ReportRanking("Classic", _lastClassicRanking);
+                        ApplyCachedTopN();
+                        Growl.Success($"Sparrow Classic 完成：候选池 {results.Count}，精选 {Math.Min(TopN, results.Count)} 只。");
                     }
                     break;
                 }
@@ -281,30 +325,43 @@ public partial class SparrowViewModel : ObservableObject
                         targetPool, classicParams, activeParams, compareProgress, _cts.Token);
                     if (!_cts.Token.IsCancellationRequested)
                     {
-                        AddResultGroup($"麻雀_双选_{DateTime.Now:MMdd}",
-                            result.Rows.Where(row => row.Category == SparrowComparisonCategory.Both)
-                                .Select(row => (row.Code, row.Name)));
-                        AddResultGroup($"麻雀_ClassicOnly_{DateTime.Now:MMdd}",
-                            result.Rows.Where(row => row.Category == SparrowComparisonCategory.ClassicOnly)
-                                .Select(row => (row.Code, row.Name)));
-                        AddResultGroup($"麻雀_V2Only_{DateTime.Now:MMdd}",
-                            result.Rows.Where(row => row.Category == SparrowComparisonCategory.V2Only)
-                                .Select(row => (row.Code, row.Name)));
+                        _lastClassicRanking = result.ClassicRanking;
+                        _lastV2Ranking = result.V2Ranking;
+                        _lastComparisonRows = result.Rows;
+                        _lastCompletedMode = SparrowStrategyMode.Compare;
+                        _lastCompletedAt = result.Session.CapturedAt.DateTime;
+                        ReportRanking("Classic Compare", result.ClassicRanking);
+                        ReportRanking("V2 Compare", result.V2Ranking);
+                        ApplyCachedTopN();
                         Growl.Success(
-                            $"A/B 对照完成：双选 {result.Metrics.IntersectionCount}，" +
-                            $"ClassicOnly {result.Metrics.ClassicOnlyCount}，V2Only {result.Metrics.V2OnlyCount}。");
+                            $"A/B 对照完成：候选池 双选 {result.Metrics.IntersectionCount} / " +
+                            $"ClassicOnly {result.Metrics.ClassicOnlyCount} / V2Only {result.Metrics.V2OnlyCount}；" +
+                            $"各组最多 Top{TopN}。");
                     }
                     break;
                 }
                 default:
                 {
-                    List<(string Code, string Name, string Reason)> results = await _scannerService.ScanAsync(
+                    List<SparrowV2Candidate> results = await _scannerService.ScanWithFeaturesAsync(
                         targetPool, activeParams, v2Progress, _cts.Token);
-                    if (!_cts.Token.IsCancellationRequested && results.Count > 0)
+                    if (!_cts.Token.IsCancellationRequested)
                     {
-                        AddResultGroup($"麻雀_V2_{DateTime.Now:MMdd}",
-                            results.Select(item => (item.Code, item.Name)));
-                        Growl.Success($"Sparrow V2 执行完毕，入围 {results.Count} 只！");
+                        SparrowRankingFeatures[] frozen = results
+                            .Select(item => item.RankingFeatures)
+                            .OrderBy(feature => feature.Code, StringComparer.Ordinal)
+                            .ToArray();
+                        _lastV2Ranking = _rankingEngine.RankV2(
+                            frozen, activeParams.MinRise, activeParams.MaxRise, activeParams.CheckAlpha);
+                        _lastClassicRanking = Array.Empty<SparrowRankedCandidate>();
+                        _lastComparisonRows = Array.Empty<SparrowComparisonRow>();
+                        _lastCompletedMode = SparrowStrategyMode.V2;
+                        _lastCompletedAt = DateTime.Now;
+                        string csv = await SparrowRankingCsvExporter.ExportV2Async(
+                            _lastV2Ranking, TopN, _cts.Token);
+                        AppendLog($"V2 Ranking CSV: {csv}");
+                        ReportRanking("V2", _lastV2Ranking);
+                        ApplyCachedTopN();
+                        Growl.Success($"Sparrow V2 完成：候选池 {results.Count}，精选 {Math.Min(TopN, results.Count)} 只。");
                     }
                     break;
                 }
@@ -325,7 +382,65 @@ public partial class SparrowViewModel : ObservableObject
         }
     }
 
-    private void AddResultGroup(string groupName, IEnumerable<(string Code, string Name)> results)
+    private void ApplyCachedTopN()
+    {
+        if (!_lastCompletedMode.HasValue)
+        {
+            return;
+        }
+
+        int topN = TopN;
+        switch (_lastCompletedMode.Value)
+        {
+            case SparrowStrategyMode.Classic:
+                if (_lastClassicRanking.Count > 0)
+                {
+                    SetResultGroup("Classic", $"麻雀_Classic_Top{topN}_{_lastCompletedAt:MMdd}",
+                        _lastClassicRanking.Take(topN).Select(item => (item.Code, item.Name)));
+                }
+                ResultSummary = $"Classic 完成 · 候选池 {_lastClassicRanking.Count} · Top{topN} 已生成（{Math.Min(topN, _lastClassicRanking.Count)}只）";
+                break;
+            case SparrowStrategyMode.V2:
+                if (_lastV2Ranking.Count > 0)
+                {
+                    SetResultGroup("V2", $"麻雀_V2_Top{topN}_{_lastCompletedAt:MMdd}",
+                        _lastV2Ranking.Take(topN).Select(item => (item.Code, item.Name)));
+                }
+                ResultSummary = $"V2 完成 · 候选池 {_lastV2Ranking.Count} · Top{topN} 已生成（{Math.Min(topN, _lastV2Ranking.Count)}只）";
+                break;
+            case SparrowStrategyMode.Compare:
+                ApplyComparisonTopN(topN);
+                break;
+        }
+    }
+
+    private void ApplyComparisonTopN(int topN)
+    {
+        IReadOnlyList<SparrowComparisonRow> both = SparrowRankingEngine.SelectCompareTopN(
+            _lastComparisonRows, SparrowComparisonCategory.Both, topN);
+        IReadOnlyList<SparrowComparisonRow> classicOnly = SparrowRankingEngine.SelectCompareTopN(
+            _lastComparisonRows, SparrowComparisonCategory.ClassicOnly, topN);
+        IReadOnlyList<SparrowComparisonRow> v2Only = SparrowRankingEngine.SelectCompareTopN(
+            _lastComparisonRows, SparrowComparisonCategory.V2Only, topN);
+        SetResultGroup("Both", $"麻雀_双选_Top{topN}_{_lastCompletedAt:MMdd}", both.Select(row => (row.Code, row.Name)));
+        SetResultGroup("ClassicOnly", $"麻雀_ClassicOnly_Top{topN}_{_lastCompletedAt:MMdd}", classicOnly.Select(row => (row.Code, row.Name)));
+        SetResultGroup("V2Only", $"麻雀_V2Only_Top{topN}_{_lastCompletedAt:MMdd}", v2Only.Select(row => (row.Code, row.Name)));
+        ResultSummary = $"Compare 完成 · Top{topN}: 双选 {both.Count} / ClassicOnly {classicOnly.Count} / V2Only {v2Only.Count}";
+    }
+
+    private void SetResultGroup(string key, string groupName, IEnumerable<(string Code, string Name)> results)
+    {
+        List<StockModel> stocks = CreateResultStocks(results);
+        if (_activeResultGroups.TryGetValue(key, out StockGroupModel? existing))
+        {
+            _mainVm.StockVM.UpdateGroup(existing, groupName, stocks);
+            return;
+        }
+
+        _activeResultGroups[key] = _mainVm.StockVM.AddGroup(groupName, stocks);
+    }
+
+    private List<StockModel> CreateResultStocks(IEnumerable<(string Code, string Name)> results)
     {
         var list = new List<StockModel>();
         foreach ((string code, string name) in results)
@@ -361,6 +476,24 @@ public partial class SparrowViewModel : ObservableObject
                 HighlightLevel = level
             });
         }
-        _mainVm.StockVM.AddGroup(groupName, list);
+        return list;
+    }
+
+    private void ReportRanking(string title, IReadOnlyList<SparrowRankedCandidate> ranking)
+    {
+        int shown = Math.Min(TopN, ranking.Count);
+        AppendLog($"\n========== Sparrow {title} Ranking ==========\n\nCandidate Pool:     {ranking.Count}\nTopN:               {TopN}\n");
+        foreach (SparrowRankedCandidate candidate in ranking.Take(TopN))
+        {
+            AppendLog($"#{candidate.Rank,-2} {candidate.Code} {candidate.Name}  Score={candidate.TotalScore:F1}");
+        }
+        if (ranking.Count > 0)
+        {
+            double median = ranking.Count % 2 == 1
+                ? ranking[ranking.Count / 2].TotalScore
+                : (ranking[ranking.Count / 2 - 1].TotalScore + ranking[ranking.Count / 2].TotalScore) / 2.0;
+            AppendLog($"\nScore Range:\nMax = {ranking.Max(item => item.TotalScore):F1}\nMedian = {median:F1}\nMin = {ranking.Min(item => item.TotalScore):F1}");
+        }
+        AppendLog($"\n精选：{shown}只\n========================================");
     }
 }

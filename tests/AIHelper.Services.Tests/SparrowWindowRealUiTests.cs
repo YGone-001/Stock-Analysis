@@ -128,6 +128,29 @@ public sealed class SparrowWindowRealUiTests
     }
 
     [Fact]
+    public void TopN_IsAnIndependentExecutionSetting_BoundFromOneToTwenty()
+    {
+        RunWindowTest((window, vm) =>
+        {
+            Assert.Equal(10, vm.TopN);
+            Assert.Equal(10.0, window.NumTopN.Value);
+            Assert.Equal(1.0, window.NumTopN.Minimum);
+            Assert.Equal(20.0, window.NumTopN.Maximum);
+
+            window.NumTopN.Value = 5;
+            window.UpdateLayout();
+            Assert.Equal(5, vm.TopN);
+            Assert.Equal(5, vm.RankingSettings.TopN);
+
+            vm.TopN = 20;
+            window.UpdateLayout();
+            Assert.Equal(20.0, window.NumTopN.Value);
+            Assert.IsNotType<SparrowClassicUiParameters>(vm.RankingSettings);
+            Assert.IsNotType<SparrowV2UiParameters>(vm.RankingSettings);
+        });
+    }
+
+    [Fact]
     public void AdhesionNumericToSliderSync_And_SliderToNumericSync()
     {
         RunWindowTest((window, vm) =>

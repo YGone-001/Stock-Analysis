@@ -41,6 +41,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
     internal Button BtnStart;
     internal Button BtnTest;
     internal NumericUpDown NumConcurrency;
+    internal NumericUpDown NumTopN;
     internal TextBlock TxtProgressDesc;
     internal TextBlock TxtStats;
     internal ProgressBar PbScan;
@@ -91,6 +92,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumMaxTurnover.SetBinding(NumericUpDown.ValueProperty, new Binding("V2Parameters.MaxTurnover") { Mode = BindingMode.TwoWay });
         NumMomentum.SetBinding(NumericUpDown.ValueProperty, new Binding("V2Parameters.MomentumThreshold") { Mode = BindingMode.TwoWay });
         NumConcurrency.SetBinding(NumericUpDown.ValueProperty, new Binding("SystemSettings.MaxConcurrency") { Mode = BindingMode.TwoWay });
+        NumTopN.SetBinding(NumericUpDown.ValueProperty, new Binding("TopN") { Mode = BindingMode.TwoWay });
 
         // Bindings for UI elements
         BtnStart.SetBinding(Button.ContentProperty, new Binding("StartButtonText"));
@@ -165,6 +167,13 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumMinAmount = new NumericUpDown { Minimum = 0, Maximum = 1_000_000, Width = 90 };
         NumMomentum = new NumericUpDown { Minimum = 0, Maximum = 100, Width = 75, Increment = 0.01 };
         NumConcurrency = new NumericUpDown { Minimum = 1, Maximum = 32, Width = 65 };
+        NumTopN = new NumericUpDown
+        {
+            Minimum = SparrowRankingSettings.MinimumTopN,
+            Maximum = SparrowRankingSettings.MaximumTopN,
+            Width = 65,
+            Increment = 1
+        };
 
         NumMinAdhesion = new NumericUpDown { Minimum = 0, Maximum = 15, Increment = 0.1, Width = 65 };
         NumMaxAdhesion = new NumericUpDown { Minimum = 0, Maximum = 15, Increment = 0.1, Width = 65 };
@@ -338,6 +347,34 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         presetPanel.Children.Add(presetText);
         presetPanel.Children.Add(resetButton);
 
+        NumTopN.ToolTip = "最终输出数量（1～20）；更改后直接截取已有完整排名，不会重新扫描。";
+        var outputPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        outputPanel.Children.Add(new TextBlock
+        {
+            Text = "最终精选：",
+            VerticalAlignment = VerticalAlignment.Center,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 5, 0)
+        });
+        outputPanel.Children.Add(NumTopN);
+        outputPanel.Children.Add(new TextBlock
+        {
+            Text = " 只（完整候选池仍保留并导出）",
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = System.Windows.Media.Brushes.DimGray
+        });
+        var resultSummary = new TextBlock
+        {
+            Foreground = System.Windows.Media.Brushes.SteelBlue,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        resultSummary.SetBinding(TextBlock.TextProperty, new Binding("ResultSummary"));
+
         ChkUseCache.Content = "使用缓存";
         ChkUseCache.ToolTip = "运行时数据缓存设置，不改变选股规则。";
         NumConcurrency.ToolTip = "网络并发数，只影响执行速度，不改变选股质量。";
@@ -358,6 +395,8 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         root.Children.Add(baseGroup);
         root.Children.Add(v2Group);
         root.Children.Add(compareHint);
+        root.Children.Add(outputPanel);
+        root.Children.Add(resultSummary);
         root.Children.Add(presetPanel);
         root.Children.Add(systemExpander);
         if (parameterGroup != null)

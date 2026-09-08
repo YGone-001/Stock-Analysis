@@ -30,6 +30,12 @@ public sealed class SparrowComparisonServiceTests
         Assert.Equal(SparrowComparisonCategory.Both, result.Rows.Single(row => row.Code == "600000").Category);
         Assert.Equal(SparrowComparisonCategory.Neither, result.Rows.Single(row => row.Code == "600001").Category);
         Assert.Equal(1, result.Metrics.IntersectionCount);
+        Assert.Single(result.ClassicRanking);
+        Assert.Single(result.V2Ranking);
+        Assert.Equal(1, result.Rows.Single(row => row.Code == "600000").Classic.Rank);
+        Assert.Equal(1, result.Rows.Single(row => row.Code == "600000").V2.Rank);
+        Assert.Equal(1, provider.Count("/api/quote"));
+        Assert.Equal(1, provider.Count("/api/kline-all"));
     }
 
     [Fact]
@@ -244,6 +250,45 @@ public sealed class SparrowComparisonServiceTests
         Assert.Contains(v2Provider.Requests,
             request => request.Endpoint == "/api/kline-all?code=600000&limit=120");
         Assert.DoesNotContain(v2Provider.Requests, request => request.Endpoint.Contains("limit=65"));
+    }
+
+    [Fact]
+    public async Task RankingAfterStandaloneScans_DoesNotTriggerAnyAdditionalMarketRequest()
+    {
+        var classicProvider = new FakeProvider();
+        classicProvider.Set("/api/quote?code=600000", QuoteJson(Quote("600000", turnover: 10)));
+        classicProvider.Set("/api/kline-all?code=600000&type=day&limit=65", KlineJson(PassingCloses(65)));
+        List<SparrowClassicCandidate> classicCandidates = await new SparrowClassicScanner(classicProvider).ScanAsync(
+            new[] { ("600000", "A") }, Classic(), null, CancellationToken.None);
+        int classicRequestsAfterScan = classicProvider.Requests.Count;
+
+        var engine = new SparrowRankingEngine();
+        IReadOnlyList<SparrowRankedCandidate> classicRanking = engine.RankClassic(
+            classicCandidates.Select(candidate => candidate.RankingFeatures!), 0, 9.9);
+
+        Assert.Single(classicRanking);
+        Assert.Equal(classicCandidates.Select(candidate => candidate.Code),
+            classicRanking.Select(candidate => candidate.Code));
+        Assert.Equal(classicRequestsAfterScan, classicProvider.Requests.Count);
+
+        var rankingSettings = new SparrowRankingSettings { TopN = 5 };
+        Assert.Single(classicRanking.Take(rankingSettings.TopN));
+        Assert.Equal(classicRequestsAfterScan, classicProvider.Requests.Count);
+
+        var v2Provider = new FakeProvider();
+        v2Provider.Set("/api/quote?code=600000", QuoteJson(Quote("600000", turnover: 10)));
+        v2Provider.Set("/api/kline-all?code=600000&limit=120", KlineJson(PassingCloses(120)));
+        List<SparrowV2Candidate> v2Candidates = await new SparrowScannerService(v2Provider).ScanWithFeaturesAsync(
+            new List<(string Code, string Name)> { ("600000", "A") }, V2(), null, CancellationToken.None);
+        int v2RequestsAfterScan = v2Provider.Requests.Count;
+
+        IReadOnlyList<SparrowRankedCandidate> v2Ranking = engine.RankV2(
+            v2Candidates.Select(candidate => candidate.RankingFeatures), 0, 9.9, checkAlpha: false);
+
+        Assert.Single(v2Ranking);
+        Assert.Equal(v2Candidates.Select(candidate => candidate.Code),
+            v2Ranking.Select(candidate => candidate.Code));
+        Assert.Equal(v2RequestsAfterScan, v2Provider.Requests.Count);
     }
 
     [Fact]

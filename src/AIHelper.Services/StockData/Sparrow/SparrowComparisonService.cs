@@ -22,17 +22,20 @@ public sealed class SparrowComparisonService
     private readonly SparrowMarketRegimeService _marketRegimeService;
     private readonly SparrowMarketDataCache _klineCache;
     private readonly TimeProvider _timeProvider;
+    private readonly SparrowRankingEngine _rankingEngine;
 
     public SparrowComparisonService(
         IStockDataProvider dataProvider,
         SparrowMarketRegimeService? marketRegimeService = null,
         SparrowMarketDataCache? klineCache = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        SparrowRankingEngine? rankingEngine = null)
     {
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
         _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
         _klineCache = klineCache ?? new SparrowMarketDataCache(timeProvider);
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _rankingEngine = rankingEngine ?? new SparrowRankingEngine();
     }
 
     public async Task<SparrowComparisonResult> CompareAsync(
@@ -102,13 +105,25 @@ public sealed class SparrowComparisonService
 
         cancellationToken.ThrowIfCancellationRequested();
         FinalizeRows(rows.Values);
+        SparrowComparisonRow[] frozenRows = rows.Values
+            .OrderBy(row => row.Code, StringComparer.Ordinal)
+            .ToArray();
+        IReadOnlyList<SparrowRankedCandidate> classicRanking = _rankingEngine.RankClassic(
+            frozenRows.Where(row => row.Classic.FinalPassed).Select(row => ToRankingFeatures(row, v2: false)),
+            classicParameters.MinRise, classicParameters.MaxRise);
+        IReadOnlyList<SparrowRankedCandidate> v2Ranking = _rankingEngine.RankV2(
+            frozenRows.Where(row => row.V2.FinalPassed).Select(row => ToRankingFeatures(row, v2: true)),
+            v2Parameters.MinRise, v2Parameters.MaxRise, v2Parameters.CheckAlpha);
+        ApplyRanking(frozenRows, classicRanking, v2Ranking);
         SparrowComparisonMetrics metrics = CalculateMetrics(rows.Values, universe.Count);
         var result = new SparrowComparisonResult
         {
             Session = session,
             MarketSnapshot = marketSnapshot,
-            Rows = rows.Values.OrderBy(row => row.Code, StringComparer.Ordinal).ToArray(),
-            Metrics = metrics
+            Rows = frozenRows,
+            Metrics = metrics,
+            ClassicRanking = classicRanking,
+            V2Ranking = v2Ranking
         };
 
         ReportSummary(progress, metrics);
@@ -440,6 +455,9 @@ public sealed class SparrowComparisonService
                 row.V2.P3 = technical.Rule;
                 row.V2.Adhesion = technical.Adhesion;
                 row.V2.Momentum = technical.Momentum;
+                row.V2.AlphaMargin = v2Parameters.CheckAlpha
+                    ? technical.LatestPercent - shIndexPctChg
+                    : null;
                 if (!technical.Rule.Passed)
                 {
                     row.V2.RejectFrom(technical.Rule);
@@ -461,6 +479,45 @@ public sealed class SparrowComparisonService
                 (false, true) => SparrowComparisonCategory.V2Only,
                 _ => SparrowComparisonCategory.Neither
             };
+        }
+    }
+
+    private static SparrowRankingFeatures ToRankingFeatures(SparrowComparisonRow row, bool v2) => new()
+    {
+        Code = row.Code,
+        Name = row.Name,
+        RisePercent = v2 ? row.V2.Rise : row.Classic.Rise,
+        Amount = row.Amount,
+        OuterVolume = row.OuterVolume,
+        InnerVolume = row.InnerVolume,
+        BuyPressureRatio = SparrowRankingFeatures.CalculateBuyPressureRatio(row.OuterVolume, row.InnerVolume),
+        Adhesion = v2 ? row.V2.Adhesion : row.Classic.Adhesion,
+        Turnover = v2 ? row.Turnover : null,
+        Momentum = v2 ? row.V2.Momentum : null,
+        AlphaMargin = v2 ? row.V2.AlphaMargin : null
+    };
+
+    private static void ApplyRanking(
+        IEnumerable<SparrowComparisonRow> rows,
+        IReadOnlyList<SparrowRankedCandidate> classicRanking,
+        IReadOnlyList<SparrowRankedCandidate> v2Ranking)
+    {
+        IReadOnlyDictionary<string, SparrowRankedCandidate> classicByCode = classicRanking
+            .ToDictionary(candidate => candidate.Code, StringComparer.Ordinal);
+        IReadOnlyDictionary<string, SparrowRankedCandidate> v2ByCode = v2Ranking
+            .ToDictionary(candidate => candidate.Code, StringComparer.Ordinal);
+        foreach (SparrowComparisonRow row in rows)
+        {
+            if (classicByCode.TryGetValue(row.Code, out SparrowRankedCandidate? classic))
+            {
+                row.Classic.Rank = classic.Rank;
+                row.Classic.Score = classic.TotalScore;
+            }
+            if (v2ByCode.TryGetValue(row.Code, out SparrowRankedCandidate? v2Candidate))
+            {
+                row.V2.Rank = v2Candidate.Rank;
+                row.V2.Score = v2Candidate.TotalScore;
+            }
         }
     }
 
@@ -580,21 +637,22 @@ public sealed class SparrowComparisonService
         string path = Path.Combine(directory, $"麻雀AB对照_{result.Session.CapturedAt:yyyyMMdd_HHmmss}.csv");
         var lines = new List<string>
         {
-            "Code,Name,Category,ClassicP1,ClassicP2,ClassicP3,ClassicPassed,ClassicRejectStage,ClassicRejectReasonCode,ClassicRejectReason,V2P1,V2P2,V2P3,V2Passed,V2RejectStage,V2RejectReasonCode,V2RejectReason,ClassicRise,V2Rise,Amount,Turnover,OuterVolume,InnerVolume,ClassicAdhesion,V2Adhesion,V2Momentum"
+            "RankingProfile,Code,Name,Category,ClassicRank,ClassicScore,V2Rank,V2Score,ClassicP1,ClassicP2,ClassicP3,ClassicPassed,ClassicRejectStage,ClassicRejectReasonCode,ClassicRejectReason,V2P1,V2P2,V2P3,V2Passed,V2RejectStage,V2RejectReasonCode,V2RejectReason,ClassicRise,V2Rise,Amount,Turnover,OuterVolume,InnerVolume,ClassicAdhesion,V2Adhesion,V2Momentum,V2AlphaMargin"
         };
         foreach (SparrowComparisonRow row in result.Rows)
         {
             cancellationToken.ThrowIfCancellationRequested();
             lines.Add(string.Join(',', new[]
             {
-                Csv(row.Code), Csv(row.Name), Csv(row.Category.ToString()),
+                Csv(SparrowRankingProfileV1.Name), Csv(row.Code), Csv(row.Name), Csv(row.Category.ToString()),
+                Integer(row.Classic.Rank), Number(row.Classic.Score), Integer(row.V2.Rank), Number(row.V2.Score),
                 Csv(row.Classic.P1.Outcome.ToString()), Csv(row.Classic.P2.Outcome.ToString()), Csv(row.Classic.P3.Outcome.ToString()),
                 Csv(row.Classic.FinalPassed.ToString()), Csv(row.Classic.RejectStage), Csv(row.Classic.RejectReasonCode), Csv(row.Classic.RejectReason),
                 Csv(row.V2.P1.Outcome.ToString()), Csv(row.V2.P2.Outcome.ToString()), Csv(row.V2.P3.Outcome.ToString()),
                 Csv(row.V2.FinalPassed.ToString()), Csv(row.V2.RejectStage), Csv(row.V2.RejectReasonCode), Csv(row.V2.RejectReason),
                 Number(row.Classic.Rise), Number(row.V2.Rise), Number(row.Amount), Number(row.Turnover),
                 Number(row.OuterVolume), Number(row.InnerVolume), Number(row.Classic.Adhesion),
-                Number(row.V2.Adhesion), Number(row.V2.Momentum)
+                Number(row.V2.Adhesion), Number(row.V2.Momentum), Number(row.V2.AlphaMargin)
             }));
         }
         string temporaryPath = path + ".tmp." + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
@@ -618,6 +676,9 @@ public sealed class SparrowComparisonService
 
     private static string Number(double? value) =>
         value?.ToString("G17", CultureInfo.InvariantCulture) ?? "";
+
+    private static string Integer(int? value) =>
+        value?.ToString(CultureInfo.InvariantCulture) ?? "";
 
     private static string Csv(string value) =>
         '"' + value.Replace("\"", "\"\"") + '"';
