@@ -393,14 +393,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 	[RelayCommand]
 	private void OpenHelp()
 	{
-		try
-		{
-			Process.Start(new ProcessStartInfo("https://www.ooppp.com/help.html")
-			{
-				UseShellExecute = true
-			});
-		}
-		catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
+		AppendLog("ℹ️ 帮助页面暂未开放。");
 	}
 
 	[RelayCommand]

@@ -74,11 +74,36 @@ public class SparrowScannerService
             ReportLog(progress, $"✅ [第一阶段通过] 上证今日涨幅: {shIndexPctChg:F2}%, 已设为 RPS 参照基准。");
         }
 
+        if (targetPool.Count >= 500)
+        {
+            ReportLog(progress, "\n🌐 [阶段2] 优先加载全市场盘口快照...");
+            try
+            {
+                string refreshQuery = parameters.UseCache ? "" : "?refresh=1";
+                StockDataResult snapshot = await _dataProvider.GetDataAsync(
+                    StockDataRequest.Parse("/api/quote-all" + refreshQuery), ct);
+                if (snapshot.Success)
+                {
+                    AddQuotesToCache(snapshot.Json, quoteCache);
+                    ReportLog(progress, $"✅ [阶段2快照] 已加载 {quoteCache.Count} 只股票；缺失项将自动批量补取。");
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Sparrow V2 all-market quote snapshot failed; falling back to batches");
+            }
+        }
+
         var p2Missing = targetPool.Where(s => !quoteCache.ContainsKey(s.Code)).ToList();
         if (p2Missing.Count > 0)
         {
             ReportLog(progress, $"\n🌪️ [阶段2] 极速网关并发拉取盘口快照 (待下载:{p2Missing.Count} 只)...");
             int p2Downloaded = 0;
+            int p2FailedBatches = 0;
             progress?.Report(new SparrowScanReport { ProgressMax = p2Missing.Count, ProgressValue = 0 });
             
             var batches = p2Missing.Select((x, i) => new { Index = i, Value = x })
@@ -91,7 +116,7 @@ public class SparrowScannerService
             using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(8, p2Concurrency)));
             await Task.WhenAll(batches.Select(async batch =>
             {
-                await semaphore.WaitAsync();
+                await semaphore.WaitAsync(ct);
                 try
                 {
                     if (ct.IsCancellationRequested) return;
@@ -102,25 +127,23 @@ public class SparrowScannerService
                     {
                         try
                         {
-                            using JsonDocument doc = JsonDocument.Parse(res.Json);
-                            if (doc.RootElement.TryGetProperty("data", out var dataArr) && dataArr.ValueKind == JsonValueKind.Array)
-                            {
-                                foreach (var item in dataArr.EnumerateArray())
-                                {
-                                    if (item.TryGetProperty("Code", out var codeElem))
-                                    {
-                                        string code = codeElem.GetString() ?? "";
-                                        if (code.StartsWith("1.") || code.StartsWith("0.")) code = code.Substring(2);
-                                        if (!string.IsNullOrEmpty(code))
-                                        {
-                                            quoteCache.TryAdd(code, item.GetRawText());
-                                        }
-                                    }
-                                }
-                            }
+                            AddQuotesToCache(res.Json, quoteCache);
                         }
                         catch (Exception ex) { Log.Error(ex, "Failed to parse batch quote JSON"); }
                     }
+					else
+					{
+						Interlocked.Increment(ref p2FailedBatches);
+					}
+				}
+				catch (OperationCanceledException) when (ct.IsCancellationRequested)
+				{
+					throw;
+				}
+				catch (Exception ex)
+				{
+					Interlocked.Increment(ref p2FailedBatches);
+					Log.Warning(ex, "Sparrow V2 P2 quote batch failed; continuing with remaining batches");
                 }
                 finally
                 {
@@ -129,6 +152,13 @@ public class SparrowScannerService
                     semaphore.Release();
                 }
             }));
+
+			if (p2FailedBatches > 0)
+			{
+				ReportLog(progress,
+					$"⚠️ [阶段2网络] 批次失败: {p2FailedBatches}/{batches.Count}；已隔离故障并继续处理其余批次。",
+					true);
+			}
         }
 
         if (ct.IsCancellationRequested) return new List<SparrowV2Candidate>();
@@ -341,6 +371,33 @@ public class SparrowScannerService
         progress?.Report(new SparrowScanReport { LogMessage = msg, IsHighlight = isHighlight });
     }
 
+    private static void AddQuotesToCache(
+        string json,
+        ConcurrentDictionary<string, string> quoteCache)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("data", out JsonElement data)
+            || data.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (JsonElement item in data.EnumerateArray())
+        {
+            if (!item.TryGetProperty("Code", out JsonElement codeElement)) continue;
+            string code = codeElement.GetString() ?? "";
+            if (code.StartsWith("1.", StringComparison.Ordinal)
+                || code.StartsWith("0.", StringComparison.Ordinal))
+            {
+                code = code.Substring(2);
+            }
+            if (!string.IsNullOrEmpty(code))
+            {
+                quoteCache.TryAdd(code, item.GetRawText());
+            }
+        }
+    }
+
     private async Task<(bool IsWeak, double ShIndexPctChg)> CheckIndexWeakness(bool forceRefresh, CancellationToken cancellationToken)
     {
         double shIndexPctChg = 0.0;
@@ -390,7 +447,7 @@ public class SparrowScannerService
             Directory.CreateDirectory(path);
         }
 
-        string fileName = $"麻雀池高速筛选结果_{DateTime.Now:yyyyMMdd_HHmmss_fff}.txt";
+        string fileName = $"麻雀池高速筛选结果_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.txt";
         string fullPath = Path.Combine(path, fileName);
 
         using StreamWriter writer = new StreamWriter(fullPath, append: false, Encoding.UTF8);

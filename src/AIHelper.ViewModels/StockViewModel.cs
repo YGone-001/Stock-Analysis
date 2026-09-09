@@ -292,28 +292,43 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		{
 			if (HandyControl.Controls.MessageBox.Show($"确定要删除分组 [{stockGroupModel.Header}] 及其下包含的 {stockGroupModel.Stocks.Count} 只股票吗？\n此操作不可逆！", "删组确认", MessageBoxButton.YesNo, MessageBoxImage.Exclamation) == MessageBoxResult.Yes)
 			{
-				List<StockModel> list = stockGroupModel.Stocks.ToList();
-				StockGroups.Remove(stockGroupModel);
-				foreach (StockModel stock in list)
-				{
-					if (!StockGroups.Any((StockGroupModel g) => !g.IsOverview && g.Stocks.Any((StockModel s) => s.Code == stock.Code)))
-					{
-						StockModel stockModel = StockGroups[0].Stocks.FirstOrDefault((StockModel s) => s.Code == stock.Code);
-						if (stockModel != null)
-						{
-							StockGroups[0].Stocks.Remove(stockModel);
-						}
-						GlobalStockCache.TryRemove(stock.Code, out _);
-					}
-				}
-				if (StockGroups.Count > 0)
-				{
-					SelectedGroup = StockGroups[0];
-				}
+				RemoveGroupCore(stockGroupModel);
 				AnalyticsService.Log("16", "0");
-				SaveLocalData();
 			}
 		}
+	}
+
+	public void RemoveGeneratedResultGroup(StockGroupModel group)
+	{
+		if (group == null || group.IsOverview || group.Header?.StartsWith("麻雀_", StringComparison.Ordinal) != true)
+		{
+			return;
+		}
+		RemoveGroupCore(group);
+	}
+
+	private void RemoveGroupCore(StockGroupModel group)
+	{
+		List<StockModel> stocks = group.Stocks.ToList();
+		StockGroups.Remove(group);
+		foreach (StockModel stock in stocks)
+		{
+			if (StockGroups.Any(candidate => !candidate.IsOverview && candidate.Stocks.Any(item => item.Code == stock.Code)))
+			{
+				continue;
+			}
+			StockModel stockModel = StockGroups[0].Stocks.FirstOrDefault(item => item.Code == stock.Code);
+			if (stockModel != null)
+			{
+				StockGroups[0].Stocks.Remove(stockModel);
+			}
+			GlobalStockCache.TryRemove(stock.Code, out _);
+		}
+		if (SelectedGroup == group && StockGroups.Count > 0)
+		{
+			SelectedGroup = StockGroups[0];
+		}
+		SaveLocalData();
 	}
 
 	[RelayCommand]
@@ -480,6 +495,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		StockGroups.Add(item);
 		if (File.Exists(_filePath))
 		{
+			bool removedEmptyGeneratedGroup = false;
 			try
 			{
 				List<StockGroupModel> list = JsonSerializer.Deserialize<List<StockGroupModel>>(File.ReadAllText(_filePath));
@@ -491,7 +507,17 @@ public partial class StockViewModel : ObservableObject, IDisposable
 						{
 							item2.Stocks = new ObservableCollection<StockModel>();
 						}
+						if (item2.Header?.StartsWith("麻雀_", StringComparison.Ordinal) == true
+							&& item2.Stocks.Count == 0)
+						{
+							removedEmptyGeneratedGroup = true;
+							continue;
+						}
 						StockGroups.Add(item2);
+					}
+					if (removedEmptyGeneratedGroup)
+					{
+						SaveLocalData();
 					}
 				}
 			}

@@ -18,6 +18,7 @@ namespace AIHelper.Services.StockData.Sparrow;
 public sealed class SparrowComparisonService
 {
     private static readonly TimeSpan BeijingOffset = TimeSpan.FromHours(8);
+    private const int FullMarketQuoteThreshold = 500;
 
     private readonly IStockDataProvider _dataProvider;
     private readonly SparrowMarketRegimeService _marketRegimeService;
@@ -259,11 +260,44 @@ public sealed class SparrowComparisonService
         CancellationToken cancellationToken)
     {
         var quotes = new ConcurrentDictionary<string, SparrowQuoteData>(StringComparer.Ordinal);
-        var batches = universe.Select((stock, index) => (stock, index))
+        var universeCodes = universe.Select(stock => stock.Code).ToHashSet(StringComparer.Ordinal);
+
+        if (universe.Count >= FullMarketQuoteThreshold)
+        {
+            Report(progress, "[P2] Loading one full-market quote snapshot...");
+            try
+            {
+                string refresh = parameters.UseCache ? "" : "?refresh=1";
+                StockDataResult response = await _dataProvider.GetDataAsync(
+                    StockDataRequest.Parse("/api/quote-all" + refresh), cancellationToken);
+                if (response.Success && !string.IsNullOrWhiteSpace(response.Json))
+                {
+                    AddQuotesFromJson(response.Json, quotes, universeCodes);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to load full-market Sparrow comparison quote snapshot");
+            }
+
+            Report(progress, $"[P2] Full-market snapshot matched {quotes.Count}/{universe.Count}; fetching only missing quotes.");
+        }
+
+        var missingUniverse = universe.Where(stock => !quotes.ContainsKey(stock.Code)).ToArray();
+        var batches = missingUniverse.Select((stock, index) => (stock, index))
             .GroupBy(item => item.index / 50)
             .Select(group => group.Select(item => item.stock).ToArray())
             .ToArray();
-        int completed = 0;
+        int completed = universe.Count - missingUniverse.Length;
+        progress?.Report(new SparrowComparisonProgress
+        {
+            ProgressMax = universe.Count,
+            ProgressValue = completed
+        });
         int concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
         using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(8, concurrency)));
         await Task.WhenAll(batches.Select(async batch =>
@@ -280,20 +314,7 @@ public sealed class SparrowComparisonService
                     return;
                 }
 
-                using JsonDocument document = JsonDocument.Parse(response.Json);
-                if (!document.RootElement.TryGetProperty("data", out JsonElement data)
-                    || data.ValueKind != JsonValueKind.Array)
-                {
-                    return;
-                }
-                foreach (JsonElement item in data.EnumerateArray())
-                {
-                    string code = NormalizeCode(GetString(item, "Code"));
-                    if (code.Length > 0 && SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote))
-                    {
-                        quotes[code] = quote;
-                    }
-                }
+                AddQuotesFromJson(response.Json, quotes, universeCodes);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -314,8 +335,36 @@ public sealed class SparrowComparisonService
                 semaphore.Release();
             }
         }));
-        Report(progress, $"Shared Quote snapshot loaded once per batch: {quotes.Count}/{universe.Count}");
+        int missingCount = universe.Count - quotes.Count;
+        Report(progress, missingCount == 0
+            ? $"[P2] Shared quote snapshot complete: {quotes.Count}/{universe.Count}."
+            : $"[P2] ⚠ Shared quote snapshot incomplete: {quotes.Count}/{universe.Count}; " +
+              $"{missingCount} stocks will be marked as data unavailable, not rule rejects.");
         return quotes;
+    }
+
+    private static void AddQuotesFromJson(
+        string json,
+        ConcurrentDictionary<string, SparrowQuoteData> quotes,
+        IReadOnlySet<string> universeCodes)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("data", out JsonElement data)
+            || data.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (JsonElement item in data.EnumerateArray())
+        {
+            string code = NormalizeCode(GetString(item, "Code"));
+            if (code.Length > 0
+                && universeCodes.Contains(code)
+                && SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote))
+            {
+                quotes[code] = quote;
+            }
+        }
     }
 
     private static void EvaluateP2(

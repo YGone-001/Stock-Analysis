@@ -179,11 +179,17 @@ public partial class SparrowViewModel : ObservableObject
     [RelayCommand]
     private async Task Test()
     {
-        AppendLog("\n🪺 [网络诊断] 测试抗封锁智能客户端...");
+		AppendLog("\n🪺 [网络诊断] 测试正式股票数据容错链路...");
         try
         {
-            using var spider = new EastMoneySpiderService();
-            string text = await spider.FetchEastMoneyKLineAsync("0.000001");
+			StockDataResult result = await _mainVm.DataProvider.GetDataAsync(
+				StockDataRequest.Parse("/api/kline-all?code=000001&limit=5&refresh=1"));
+			string text = result.Json;
+			if (!result.Success)
+			{
+				AppendLog($"❌ [诊断结果] 来源 {result.Source}；{result.Error}", true);
+				return;
+			}
             if (string.IsNullOrWhiteSpace(text))
             {
                 AppendLog("❌ [诊断结果] 返回了空字符串！");
@@ -193,7 +199,8 @@ public partial class SparrowViewModel : ObservableObject
             AppendLog("[原始返回值] \n" + text2);
             if (text.Contains("{") && text.Contains("}"))
             {
-                AppendLog("✅ [诊断结论] 接口完全畅通！WAF 的 Cookie 挑战已被攻破！");
+				AppendLog($"✅ [诊断结论] 股票数据链路畅通；当前来源: {result.Source}。" +
+					(result.UsedCache ? "（使用本地缓存）" : ""));
             }
             else
             {
@@ -422,10 +429,29 @@ public partial class SparrowViewModel : ObservableObject
             _lastComparisonRows, SparrowComparisonCategory.ClassicOnly, topN);
         IReadOnlyList<SparrowComparisonRow> v2Only = SparrowRankingEngine.SelectCompareTopN(
             _lastComparisonRows, SparrowComparisonCategory.V2Only, topN);
-        SetResultGroup("Both", $"麻雀_双选_Top{topN}_{_lastCompletedAt:MMdd}", both.Select(row => (row.Code, row.Name)));
-        SetResultGroup("ClassicOnly", $"麻雀_ClassicOnly_Top{topN}_{_lastCompletedAt:MMdd}", classicOnly.Select(row => (row.Code, row.Name)));
-        SetResultGroup("V2Only", $"麻雀_V2Only_Top{topN}_{_lastCompletedAt:MMdd}", v2Only.Select(row => (row.Code, row.Name)));
+        SetResultGroupIfAny("Both", $"麻雀_双选_Top{topN}_{_lastCompletedAt:MMdd}", both.Select(row => (row.Code, row.Name)));
+        SetResultGroupIfAny("ClassicOnly", $"麻雀_ClassicOnly_Top{topN}_{_lastCompletedAt:MMdd}", classicOnly.Select(row => (row.Code, row.Name)));
+        SetResultGroupIfAny("V2Only", $"麻雀_V2Only_Top{topN}_{_lastCompletedAt:MMdd}", v2Only.Select(row => (row.Code, row.Name)));
         ResultSummary = $"Compare 完成 · Top{topN}: 双选 {both.Count} / ClassicOnly {classicOnly.Count} / V2Only {v2Only.Count}";
+    }
+
+    private void SetResultGroupIfAny(
+        string key,
+        string groupName,
+        IEnumerable<(string Code, string Name)> results)
+    {
+        List<(string Code, string Name)> materialized = results.ToList();
+        if (materialized.Count > 0)
+        {
+            SetResultGroup(key, groupName, materialized);
+            return;
+        }
+
+        if (_activeResultGroups.Remove(key, out StockGroupModel? existing))
+        {
+            _mainVm.StockVM.RemoveGeneratedResultGroup(existing);
+        }
+        AppendLog($"ℹ️ {groupName} 本次为 0 只，不创建空分组。");
     }
 
     private void SetResultGroup(string key, string groupName, IEnumerable<(string Code, string Name)> results)

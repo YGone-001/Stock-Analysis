@@ -26,7 +26,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 
 	private static readonly HashSet<string> SupportedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 	{
-		"/api/quote", "/api/kline-all", "/api/index", "/api/minute", "/api/minute-trade-all", "/api/trend", "/api/search", "/api/codes", "/api/etf", "/api/workday"
+		"/api/quote", "/api/quote-all", "/api/kline-all", "/api/index", "/api/minute", "/api/minute-trade-all", "/api/trend", "/api/search", "/api/codes", "/api/etf", "/api/workday"
 	};
 
 	public EastMoneyStockDataProvider(HttpClient client, LocalStockCacheProvider cache)
@@ -49,6 +49,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		return request.Path switch
 		{
 			"/api/quote" => await GetQuoteAsync(request, cancellationToken),
+			"/api/quote-all" => await GetAllQuotesAsync(request, cancellationToken),
 			"/api/kline-all" or "/api/index" => await GetKlineAsync(request, cancellationToken),
 			"/api/minute" => await GetMinuteAsync(request, cancellationToken),
 			"/api/minute-trade-all" => await GetTicksAsync(request, cancellationToken),
@@ -85,7 +86,8 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			lastUrl = url;
 			try
 			{
-				using JsonDocument document = JsonDocument.Parse(await SendGetWithRetryAsync(url, cancellationToken));
+				using JsonDocument document = JsonDocument.Parse(
+					await SendGetWithRetryAsync(url, cancellationToken, maxAttempts: 4, timeoutSeconds: 5));
 				if (!document.RootElement.TryGetProperty("data", out var dataElement) || !dataElement.TryGetProperty("diff", out var diffElement) || diffElement.ValueKind != JsonValueKind.Array)
 				{
 					continue;
@@ -103,7 +105,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
                     rows.Add(row);
 				}
 			}
-			catch (OperationCanceledException)
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
 			throw;
 		}
@@ -118,6 +120,86 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		}
 
 		return Success(request, JsonSerializer.Serialize(new { data = rows }), lastUrl, string.Join(",", codes), "rows=" + rows.Count);
+	}
+
+	private async Task<StockDataResult> GetAllQuotesAsync(StockDataRequest request, CancellationToken cancellationToken)
+	{
+		MarketDefinition[] markets = new MarketDefinition[]
+		{
+			new("sz-main", "stock", "m:0+t:6"),
+			new("sz-gem", "stock", "m:0+t:80"),
+			new("sh-main", "stock", "m:1+t:2")
+		};
+		QuoteMarketResult[] marketResults = await Task.WhenAll(
+			markets.Select(market => GetQuoteMarketAsync(market, cancellationToken)));
+		List<StockQuoteSnapshot> rows = marketResults
+			.SelectMany(result => result.Rows)
+			.GroupBy(row => row.Code, StringComparer.Ordinal)
+			.Select(group => group.First())
+			.ToList();
+		int failedPages = marketResults.Sum(result => result.FailedPages);
+		string lastUrl = marketResults.Select(result => result.LastUrl)
+			.LastOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "https://push2.eastmoney.com/api/qt/clist/get";
+		if (rows.Count == 0)
+		{
+			return Failure(request, "{\"data\":[]}", "All-market quote snapshot unavailable", lastUrl);
+		}
+
+		return Success(request, JsonSerializer.Serialize(new { data = rows }), lastUrl, "-",
+			$"rows={rows.Count}, markets={markets.Length}, failedPages={failedPages}");
+	}
+
+	private async Task<QuoteMarketResult> GetQuoteMarketAsync(
+		MarketDefinition market,
+		CancellationToken cancellationToken)
+	{
+		const int pageSize = 100;
+		var rows = new List<StockQuoteSnapshot>();
+		int failedPages = 0;
+		int totalPages = 1;
+		string lastUrl = "";
+		for (int page = 1; page <= totalPages; page++)
+		{
+			string url = "https://push2.eastmoney.com/api/qt/clist/get?po=1&np=1&fltt=2&invt=2&fid=f12&fields=f12,f14,f2,f3,f5,f6,f8,f15,f16,f17,f18,f34,f35&pn=" + page + "&pz=" + pageSize + "&fs=" + Uri.EscapeDataString(market.Filter);
+			lastUrl = url;
+			try
+			{
+				using JsonDocument document = JsonDocument.Parse(
+					await SendGetWithRetryAsync(url, cancellationToken, maxAttempts: 3, timeoutSeconds: 5));
+				if (!document.RootElement.TryGetProperty("data", out JsonElement data)
+					|| data.ValueKind != JsonValueKind.Object
+					|| !data.TryGetProperty("diff", out JsonElement diff)
+					|| diff.ValueKind != JsonValueKind.Array)
+				{
+					failedPages++;
+					continue;
+				}
+
+				if (page == 1 && data.TryGetProperty("total", out JsonElement totalElement)
+					&& totalElement.TryGetInt32(out int total))
+				{
+					totalPages = Math.Max(1, (int)Math.Ceiling(total / (double)pageSize));
+				}
+				foreach (JsonElement item in diff.EnumerateArray())
+				{
+					if (string.IsNullOrWhiteSpace(GetString(item, "f12"))) continue;
+					StockQuoteSnapshot row = EastMoneyQuoteMapper.MapBatch(item);
+					row.BuyLevel = BuildUnavailableLevels();
+					row.SellLevel = BuildUnavailableLevels();
+					rows.Add(row);
+				}
+			}
+			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+			{
+				throw;
+			}
+			catch (Exception ex)
+			{
+				failedPages++;
+				Serilog.Log.Warning(ex, "East Money all-market quote page failed for {Market} page {Page}", market.Key, page);
+			}
+		}
+		return new QuoteMarketResult(rows, failedPages, lastUrl);
 	}
 
 	private async Task<StockDataResult> GetSingleQuoteAsync(StockDataRequest request, string code, CancellationToken cancellationToken)
@@ -139,7 +221,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
             row.SellLevel = sellLevels;
             return Success(request, JsonSerializer.Serialize(new { data = new object[] { row } }), url, code, "rows=1, buyLevels=" + buyLevels.Length + ", sellLevels=" + sellLevels.Length);
 		}
-		catch (OperationCanceledException)
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
 			throw;
 		}
@@ -181,7 +263,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			}
 			return Success(request, JsonSerializer.Serialize(new { data = rows }), url, code, "rows=" + rows.Count);
 		}
-		catch (OperationCanceledException)
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
 			throw;
 		}
@@ -216,7 +298,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			}
 			return Success(request, JsonSerializer.Serialize(new { data = new { List = rows } }), url, code, "rows=" + rows.Count);
 		}
-		catch (OperationCanceledException)
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
 			throw;
 		}
@@ -261,7 +343,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			}
 			return Success(request, JsonSerializer.Serialize(new { data = new { List = rows } }), detailsUrl, code, "rows=" + rows.Count + ", dateCheckUrl=" + quoteUrl);
 		}
-		catch (OperationCanceledException)
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
 			throw;
 		}
@@ -302,7 +384,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			var rows = items.Select(item => new { code = item.Key, name = item.Value }).ToList();
 			return Success(request, JsonSerializer.Serialize(new { code = 0, data = rows }), url, keyword, "rows=" + rows.Count);
 		}
-		catch (OperationCanceledException)
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
 			throw;
 		}
@@ -328,7 +410,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			string json = kind == "etf" ? JsonSerializer.Serialize(new { data = new { list = rows } }) : JsonSerializer.Serialize(new { data = new { codes = rows } });
 			return Success(request, json, currentUrl, "-", "rows=" + rows.Count + ", paged=true");
 		}
-		catch (OperationCanceledException)
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
 			throw;
 		}
@@ -392,7 +474,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			var previous = string.IsNullOrWhiteSpace(actual) ? Array.Empty<object>() : new object[] { new { numeric = actual } };
 			return Success(request, JsonSerializer.Serialize(new { data = new { is_workday = isWorkday, previous } }), url, "000001", "target=" + date + ", actual=" + actual);
 		}
-		catch (OperationCanceledException)
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
 			throw;
 		}
@@ -421,7 +503,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			}
 			return Success(request, json, url, code, "trend");
 		}
-		catch (OperationCanceledException)
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
 			throw;
 		}
@@ -437,18 +519,23 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		Exception lastException = null;
 		for (int attempt = 1; attempt <= maxAttempts; attempt++)
 		{
+			string requestUrl = GetRequestUrlForAttempt(url, attempt);
 			try
 			{
 				await _requestThrottle.WaitAsync(cancellationToken);
 				try
 				{
-					using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url);
+					using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, requestUrl);
 					request.Version = HttpVersion.Version11;
 					request.Headers.Referrer = new Uri("https://quote.eastmoney.com/");
 					using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 					timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
 					using HttpResponseMessage response = await _client.SendAsync(request, timeout.Token);
 					response.EnsureSuccessStatusCode();
+					if (attempt > 1)
+					{
+						Serilog.Log.Information("East Money request recovered through fallback host {Host}", request.RequestUri?.Host);
+					}
 					return await response.Content.ReadAsStringAsync(timeout.Token);
 				}
 				finally
@@ -463,6 +550,46 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			}
 		}
 		throw lastException ?? new HttpRequestException("Public source request failed");
+	}
+
+	private static string GetRequestUrlForAttempt(string url, int attempt)
+	{
+		if (attempt <= 1 || !Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
+		{
+			return url;
+		}
+
+		if (!uri.Host.Equals("push2.eastmoney.com", StringComparison.OrdinalIgnoreCase)
+			&& !uri.Host.Equals("push2his.eastmoney.com", StringComparison.OrdinalIgnoreCase))
+		{
+			return url;
+		}
+
+		// The quote-list endpoint is currently unreliable on push2 but is also served by
+		// push2his. Try the sibling host before numbered hosts so UI quote refreshes can
+		// recover without issuing one request per stock.
+		string[] fallbackHosts = uri.Host.Equals("push2.eastmoney.com", StringComparison.OrdinalIgnoreCase)
+			? new string[]
+			{
+				"push2his.eastmoney.com",
+				"1.push2his.eastmoney.com",
+				"1.push2.eastmoney.com",
+				"7.push2his.eastmoney.com",
+				"7.push2.eastmoney.com"
+			}
+			: new string[]
+			{
+				"1.push2his.eastmoney.com",
+				"7.push2his.eastmoney.com",
+				"push2.eastmoney.com",
+				"1.push2.eastmoney.com",
+				"7.push2.eastmoney.com"
+			};
+		var builder = new UriBuilder(uri)
+		{
+			Host = fallbackHosts[Math.Min(attempt - 2, fallbackHosts.Length - 1)]
+		};
+		return builder.Uri.AbsoluteUri;
 	}
 
 	private static object[] BuildLevels(JsonElement item, string[] priceFields, string[] volumeFields)
@@ -571,6 +698,8 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 	}
 
 	private sealed record MarketDefinition(string Key, string Kind, string Filter);
+
+	private sealed record QuoteMarketResult(List<StockQuoteSnapshot> Rows, int FailedPages, string LastUrl);
 
 	private sealed class KlineRow
 	{

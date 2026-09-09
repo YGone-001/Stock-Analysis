@@ -39,6 +39,28 @@ public sealed class SparrowComparisonServiceTests
     }
 
     [Fact]
+    public async Task Compare_LargeUniverse_UsesFullMarketSnapshotWithoutQuoteBatchesWhenComplete()
+    {
+        var provider = new FakeProvider();
+        var universe = Enumerable.Range(0, 501)
+            .Select(index => ($"600{index:D3}", $"公司 {index}"))
+            .ToArray();
+        object[] quotes = universe
+            .Select(stock => Quote(stock.Item1, outer: 500, inner: 1000, turnover: 10))
+            .ToArray();
+        provider.Set("/api/quote-all", QuoteJson(quotes));
+
+        SparrowComparisonResult result = await new SparrowComparisonService(provider).CompareAsync(
+            universe, Classic(), V2(), null, CancellationToken.None, false);
+
+        Assert.Equal(1, provider.Count("/api/quote-all"));
+        Assert.Equal(0, provider.Count("/api/quote"));
+        Assert.Equal(501, result.Rows.Count);
+        Assert.Equal(0, result.Metrics.IntersectionCount);
+        Assert.All(result.Rows, row => Assert.Equal(SparrowComparisonReasonCodes.P2VolRatio, row.Classic.RejectReasonCode));
+    }
+
+    [Fact]
     public void Classic_Latest65From120_IsEquivalentToOriginal65()
     {
         double[] latest65 = PassingCloses(65).Reverse().ToArray();
