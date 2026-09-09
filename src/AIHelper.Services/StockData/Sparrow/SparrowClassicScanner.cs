@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -240,6 +241,12 @@ public sealed class SparrowClassicScanner
         int rejectAdhesionHigh = 0;
         int rejectAdhesionLow = 0;
 
+        var klineStatistics = new SparrowKlineFetchStatistics();
+        var klineStopwatch = Stopwatch.StartNew();
+        int klineCacheHits = 0;
+        int klineNetworkRequested = 0;
+        int klineAvailable = 0;
+
         int p3Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
         using var klineSemaphore = new SemaphoreSlim(Math.Max(1, Math.Min(32, p3Concurrency * 4)));
         await Task.WhenAll(p2List.Select(async stock =>
@@ -250,15 +257,29 @@ public sealed class SparrowClassicScanner
                 await klineSemaphore.WaitAsync(cancellationToken);
                 entered = true;
                 string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, 65, "day");
-                if (!_klineCache.TryGet(cacheKey, parameters.UseCache, out string? klineJson))
+                bool validCacheHit = _klineCache.TryGet(cacheKey, parameters.UseCache, out string? klineJson)
+                    && !string.IsNullOrWhiteSpace(klineJson)
+                    && SparrowKlineFetchHelper.IsUsableKlineJson(klineJson);
+                if (validCacheHit)
                 {
+                    Interlocked.Increment(ref klineCacheHits);
+                }
+                else
+                {
+                    Interlocked.Increment(ref klineNetworkRequested);
                     string refreshParam = parameters.UseCache ? "" : "&refresh=1";
-                    StockDataResult response = await _dataProvider.GetDataAsync(
-                        StockDataRequest.Parse("/api/kline-all?code=" + stock.Code + "&type=day&limit=65" + refreshParam),
+                    StockDataRequest request = StockDataRequest.Parse(
+                        "/api/kline-all?code=" + stock.Code + "&type=day&limit=65" + refreshParam);
+                    SparrowKlineFetchOutcome outcome = await SparrowKlineFetchHelper.FetchAsync(
+                        _dataProvider,
+                        stock.Code,
+                        request,
+                        SparrowKlineFetchHelper.IsUsableKlineJson,
                         cancellationToken);
-                    if (response.Success && !string.IsNullOrWhiteSpace(response.Json))
+                    klineStatistics.Record(outcome);
+                    if (outcome.Success)
                     {
-                        klineJson = response.Json;
+                        klineJson = outcome.Json!;
                         _klineCache.Set(cacheKey, klineJson, SparrowDataCachePolicy.DefaultKlineTtl);
                     }
                 }
@@ -268,6 +289,8 @@ public sealed class SparrowClassicScanner
                     Interlocked.Increment(ref rejectKlineMissing);
                     return;
                 }
+
+                Interlocked.Increment(ref klineAvailable);
 
                 List<double> closes = ParseKlineClosesNewestFirst(klineJson, out double latestPrice);
                 SparrowClassicTechnicalResult technical = SparrowClassicRuleEvaluator.Evaluate(closes, latestPrice, parameters);
@@ -334,7 +357,7 @@ public sealed class SparrowClassicScanner
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // The caller owns cancellation reporting.
+                throw;
             }
             catch (Exception ex)
             {
@@ -351,11 +374,15 @@ public sealed class SparrowClassicScanner
             }
         }));
 
-        if (cancellationToken.IsCancellationRequested)
-        {
-            ReportLog(progress, $"\n🛑 [Sparrow Classic] 已暂停，阶段3进度: {p3Completed}/{p2List.Count}。", true);
-            return new List<SparrowClassicCandidate>();
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        klineStopwatch.Stop();
+        ReportLog(progress, klineStatistics.Format(
+            "Sparrow Classic",
+            p2List.Count,
+            klineCacheHits,
+            klineNetworkRequested,
+            klineAvailable,
+            klineStopwatch.Elapsed));
 
         List<SparrowClassicCandidate> results = p3Winners.Values.OrderBy(candidate => candidate.Code).ToList();
         ReportLog(progress, $"\n🏆 [Sparrow Classic] 漏斗完成，共入围 {results.Count} 只。Strategy = {SparrowClassicCandidate.StrategyName}");

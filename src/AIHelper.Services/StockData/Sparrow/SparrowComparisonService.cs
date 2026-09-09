@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -377,7 +378,11 @@ public sealed class SparrowComparisonService
         CancellationToken cancellationToken)
     {
         var snapshots = new ConcurrentDictionary<string, SparrowKlineSnapshot>(StringComparer.Ordinal);
+        var statistics = new SparrowKlineFetchStatistics();
+        var stopwatch = Stopwatch.StartNew();
         int completed = 0;
+        int cacheHits = 0;
+        int networkRequested = 0;
         int concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
         using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(32, concurrency * 4)));
         await Task.WhenAll(codes.Select(async code =>
@@ -387,15 +392,29 @@ public sealed class SparrowComparisonService
             {
                 string cacheKey = SparrowDataCachePolicy.GetKlineKey(code, 120, "day");
                 string? json = null;
-                if (!_klineCache.TryGet(cacheKey, parameters.UseCache, out json))
+                bool validCacheHit = _klineCache.TryGet(cacheKey, parameters.UseCache, out json)
+                    && !string.IsNullOrWhiteSpace(json)
+                    && SparrowKlineFetchHelper.IsUsableKlineJson(json);
+                if (validCacheHit)
                 {
+                    Interlocked.Increment(ref cacheHits);
+                }
+                else
+                {
+                    Interlocked.Increment(ref networkRequested);
                     string refresh = parameters.UseCache ? "" : "&refresh=1";
-                    StockDataResult response = await _dataProvider.GetDataAsync(
-                        StockDataRequest.Parse($"/api/kline-all?code={code}&type=day&limit=120{refresh}"),
+                    StockDataRequest request = StockDataRequest.Parse(
+                        $"/api/kline-all?code={code}&type=day&limit=120{refresh}");
+                    SparrowKlineFetchOutcome outcome = await SparrowKlineFetchHelper.FetchAsync(
+                        _dataProvider,
+                        code,
+                        request,
+                        SparrowKlineFetchHelper.IsUsableKlineJson,
                         cancellationToken);
-                    if (response.Success && !string.IsNullOrWhiteSpace(response.Json))
+                    statistics.Record(outcome);
+                    if (outcome.Success)
                     {
-                        json = response.Json;
+                        json = outcome.Json!;
                         _klineCache.Set(cacheKey, json, SparrowDataCachePolicy.DefaultKlineTtl);
                     }
                 }
@@ -425,7 +444,16 @@ public sealed class SparrowComparisonService
                 semaphore.Release();
             }
         }));
+        cancellationToken.ThrowIfCancellationRequested();
+        stopwatch.Stop();
         Report(progress, $"Shared Kline snapshot loaded once per P2-union stock: {snapshots.Count}/{codes.Count}");
+        Report(progress, statistics.Format(
+            "Sparrow Compare",
+            codes.Count,
+            cacheHits,
+            networkRequested,
+            snapshots.Count,
+            stopwatch.Elapsed));
         return snapshots;
     }
 
