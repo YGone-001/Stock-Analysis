@@ -52,6 +52,9 @@ public sealed class ArchitectureDependencyTests
         using MainViewModel mainViewModel = provider.GetRequiredService<MainViewModel>();
 
         Assert.NotNull(mainViewModel.DataGateway);
+        Assert.IsType<QuoteService>(provider.GetRequiredService<IQuoteService>());
+        Assert.IsType<KlineService>(provider.GetRequiredService<IKlineService>());
+        Assert.IsType<MarketCalendarService>(provider.GetRequiredService<IMarketCalendarService>());
         Assert.IsType<StockViewModel>(provider.GetRequiredService<StockViewModel>());
         Assert.IsType<SparrowViewModel>(provider.GetRequiredService<SparrowViewModel>());
     }

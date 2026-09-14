@@ -2,8 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using AIHelper.Models;
 
-namespace AIHelper.Services.StockData;
+namespace AIHelper.Core.StockData;
 
 public interface IStockDataProvider
 {

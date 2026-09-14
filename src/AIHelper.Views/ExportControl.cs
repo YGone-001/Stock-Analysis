@@ -74,6 +74,7 @@ public class ExportControl : UserControl, IComponentConnector
 
 	public Action<string> PrintLogAction { get; set; }
 	public IStockDataGateway? DataGateway { get; set; }
+	public IMarketCalendarService? MarketCalendar { get; set; }
 
 	public ExportControl()
 	{
@@ -97,8 +98,8 @@ public class ExportControl : UserControl, IComponentConnector
 		{
 			DpTargetDate.IsEnabled = false;
 			DateTime netToday = TimeHelper.BeijingNow;
-			if (DataGateway == null) return;
-			DateTime value = await DataExportEngine.GetActualTradingDateAsync(DataGateway, netToday);
+			if (MarketCalendar == null) return;
+			DateTime value = await DataExportEngine.GetActualTradingDateAsync(MarketCalendar, netToday);
 			_isUpdatingDate = true;
 			DpTargetDate.SelectedDate = value;
 			_isUpdatingDate = false;
@@ -130,8 +131,8 @@ public class ExportControl : UserControl, IComponentConnector
 		DpTargetDate.IsEnabled = false;
 		try
 		{
-			if (DataGateway == null) return;
-			DateTime value = await DataExportEngine.GetActualTradingDateAsync(DataGateway, target);
+			if (MarketCalendar == null) return;
+			DateTime value = await DataExportEngine.GetActualTradingDateAsync(MarketCalendar, target);
 			if (value.Date != target.Date)
 			{
 				_isUpdatingDate = true;
@@ -252,7 +253,7 @@ public class ExportControl : UserControl, IComponentConnector
 			Log("❌ 致命错误：未绑定数据源委托 (GetSelectedStocksFunc)。");
 			return;
 		}
-		if (DataGateway == null)
+		if (DataGateway == null || MarketCalendar == null)
 		{
 			Log("❌ 数据服务尚未就绪。");
 			return;
@@ -280,7 +281,7 @@ public class ExportControl : UserControl, IComponentConnector
 			int klineDays = (int.TryParse(TxtKlineDays.Text, out result) ? Math.Clamp(result, 5, 300) : 100);
 			int result2;
 			int indexDays = (int.TryParse(TxtIndexDays.Text, out result2) ? Math.Clamp(result2, 3, 60) : 10);
-			await DataExportEngine.ExecuteExportAsync(DataGateway, new ExportConfig
+			await DataExportEngine.ExecuteExportAsync(DataGateway, MarketCalendar, new ExportConfig
 			{
 				SelectedStocks = list,
 				TargetDate = (DpTargetDate.SelectedDate ?? DateTime.Now),

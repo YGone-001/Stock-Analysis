@@ -152,6 +152,9 @@ public class App : Application
 		services.AddSingleton<IStockDataProvider>(sp => sp.GetRequiredService<FallbackStockDataProvider>());
 		services.AddSingleton<IStockDataStatusSource>(sp => sp.GetRequiredService<FallbackStockDataProvider>());
 		services.AddSingleton<IStockDataGateway, StockDataGateway>();
+		services.AddSingleton<IQuoteService, QuoteService>();
+		services.AddSingleton<IKlineService, KlineService>();
+		services.AddSingleton<IMarketCalendarService, MarketCalendarService>();
 
 		// Windows
 		services.AddTransient<MainWindow>();

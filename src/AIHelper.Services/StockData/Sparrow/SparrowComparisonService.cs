@@ -21,6 +21,7 @@ public sealed class SparrowComparisonService
     private const int FullMarketQuoteThreshold = 500;
 
     private readonly IStockDataProvider _dataProvider;
+	private readonly IKlineService? _klineService;
     private readonly SparrowMarketRegimeService _marketRegimeService;
     private readonly SparrowMarketDataCache _klineCache;
     private readonly TimeProvider _timeProvider;
@@ -31,13 +32,15 @@ public sealed class SparrowComparisonService
         SparrowMarketRegimeService? marketRegimeService = null,
         SparrowMarketDataCache? klineCache = null,
         TimeProvider? timeProvider = null,
-        SparrowRankingEngine? rankingEngine = null)
+		SparrowRankingEngine? rankingEngine = null,
+		IKlineService? klineService = null)
     {
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
         _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
         _klineCache = klineCache ?? new SparrowMarketDataCache(timeProvider);
         _timeProvider = timeProvider ?? TimeProvider.System;
         _rankingEngine = rankingEngine ?? new SparrowRankingEngine();
+		_klineService = klineService;
     }
 
     public async Task<SparrowComparisonResult> CompareAsync(
@@ -454,12 +457,11 @@ public sealed class SparrowComparisonService
                     string refresh = parameters.UseCache ? "" : "&refresh=1";
                     StockDataRequest request = StockDataRequest.Parse(
                         $"/api/kline-all?code={code}&type=day&limit=120{refresh}");
-                    SparrowKlineFetchOutcome outcome = await SparrowKlineFetchHelper.FetchAsync(
-                        _dataProvider,
-                        code,
-                        request,
-                        SparrowKlineFetchHelper.IsUsableKlineJson,
-                        cancellationToken);
+					SparrowKlineFetchOutcome outcome = _klineService != null
+						? await SparrowKlineFetchHelper.FetchDailyAsync(
+							_klineService, code, 120, !parameters.UseCache, cancellationToken)
+						: await SparrowKlineFetchHelper.FetchAsync(
+							_dataProvider, code, request, SparrowKlineFetchHelper.IsUsableKlineJson, cancellationToken);
                     statistics.Record(outcome);
                     if (outcome.Success)
                     {

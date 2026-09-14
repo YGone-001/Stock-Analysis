@@ -7,7 +7,7 @@ using Serilog;
 
 #pragma warning disable CS8625
 #pragma warning disable CS8625
-namespace AIHelper.Services.StockData;
+namespace AIHelper.Core.StockData;
 
 public static class StockDataLog
 {

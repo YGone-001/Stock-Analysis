@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace AIHelper.Services.StockData;
+namespace AIHelper.Core.StockData;
 
 public sealed class StockNameCacheDocument
 {

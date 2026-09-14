@@ -403,12 +403,14 @@ public partial class StockViewModel : ObservableObject, IDisposable
 
 	private readonly IStockDataProvider _dataProvider;
 	private readonly IStockDataGateway? _dataGateway;
+	private readonly IQuoteService _quoteService;
 	private readonly AIHelper.Services.IDialogService _dialogService;
 
-	public StockViewModel(IStockDataProvider dataProvider, AIHelper.Services.IDialogService dialogService, IStockDataGateway? dataGateway = null)
+	public StockViewModel(IStockDataProvider dataProvider, AIHelper.Services.IDialogService dialogService, IStockDataGateway? dataGateway = null, IQuoteService? quoteService = null)
 	{
 		_dataProvider = dataProvider;
 		_dataGateway = dataGateway ?? dataProvider as IStockDataGateway;
+		_quoteService = quoteService ?? new QuoteService(dataProvider);
 		_dialogService = dialogService;
 		_filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StockGroups.json");
 		if (_dataGateway != null) _dataGateway.StockDataStatusChanged += OnStockDataStatusChanged;
@@ -1166,9 +1168,8 @@ public partial class StockViewModel : ObservableObject, IDisposable
 			{
 				try
 				{
-					string codes = string.Join(",", chunk.Select((StockModel stock) => stock.PureCode));
-					StockDataResult result = await _dataProvider.GetDataAsync(StockDataRequest.Parse("/api/quote?code=" + codes));
-					return result.Success && UpdateBatchStockUI(result.Json) > 0;
+					MarketDataResult<IReadOnlyList<QuoteSnapshot>> quoteResult = await _quoteService.GetQuotesAsync(chunk.Select(stock => stock.PureCode).ToArray());
+					return quoteResult.Success && UpdateBatchStockUI(quoteResult.Data) > 0;
 				}
 				catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 					return false;
@@ -1204,95 +1205,48 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		}
 	}
 
-	private int UpdateBatchStockUI(string json)
+	private int UpdateBatchStockUI(IReadOnlyList<QuoteSnapshot> quotes)
 	{
-		if (string.IsNullOrWhiteSpace(json))
+		if (quotes.Count == 0)
 		{
 			return 0;
 		}
-		try
+		var updates = quotes
+			.Where(quote => !string.IsNullOrWhiteSpace(quote.Symbol))
+			.Select(quote =>
+			{
+				// StockModel is a legacy non-nullable UI model. The typed contract retains null;
+				// converting it to zero here preserves the historical display-update behavior only.
+				double price = quote.Price.GetValueOrDefault();
+				double previousClose = quote.PreviousClose.GetValueOrDefault();
+				double percent = previousClose > 0 && price > 0
+					? (price - previousClose) / previousClose * 100.0
+					: 0.0;
+				return (Symbol: quote.Symbol, Price: price, PreviousClose: previousClose, Percent: percent,
+					Open: quote.Open.GetValueOrDefault(), High: quote.High.GetValueOrDefault(), Low: quote.Low.GetValueOrDefault());
+			})
+			.ToList();
+		if (updates.Count == 0)
 		{
-			using JsonDocument jsonDocument = JsonDocument.Parse(json);
-			if (!jsonDocument.RootElement.TryGetProperty("data", out var value) || value.ValueKind != JsonValueKind.Array)
-			{
-				return 0;
-			}
-			List<(string Code, double Price, double LastClose, double Percent, double Open, double High, double Low)> updates = new List<(string, double, double, double, double, double, double)>();
-			foreach (JsonElement item5 in value.EnumerateArray())
-			{
-				if (item5.ValueKind != JsonValueKind.Object)
-				{
-					continue;
-				}
-				string text = "";
-				if (item5.TryGetProperty("Code", out var value2) && value2.ValueKind == JsonValueKind.String)
-				{
-					text = value2.GetString() ?? "";
-				}
-				if (!string.IsNullOrEmpty(text) && item5.TryGetProperty("K", out var value3) && value3.ValueKind == JsonValueKind.Object)
-				{
-					double num = 0.0;
-					double num2 = 0.0;
-					double item = 0.0;
-					double item2 = 0.0;
-					double item3 = 0.0;
-					double item4 = 0.0;
-					if (value3.TryGetProperty("Close", out var value4) && value4.ValueKind == JsonValueKind.Number)
-					{
-						num = value4.GetDouble() / 1000.0;
-					}
-					JsonElement value6;
-					if (value3.TryGetProperty("Last", out var value5) && value5.ValueKind == JsonValueKind.Number)
-					{
-						num2 = value5.GetDouble() / 1000.0;
-					}
-					else if (value3.TryGetProperty("PreClose", out value6) && value6.ValueKind == JsonValueKind.Number)
-					{
-						num2 = value6.GetDouble() / 1000.0;
-					}
-					if (num2 > 0.0 && num > 0.0)
-					{
-						item = (num - num2) / num2 * 100.0;
-					}
-					if (value3.TryGetProperty("Open", out var value7) && value7.ValueKind == JsonValueKind.Number)
-					{
-						item2 = value7.GetDouble() / 1000.0;
-					}
-					if (value3.TryGetProperty("High", out var value8) && value8.ValueKind == JsonValueKind.Number)
-					{
-						item3 = value8.GetDouble() / 1000.0;
-					}
-					if (value3.TryGetProperty("Low", out var value9) && value9.ValueKind == JsonValueKind.Number)
-					{
-						item4 = value9.GetDouble() / 1000.0;
-					}
-					updates.Add((text, num, num2, item, item2, item3, item4));
-				}
-			}
-			if (updates.Count <= 0)
-			{
-				return 0;
-			}
-			Application.Current?.Dispatcher.Invoke(delegate
-			{
-				foreach (var item6 in updates)
-				{
-					if (GlobalStockCache.TryGetValue(item6.Code, out var value10))
-					{
-						value10.Price = item6.Price;
-						value10.LastClose = item6.LastClose;
-						value10.Percent = item6.Percent;
-						value10.Open = item6.Open;
-						value10.High = item6.High;
-						value10.Low = item6.Low;
-					}
-				}
-			});
-			return updates.Count;
-		}
-		catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 			return 0;
 		}
+
+		Application.Current?.Dispatcher.Invoke(delegate
+		{
+			foreach (var update in updates)
+			{
+				if (GlobalStockCache.TryGetValue(update.Symbol, out StockModel? stock))
+				{
+					stock.Price = update.Price;
+					stock.LastClose = update.PreviousClose;
+					stock.Percent = update.Percent;
+					stock.Open = update.Open;
+					stock.High = update.High;
+					stock.Low = update.Low;
+				}
+			}
+		});
+		return updates.Count;
 	}
 
 	private void ResetQuoteBackoff()

@@ -17,6 +17,7 @@ namespace AIHelper.Services.StockData.Sparrow;
 public sealed class SparrowClassicScanner
 {
     private readonly IStockDataProvider _dataProvider;
+	private readonly IKlineService? _klineService;
     private readonly SparrowMarketRegimeService _marketRegimeService;
     private readonly SparrowMarketDataCache _klineCache;
 
@@ -25,11 +26,13 @@ public sealed class SparrowClassicScanner
     public SparrowClassicScanner(
         IStockDataProvider dataProvider,
         SparrowMarketRegimeService? marketRegimeService = null,
-        SparrowMarketDataCache? klineCache = null)
+		SparrowMarketDataCache? klineCache = null,
+		IKlineService? klineService = null)
     {
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
         _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
         _klineCache = klineCache ?? new SparrowMarketDataCache();
+		_klineService = klineService;
     }
 
     public async Task<List<SparrowClassicCandidate>> ScanAsync(
@@ -270,12 +273,11 @@ public sealed class SparrowClassicScanner
                     string refreshParam = parameters.UseCache ? "" : "&refresh=1";
                     StockDataRequest request = StockDataRequest.Parse(
                         "/api/kline-all?code=" + stock.Code + "&type=day&limit=65" + refreshParam);
-                    SparrowKlineFetchOutcome outcome = await SparrowKlineFetchHelper.FetchAsync(
-                        _dataProvider,
-                        stock.Code,
-                        request,
-                        SparrowKlineFetchHelper.IsUsableKlineJson,
-                        cancellationToken);
+					SparrowKlineFetchOutcome outcome = _klineService != null
+						? await SparrowKlineFetchHelper.FetchDailyAsync(
+							_klineService, stock.Code, 65, !parameters.UseCache, cancellationToken)
+						: await SparrowKlineFetchHelper.FetchAsync(
+							_dataProvider, stock.Code, request, SparrowKlineFetchHelper.IsUsableKlineJson, cancellationToken);
                     klineStatistics.Record(outcome);
                     if (outcome.Success)
                     {

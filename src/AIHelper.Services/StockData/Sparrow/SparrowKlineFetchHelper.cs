@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using AIHelper.Models;
 using Serilog;
 
@@ -100,6 +101,50 @@ internal sealed class SparrowKlineFetchStatistics
 
 internal static class SparrowKlineFetchHelper
 {
+	public static async Task<SparrowKlineFetchOutcome> FetchDailyAsync(
+		IKlineService klineService,
+		string code,
+		int limit,
+		bool forceRefresh,
+		CancellationToken callerToken)
+	{
+		ArgumentNullException.ThrowIfNull(klineService);
+		try
+		{
+			callerToken.ThrowIfCancellationRequested();
+			MarketDataResult<KlineSeries?> response = await klineService.GetDailyAsync(code, limit, forceRefresh, callerToken);
+			if (!response.Success)
+			{
+				Log.Warning("Sparrow typed Kline request failed for {Code}; Error={Error}", code, response.Error);
+				return new SparrowKlineFetchOutcome(code, null, SparrowKlineFetchFailureReason.RequestFailed, response.Error);
+			}
+			if (response.Data == null || response.Data.Bars.Count == 0)
+			{
+				return new SparrowKlineFetchOutcome(code, null, SparrowKlineFetchFailureReason.EmptyResponse, "Empty Kline response");
+			}
+			return new SparrowKlineFetchOutcome(code, SerializeForLegacySparrow(response.Data), null, null);
+		}
+		catch (OperationCanceledException) when (callerToken.IsCancellationRequested)
+		{
+			throw;
+		}
+		catch (OperationCanceledException ex)
+		{
+			Log.Warning(ex, "Sparrow typed Kline timeout for {Code}", code);
+			return new SparrowKlineFetchOutcome(code, null, SparrowKlineFetchFailureReason.Timeout, ex.Message);
+		}
+		catch (MarketDataContractException ex)
+		{
+			Log.Warning(ex, "Sparrow typed Kline contract was invalid for {Code}", code);
+			return new SparrowKlineFetchOutcome(code, null, SparrowKlineFetchFailureReason.InvalidResponse, ex.Message);
+		}
+		catch (Exception ex)
+		{
+			Log.Warning(ex, "Sparrow typed Kline fetch failed for {Code}", code);
+			return new SparrowKlineFetchOutcome(code, null, SparrowKlineFetchFailureReason.RequestFailed, ex.Message);
+		}
+	}
+
     public static async Task<SparrowKlineFetchOutcome> FetchAsync(
         IStockDataProvider dataProvider,
         string code,
@@ -165,6 +210,27 @@ internal static class SparrowKlineFetchHelper
         }
     }
 
-    public static bool IsUsableKlineJson(string json) =>
-        SparrowV2RuleEvaluator.ParseKline(json) is { ClosesNewestFirst.Count: > 0 };
+	public static bool IsUsableKlineJson(string json) =>
+		SparrowV2RuleEvaluator.ParseKline(json) is { ClosesNewestFirst.Count: > 0 };
+
+	private static string SerializeForLegacySparrow(KlineSeries series) => JsonSerializer.Serialize(new
+	{
+		data = series.Bars.Select(bar => new
+		{
+			Date = bar.Date.ToString("yyyy-MM-dd"),
+			Open = ToMilli(bar.Open),
+			High = ToMilli(bar.High),
+			Low = ToMilli(bar.Low),
+			Close = ToMilli(bar.Close),
+			Volume = bar.Volume,
+			Amount = bar.Amount,
+			Percent = bar.ChangePercent,
+			Change = bar.Change,
+			Turnover = bar.TurnoverRate
+		})
+	});
+
+	private static long? ToMilli(double? value) => value.HasValue
+		? (long)Math.Round(value.Value * 1000.0)
+		: null;
 }

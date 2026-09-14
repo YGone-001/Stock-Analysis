@@ -21,7 +21,7 @@ public static class DataExportEngine
 	private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 	private static readonly SemaphoreSlim _apiSemaphore = new SemaphoreSlim(3, 3);
 
-	public static async Task ExecuteExportAsync(IStockDataGateway gateway, ExportConfig config, Action<string> logCallback, CancellationToken ct = default)
+	public static async Task ExecuteExportAsync(IStockDataGateway gateway, IMarketCalendarService marketCalendar, ExportConfig config, Action<string> logCallback, CancellationToken ct = default)
 	{
 		string exportDir = ConfigManager.Load().DataSavePath;
 		if (string.IsNullOrWhiteSpace(exportDir))
@@ -33,7 +33,7 @@ public static class DataExportEngine
 			Directory.CreateDirectory(exportDir);
 		}
 		logCallback("⏳ 开始初始化取数引擎...");
-		DateTime actualEndDate = await GetActualTradingDateAsync(gateway, config.TargetDate, ct);
+		DateTime actualEndDate = await GetActualTradingDateAsync(marketCalendar, config.TargetDate, ct);
 		if (actualEndDate.Date != config.TargetDate.Date)
 		{
 			logCallback($"⚠\ufe0f 选定日期 {config.TargetDate:yyyy-MM-dd} 非交易日或无数据，已自动回推至: {actualEndDate:yyyy-MM-dd}");
@@ -691,24 +691,18 @@ public static class DataExportEngine
 		}
 	}
 
-	public static async Task<DateTime> GetActualTradingDateAsync(IStockDataGateway gateway, DateTime target, CancellationToken ct = default)
+	public static async Task<DateTime> GetActualTradingDateAsync(IMarketCalendarService marketCalendar, DateTime target, CancellationToken ct = default)
 	{
 		for (int i = 1; i <= 3; i++)
 		{
 			try
 			{
-				using JsonDocument jsonDocument = JsonDocument.Parse((await gateway.GetDataAsync(StockDataRequest.Parse($"/api/workday?date={target:yyyyMMdd}"), ct)).Json);
-				if (jsonDocument.RootElement.TryGetProperty("data", out var value))
+				MarketDataResult<TradingDayResult?> response = await marketCalendar.GetTradingDayAsync(target, ct);
+				if (!response.Success || response.Data == null)
 				{
-					if (value.TryGetProperty("is_workday", out var value2) && value2.GetBoolean())
-					{
-						return target;
-					}
-					if (value.TryGetProperty("previous", out var value3) && value3.ValueKind == JsonValueKind.Array && value3.GetArrayLength() > 0 && value3[0].TryGetProperty("numeric", out var value4) && DateTime.TryParseExact(value4.GetString(), "yyyyMMdd", null, DateTimeStyles.None, out var result))
-					{
-						return result;
-					}
+					throw new InvalidOperationException("Trading-calendar provider failed: " + response.Error);
 				}
+				return response.Data.IsTradingDay ? target : response.Data.PreviousTradingDay;
 			}
 			catch (System.Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
 				if (i < 3)
@@ -717,7 +711,6 @@ public static class DataExportEngine
 				}
 				continue;
 			}
-			break;
 		}
 		return target;
 	}
