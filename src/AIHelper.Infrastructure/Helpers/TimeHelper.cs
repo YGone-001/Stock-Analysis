@@ -25,11 +25,10 @@ public static class TimeHelper
 		}
 	}
 
-	public static async Task SyncTimeAsync()
+	public static async Task SyncTimeAsync(HttpClient client)
 	{
 		try
 		{
-			HttpClient client = AIHelper.Helpers.NetworkHelper.SharedHttpClient;
 			client.Timeout = TimeSpan.FromSeconds(3.0);
 			HttpMethod head = HttpMethod.Head;
 			HttpRequestMessage request = new HttpRequestMessage(head, $"https://www.baidu.com?t={DateTime.Now.Ticks}");

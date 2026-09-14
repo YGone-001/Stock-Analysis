@@ -14,6 +14,12 @@ namespace AIHelper.ViewModels;
 
 public partial class LoginViewModel : ObservableObject
 {
+	private readonly IHttpClientFactory _httpClientFactory;
+
+	public LoginViewModel(IHttpClientFactory httpClientFactory)
+	{
+		_httpClientFactory = httpClientFactory;
+	}
 	private readonly string _apiBaseUrl = ChatServiceConfig.BuildUrl("/api/auth");
 
 	[ObservableProperty]
@@ -37,7 +43,7 @@ public partial class LoginViewModel : ObservableObject
 		try
 		{
 			StringContent content = new StringContent(JsonSerializer.Serialize(new { Username, passwordBox.Password }), Encoding.UTF8, "application/json");
-			HttpClient client = AIHelper.Helpers.NetworkHelper.SharedHttpClient;
+			HttpClient client = _httpClientFactory.CreateClient();
 			client.Timeout = TimeSpan.FromSeconds(5.0);
 			HttpResponseMessage response = await client.PostAsync(_apiBaseUrl + "/login", content);
 			string text = await response.Content.ReadAsStringAsync();
@@ -76,7 +82,7 @@ public partial class LoginViewModel : ObservableObject
 		try
 		{
 			StringContent content = new StringContent(JsonSerializer.Serialize(new { Username, passwordBox.Password }), Encoding.UTF8, "application/json");
-			HttpClient client = AIHelper.Helpers.NetworkHelper.SharedHttpClient;
+			HttpClient client = _httpClientFactory.CreateClient();
 			client.Timeout = TimeSpan.FromSeconds(5.0);
 			HttpResponseMessage response = await client.PostAsync(_apiBaseUrl + "/register", content);
 			string text = await response.Content.ReadAsStringAsync();

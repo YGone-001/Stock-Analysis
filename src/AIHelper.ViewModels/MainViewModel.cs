@@ -13,6 +13,7 @@ using System.Windows.Input;
 using AIHelper.Helpers;
 
 using AIHelper.Services.StockData;
+using System.Net.Http;
 
 using HandyControl.Controls;
 using Serilog;
@@ -135,12 +136,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		
 
 	private readonly AIHelper.Services.IDialogService _dialogService;
+	private readonly IHttpClientFactory? _httpClientFactory;
 
 	public AIHelper.Services.StockData.IStockDataProvider DataProvider { get; }
-	public MainViewModel(StockViewModel stockVm, LogViewModel logVm, AIHelper.Services.IDialogService dialogService, AIHelper.Services.StockData.IStockDataProvider dataProvider)
+	public IStockDataGateway? DataGateway { get; }
+	public MainViewModel(StockViewModel stockVm, LogViewModel logVm, AIHelper.Services.IDialogService dialogService, AIHelper.Services.StockData.IStockDataProvider dataProvider, IStockDataGateway? dataGateway = null, IHttpClientFactory? httpClientFactory = null)
 	{
 		_dialogService = dialogService;
+		_httpClientFactory = httpClientFactory;
 		DataProvider = dataProvider;
+		DataGateway = dataGateway ?? dataProvider as IStockDataGateway;
 		StockVM = stockVm;
 		LogVM = logVm;
 		StockVM.LogAction = AppendLog;
@@ -182,7 +187,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		AppendLog("☁\ufe0f 正在启动网络自检与数据服务...");
 		Task.Run(async delegate
 		{
-			await TimeHelper.SyncTimeAsync();
+			if (_httpClientFactory != null)
+			{
+				await TimeHelper.SyncTimeAsync(_httpClientFactory.CreateClient());
+			}
 			if (TimeHelper.IsSynced)
 			{
 				Application.Current?.Dispatcher.Invoke(delegate
@@ -204,7 +212,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		AppendLog("🩺 开始诊断股票数据源...");
 		try
 		{
-			IReadOnlyList<StockDataDiagnosticItem> results = await new StockDataDiagnostics().RunAsync();
+			IStockDataGateway gateway = DataGateway ?? throw new InvalidOperationException("Stock-data gateway is unavailable.");
+			IReadOnlyList<StockDataDiagnosticItem> results = await new StockDataDiagnostics(gateway).RunAsync();
 			foreach (StockDataDiagnosticItem item in results)
 			{
 				AppendLog((item.Success ? "✅ " : "❌ ") + item.Name + "：" + item.Message);

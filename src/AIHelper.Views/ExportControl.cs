@@ -14,6 +14,7 @@ using System.Windows.Markup;
 using AIHelper.Helpers;
 using AIHelper.Models;
 using AIHelper.Services;
+using AIHelper.Services.StockData;
 using Serilog;
 
 #pragma warning disable CS8600, CS8604, CS8618, CS8622, CS8625
@@ -72,6 +73,7 @@ public class ExportControl : UserControl, IComponentConnector
 	public Func<string> GetCurrentTabNameFunc { get; set; }
 
 	public Action<string> PrintLogAction { get; set; }
+	public IStockDataGateway? DataGateway { get; set; }
 
 	public ExportControl()
 	{
@@ -95,7 +97,8 @@ public class ExportControl : UserControl, IComponentConnector
 		{
 			DpTargetDate.IsEnabled = false;
 			DateTime netToday = TimeHelper.BeijingNow;
-			DateTime value = await DataExportEngine.GetActualTradingDateAsync(netToday);
+			if (DataGateway == null) return;
+			DateTime value = await DataExportEngine.GetActualTradingDateAsync(DataGateway, netToday);
 			_isUpdatingDate = true;
 			DpTargetDate.SelectedDate = value;
 			_isUpdatingDate = false;
@@ -127,7 +130,8 @@ public class ExportControl : UserControl, IComponentConnector
 		DpTargetDate.IsEnabled = false;
 		try
 		{
-			DateTime value = await DataExportEngine.GetActualTradingDateAsync(target);
+			if (DataGateway == null) return;
+			DateTime value = await DataExportEngine.GetActualTradingDateAsync(DataGateway, target);
 			if (value.Date != target.Date)
 			{
 				_isUpdatingDate = true;
@@ -248,6 +252,11 @@ public class ExportControl : UserControl, IComponentConnector
 			Log("❌ 致命错误：未绑定数据源委托 (GetSelectedStocksFunc)。");
 			return;
 		}
+		if (DataGateway == null)
+		{
+			Log("❌ 数据服务尚未就绪。");
+			return;
+		}
 		List<(string, string)> list = GetSelectedStocksFunc();
 		if (list == null || !list.Any())
 		{
@@ -271,7 +280,7 @@ public class ExportControl : UserControl, IComponentConnector
 			int klineDays = (int.TryParse(TxtKlineDays.Text, out result) ? Math.Clamp(result, 5, 300) : 100);
 			int result2;
 			int indexDays = (int.TryParse(TxtIndexDays.Text, out result2) ? Math.Clamp(result2, 3, 60) : 10);
-			await DataExportEngine.ExecuteExportAsync(new ExportConfig
+			await DataExportEngine.ExecuteExportAsync(DataGateway, new ExportConfig
 			{
 				SelectedStocks = list,
 				TargetDate = (DpTargetDate.SelectedDate ?? DateTime.Now),

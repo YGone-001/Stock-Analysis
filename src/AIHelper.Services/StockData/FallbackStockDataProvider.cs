@@ -7,19 +7,19 @@ using System.Threading.Tasks;
 #pragma warning disable CS8618, CS8625
 namespace AIHelper.Services.StockData;
 
-public sealed class FallbackStockDataProvider : IStockDataProvider, IDisposable
+public sealed class FallbackStockDataProvider : IStockDataProvider, IStockDataStatusSource, IDisposable
 {
 	private readonly IStockDataProvider _publicProvider;
 
-	private readonly LocalStockCacheProvider _cacheProvider;
+	private readonly IStockDataCache _cacheProvider;
 
 	private readonly ConcurrentDictionary<string, byte> _backgroundRefreshes = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
 	
 	private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
-	public event Action<StockDataResult> StatusChanged;
+	public event Action<StockDataResult>? StatusChanged;
 
-	public FallbackStockDataProvider(IStockDataProvider publicProvider, LocalStockCacheProvider cacheProvider)
+	public FallbackStockDataProvider(IStockDataProvider publicProvider, IStockDataCache cacheProvider)
 	{
 		_publicProvider = publicProvider;
 		_cacheProvider = cacheProvider;

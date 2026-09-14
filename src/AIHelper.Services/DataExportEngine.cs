@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Helpers;
 using AIHelper.Models;
+using AIHelper.Services.StockData;
 
 #pragma warning disable CS8600, CS8602, CS8604
 #pragma warning disable CS8600, CS8602, CS8604
@@ -20,7 +21,7 @@ public static class DataExportEngine
 	private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 	private static readonly SemaphoreSlim _apiSemaphore = new SemaphoreSlim(3, 3);
 
-	public static async Task ExecuteExportAsync(ExportConfig config, Action<string> logCallback, CancellationToken ct = default)
+	public static async Task ExecuteExportAsync(IStockDataGateway gateway, ExportConfig config, Action<string> logCallback, CancellationToken ct = default)
 	{
 		string exportDir = ConfigManager.Load().DataSavePath;
 		if (string.IsNullOrWhiteSpace(exportDir))
@@ -32,7 +33,7 @@ public static class DataExportEngine
 			Directory.CreateDirectory(exportDir);
 		}
 		logCallback("⏳ 开始初始化取数引擎...");
-		DateTime actualEndDate = await GetActualTradingDateAsync(config.TargetDate, ct);
+		DateTime actualEndDate = await GetActualTradingDateAsync(gateway, config.TargetDate, ct);
 		if (actualEndDate.Date != config.TargetDate.Date)
 		{
 			logCallback($"⚠\ufe0f 选定日期 {config.TargetDate:yyyy-MM-dd} 非交易日或无数据，已自动回推至: {actualEndDate:yyyy-MM-dd}");
@@ -87,7 +88,7 @@ public static class DataExportEngine
 				currentIndex++;
 				logCallback($"⬇\ufe0f 正在预拉取指数 [{selectedIndex}]... (进度: {currentIndex}/{totalIndices})");
 				StringBuilder stringBuilder2 = idxSb;
-				stringBuilder2.AppendLine(await FetchIndexDataStringAsync(selectedIndex, actualEndDate, config.IndexDays, config.EnableAiCompression, ct));
+				stringBuilder2.AppendLine(await FetchIndexDataStringAsync(gateway, selectedIndex, actualEndDate, config.IndexDays, config.EnableAiCompression, ct));
 			}
 			indexDataBlock = idxSb.ToString();
 		}
@@ -137,19 +138,19 @@ public static class DataExportEngine
 			await writer.WriteLineAsync("=======================================================\n");
 			if (config.FetchQuote)
 			{
-				await FetchAndWriteQuoteAsync(writer, stock.Code, config.EnableAiCompression, ct);
+					await FetchAndWriteQuoteAsync(gateway, writer, stock.Code, config.EnableAiCompression, ct);
 			}
 			if (config.FetchMinute)
 			{
-				await FetchAndWriteMinuteAsync(writer, stock.Code, dateStr, config.EnableAiCompression, ct);
+					await FetchAndWriteMinuteAsync(gateway, writer, stock.Code, dateStr, config.EnableAiCompression, ct);
 			}
 			if (config.FetchTick)
 			{
-				await FetchAndWriteTickAsync(writer, stock.Code, dateStr, config.EnableAiCompression, ct);
+					await FetchAndWriteTickAsync(gateway, writer, stock.Code, dateStr, config.EnableAiCompression, ct);
 			}
 			if (config.FetchKline)
 			{
-				await FetchAndWriteKlineAsync(writer, stock.Code, dateStr, config.KlineDays, config.EnableAiCompression, ct);
+					await FetchAndWriteKlineAsync(gateway, writer, stock.Code, dateStr, config.KlineDays, config.EnableAiCompression, ct);
 			}
 			if (isPerStockWriter && !string.IsNullOrEmpty(indexDataBlock))
 			{
@@ -179,7 +180,7 @@ public static class DataExportEngine
 		}
 	}
 
-	private static async Task FetchAndWriteQuoteAsync(StreamWriter writer, string code, bool aiCompress, CancellationToken ct = default)
+	private static async Task FetchAndWriteQuoteAsync(IStockDataGateway gateway, StreamWriter writer, string code, bool aiCompress, CancellationToken ct = default)
 	{
 		await _apiSemaphore.WaitAsync(ct);
 		try
@@ -191,7 +192,7 @@ public static class DataExportEngine
 			{
 				try
 				{
-					json = await NetworkHelper.GetDataAsync(url, ct);
+					json = (await gateway.GetDataAsync(StockDataRequest.Parse(url), ct)).Json;
 					if (string.IsNullOrWhiteSpace(json))
 					{
 						throw new Exception("接口返回空值");
@@ -277,7 +278,7 @@ public static class DataExportEngine
 		}
 	}
 
-	private static async Task FetchAndWriteMinuteAsync(StreamWriter writer, string code, string dateStr, bool aiCompress, CancellationToken ct = default)
+	private static async Task FetchAndWriteMinuteAsync(IStockDataGateway gateway, StreamWriter writer, string code, string dateStr, bool aiCompress, CancellationToken ct = default)
 	{
 		await _apiSemaphore.WaitAsync(ct);
 		try
@@ -294,7 +295,7 @@ public static class DataExportEngine
 			{
 				try
 				{
-					json = await NetworkHelper.GetDataAsync(url, ct);
+					json = (await gateway.GetDataAsync(StockDataRequest.Parse(url), ct)).Json;
 					if (string.IsNullOrWhiteSpace(json))
 					{
 						throw new Exception("接口返回空值");
@@ -362,7 +363,7 @@ public static class DataExportEngine
 		}
 	}
 
-	private static async Task FetchAndWriteTickAsync(StreamWriter writer, string code, string dateStr, bool aiCompress, CancellationToken ct = default)
+	private static async Task FetchAndWriteTickAsync(IStockDataGateway gateway, StreamWriter writer, string code, string dateStr, bool aiCompress, CancellationToken ct = default)
 	{
 		await _apiSemaphore.WaitAsync(ct);
 		try
@@ -379,7 +380,7 @@ public static class DataExportEngine
 			{
 				try
 				{
-					json = await NetworkHelper.GetDataAsync(url, ct);
+					json = (await gateway.GetDataAsync(StockDataRequest.Parse(url), ct)).Json;
 					if (string.IsNullOrWhiteSpace(json))
 					{
 						throw new Exception("接口返回空值");
@@ -450,7 +451,7 @@ public static class DataExportEngine
 		}
 	}
 
-	private static async Task FetchAndWriteKlineAsync(StreamWriter writer, string code, string end, int days, bool aiCompress, CancellationToken ct = default)
+	private static async Task FetchAndWriteKlineAsync(IStockDataGateway gateway, StreamWriter writer, string code, string end, int days, bool aiCompress, CancellationToken ct = default)
 	{
 		await _apiSemaphore.WaitAsync(ct);
 		try
@@ -471,7 +472,7 @@ public static class DataExportEngine
 			{
 				try
 				{
-					json = await NetworkHelper.GetDataAsync(url, ct);
+					json = (await gateway.GetDataAsync(StockDataRequest.Parse(url), ct)).Json;
 					if (string.IsNullOrWhiteSpace(json))
 					{
 						throw new Exception("接口返回空值");
@@ -564,7 +565,7 @@ public static class DataExportEngine
 		}
 	}
 
-	private static async Task<string> FetchIndexDataStringAsync(string code, DateTime targetDate, int days, bool aiCompress, CancellationToken ct = default)
+	private static async Task<string> FetchIndexDataStringAsync(IStockDataGateway gateway, string code, DateTime targetDate, int days, bool aiCompress, CancellationToken ct = default)
 	{
 		await _apiSemaphore.WaitAsync(ct);
 		try
@@ -589,7 +590,7 @@ public static class DataExportEngine
 			{
 				try
 				{
-					json = await NetworkHelper.GetDataAsync(url, ct);
+					json = (await gateway.GetDataAsync(StockDataRequest.Parse(url), ct)).Json;
 					if (string.IsNullOrWhiteSpace(json))
 					{
 						throw new Exception("接口返回空值");
@@ -690,13 +691,13 @@ public static class DataExportEngine
 		}
 	}
 
-	public static async Task<DateTime> GetActualTradingDateAsync(DateTime target, CancellationToken ct = default)
+	public static async Task<DateTime> GetActualTradingDateAsync(IStockDataGateway gateway, DateTime target, CancellationToken ct = default)
 	{
 		for (int i = 1; i <= 3; i++)
 		{
 			try
 			{
-				using JsonDocument jsonDocument = JsonDocument.Parse(await NetworkHelper.GetDataAsync($"/api/workday?date={target:yyyyMMdd}", ct));
+				using JsonDocument jsonDocument = JsonDocument.Parse((await gateway.GetDataAsync(StockDataRequest.Parse($"/api/workday?date={target:yyyyMMdd}"), ct)).Json);
 				if (jsonDocument.RootElement.TryGetProperty("data", out var value))
 				{
 					if (value.TryGetProperty("is_workday", out var value2) && value2.GetBoolean())

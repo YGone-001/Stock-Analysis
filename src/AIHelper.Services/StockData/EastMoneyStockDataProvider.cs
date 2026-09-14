@@ -20,7 +20,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 
 	private readonly HttpClient _client;
 
-	private readonly LocalStockCacheProvider _cache;
+	private readonly IStockDataCache _cache;
 
 	private readonly SemaphoreSlim _requestThrottle = new SemaphoreSlim(4, 4);
 
@@ -29,7 +29,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		"/api/quote", "/api/quote-all", "/api/kline-all", "/api/index", "/api/minute", "/api/minute-trade-all", "/api/trend", "/api/search", "/api/codes", "/api/etf", "/api/workday"
 	};
 
-	public EastMoneyStockDataProvider(HttpClient client, LocalStockCacheProvider cache)
+	public EastMoneyStockDataProvider(HttpClient client, IStockDataCache cache)
 	{
 		_client = client ?? throw new ArgumentNullException(nameof(client));
 		_cache = cache ?? throw new ArgumentNullException(nameof(cache));

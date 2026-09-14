@@ -12,6 +12,28 @@ public interface IStockDataProvider
 	Task<StockDataResult> GetDataAsync(StockDataRequest request, CancellationToken cancellationToken = default);
 }
 
+public interface IStockDataCache : IStockDataProvider
+{
+	Task<StockNameCacheSnapshot> GetSnapshotAsync(string? kind = null, CancellationToken cancellationToken = default);
+	Task<StockMarketCache> GetMarketStateAsync(string marketKey, CancellationToken cancellationToken = default);
+	Task ResetMarketAsync(string marketKey, string kind, string filter, CancellationToken cancellationToken = default);
+	Task MergeMarketPageAsync(string marketKey, string kind, string filter, int nextPage, bool completed, IReadOnlyDictionary<string, string> pageItems, CancellationToken cancellationToken = default);
+	Task MergeItemsAsync(IReadOnlyDictionary<string, string> items, string source, CancellationToken cancellationToken = default);
+}
+
+public interface IStockDataStatusSource
+{
+	event Action<StockDataResult>? StatusChanged;
+}
+
+public interface IStockDataGateway : IStockDataProvider
+{
+	event Action<StockDataResult>? StockDataStatusChanged;
+	Task<StockNameCacheSnapshot> GetStockNameCacheSnapshotAsync(CancellationToken cancellationToken = default);
+	Task MergeStockNameCacheAsync(IReadOnlyDictionary<string, string> items, string source, CancellationToken cancellationToken = default);
+	Task<string> GetEastMoneyAsync(Uri uri, CancellationToken cancellationToken = default);
+}
+
 public sealed class StockDataRequest
 {
 	public string Endpoint { get; }

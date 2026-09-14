@@ -402,14 +402,16 @@ public partial class StockViewModel : ObservableObject, IDisposable
 	}
 
 	private readonly IStockDataProvider _dataProvider;
+	private readonly IStockDataGateway? _dataGateway;
 	private readonly AIHelper.Services.IDialogService _dialogService;
 
-	public StockViewModel(IStockDataProvider dataProvider, AIHelper.Services.IDialogService dialogService)
+	public StockViewModel(IStockDataProvider dataProvider, AIHelper.Services.IDialogService dialogService, IStockDataGateway? dataGateway = null)
 	{
 		_dataProvider = dataProvider;
+		_dataGateway = dataGateway ?? dataProvider as IStockDataGateway;
 		_dialogService = dialogService;
 		_filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "StockGroups.json");
-		NetworkHelper.StockDataStatusChanged += OnStockDataStatusChanged;
+		if (_dataGateway != null) _dataGateway.StockDataStatusChanged += OnStockDataStatusChanged;
 		LoadLocalData();
 	}
 
@@ -686,7 +688,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 		if (etfResult.Success) ParseEtfJson(etfResult.Json);
 		if (StockNameMap.Count == 0) LoadSeedNameMap();
 		NormalizeKnownStockNameMap();
-		await NetworkHelper.MergeStockNameCacheAsync(StockNameMap, forceRefresh ? "ManualRefresh" : "StockViewModel");
+		if (_dataGateway != null) await _dataGateway.MergeStockNameCacheAsync(StockNameMap, forceRefresh ? "ManualRefresh" : "StockViewModel");
 		RefreshAllNames();
 		Application.Current?.Dispatcher.Invoke(delegate
 		{
@@ -761,7 +763,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 
 	private void SaveNameMapCache(string cachePath)
 	{
-		_ = NetworkHelper.MergeStockNameCacheAsync(StockNameMap, "StockViewModel");
+		if (_dataGateway != null) _ = _dataGateway.MergeStockNameCacheAsync(StockNameMap, "StockViewModel");
 	}
 
 	private void LoadSeedNameMap()
@@ -1371,7 +1373,7 @@ public partial class StockViewModel : ObservableObject, IDisposable
 
 	public void Dispose()
 	{
-		NetworkHelper.StockDataStatusChanged -= OnStockDataStatusChanged;
+		if (_dataGateway != null) _dataGateway.StockDataStatusChanged -= OnStockDataStatusChanged;
 		if (_searchCts != null)
 		{
 			_searchCts.Cancel();

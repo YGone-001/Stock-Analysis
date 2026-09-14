@@ -1,7 +1,4 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <UseWPF>true</UseWPF>
-  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\AIHelper.Core\AIHelper.Core.csproj" />
     <ProjectReference Include="..\AIHelper.Infrastructure\AIHelper.Infrastructure.csproj" />

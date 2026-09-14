@@ -33,6 +33,7 @@ public class MainWindow : HandyControl.Controls.Window, IComponentConnector
 		};
 		ExportCtrl.GetSelectedStocksFunc = () => vm.StockVM.GetSelectedStocks();
 		ExportCtrl.GetCurrentTabNameFunc = () => vm.StockVM.CurrentGroupName ?? "默认分组";
+		ExportCtrl.DataGateway = vm.DataGateway;
 
 
 		base.Loaded += MainWindow_Loaded;

@@ -14,7 +14,7 @@ using Microsoft.Extensions.Caching.Memory;
 #pragma warning disable CS8600, CS8602, CS8603, CS8604, CS8625
 namespace AIHelper.Services.StockData;
 
-public sealed class LocalStockCacheProvider : IStockDataProvider
+public sealed class LocalStockCacheProvider : IStockDataCache
 , IDisposable {
 	private readonly string _cachePath;
 	private readonly IMemoryCache _memoryCache;
@@ -82,7 +82,7 @@ public sealed class LocalStockCacheProvider : IStockDataProvider
 		return SuccessResult(request, json, snapshot);
 	}
 
-	public async Task<StockNameCacheSnapshot> GetSnapshotAsync(string kind = null, CancellationToken cancellationToken = default)
+	public async Task<StockNameCacheSnapshot> GetSnapshotAsync(string? kind = null, CancellationToken cancellationToken = default)
 	{
 		await _cacheLock.WaitAsync(cancellationToken);
 		try

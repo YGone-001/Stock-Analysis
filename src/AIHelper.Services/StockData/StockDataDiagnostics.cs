@@ -13,16 +13,23 @@ namespace AIHelper.Services.StockData;
 
 public sealed class StockDataDiagnostics
 {
+	private readonly IStockDataGateway _gateway;
+
+	public StockDataDiagnostics(IStockDataGateway gateway)
+	{
+		_gateway = gateway;
+	}
+
 	public async Task<IReadOnlyList<StockDataDiagnosticItem>> RunAsync(string sampleCode = "600519", CancellationToken cancellationToken = default)
 	{
 		var results = new List<StockDataDiagnosticItem>();
-		StockNameCacheSnapshot cache = await NetworkHelper.GetStockNameCacheSnapshotAsync(cancellationToken);
+		StockNameCacheSnapshot cache = await _gateway.GetStockNameCacheSnapshotAsync(cancellationToken);
 		results.Add(new StockDataDiagnosticItem("代码表缓存", cache.Exists, cache.Exists ? cache.Items.Count + " 条；版本 2；来源 " + cache.Source + (cache.IsStale ? "；已过期" : "；有效") : "缓存为空或不可读"));
 
-		StockDataResult search = await NetworkHelper.GetDataResultAsync("/api/search?keyword=" + Uri.EscapeDataString(sampleCode), cancellationToken);
+		StockDataResult search = await _gateway.GetDataAsync(StockDataRequest.Parse("/api/search?keyword=" + Uri.EscapeDataString(sampleCode)), cancellationToken);
 		results.Add(CreateArrayResult("股票搜索", search, "data"));
 
-		StockDataResult quote = await NetworkHelper.GetDataResultAsync("/api/quote?code=" + sampleCode, cancellationToken);
+		StockDataResult quote = await _gateway.GetDataAsync(StockDataRequest.Parse("/api/quote?code=" + sampleCode), cancellationToken);
 		
 		int quoteRows = 0;
 		bool hasFiveLevels = false;
@@ -71,14 +78,14 @@ public sealed class StockDataDiagnostics
 		results.Add(new StockDataDiagnosticItem("实时行情/五档", quote.Success && quoteRows > 0 && hasFiveLevels, BuildMessage(quote, quoteRows) + (hasFiveLevels ? (hasDepthValues ? "；买卖五档完整且有值" : "；买卖五档结构完整，当前时段无档位值") : "；买卖五档不完整")));
 		results.Add(sparrowQuoteResult);
 
-		StockDataResult kline = await NetworkHelper.GetDataResultAsync("/api/kline-all?code=" + sampleCode + "&type=day&limit=5", cancellationToken);
+		StockDataResult kline = await _gateway.GetDataAsync(StockDataRequest.Parse("/api/kline-all?code=" + sampleCode + "&type=day&limit=5"), cancellationToken);
 		results.Add(CreateArrayResult("日 K", kline, "data"));
 		string tradingDate = GetLatestKlineDate(kline.Json) ?? TimeHelper.BeijingNow.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
 
-		StockDataResult minute = await NetworkHelper.GetDataResultAsync("/api/minute?code=" + sampleCode + "&date=" + tradingDate, cancellationToken);
+		StockDataResult minute = await _gateway.GetDataAsync(StockDataRequest.Parse("/api/minute?code=" + sampleCode + "&date=" + tradingDate), cancellationToken);
 		results.Add(CreateNestedArrayResult("分时", minute, "data", "List"));
 
-		StockDataResult ticks = await NetworkHelper.GetDataResultAsync("/api/minute-trade-all?code=" + sampleCode + "&date=" + tradingDate, cancellationToken);
+		StockDataResult ticks = await _gateway.GetDataAsync(StockDataRequest.Parse("/api/minute-trade-all?code=" + sampleCode + "&date=" + tradingDate), cancellationToken);
 		results.Add(CreateNestedArrayResult("逐笔", ticks, "data", "List"));
 		return results;
 	}

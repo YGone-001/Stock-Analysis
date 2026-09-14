@@ -80,70 +80,11 @@ public class App : Application
 	public static void Main()
 	{
 		AppHost = Host.CreateDefaultBuilder()
-			.ConfigureServices((context, services) =>
-			{
-				services.AddSingleton(provider => Helpers.ConfigManager.Load());
-				services.AddHttpClient();
-
-				// ViewModels
-				services.AddSingleton<MainViewModel>();
-				services.AddTransient<StockViewModel>();
-				services.AddTransient<LogViewModel>();
-
-				// Memory Cache
-				services.AddMemoryCache();
-
-				// Dialog Service
-				services.AddSingleton<IDialogService, WpfDialogService>();
-
-				// Data Providers
-				services.AddSingleton<LocalStockCacheProvider>();
-				
-				Action<IServiceProvider, System.Net.Http.HttpClient> configureHttpClient = (sp, client) => {
-					var config = sp.GetRequiredService<AppConfig>();
-					client.Timeout = TimeSpan.FromSeconds(config.TimeoutSeconds > 0 ? config.TimeoutSeconds : 10);
-					client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
-				};
-				
-				Func<IServiceProvider, System.Net.Http.HttpMessageHandler> configureHandler = sp => {
-					var config = sp.GetRequiredService<AppConfig>();
-					var handler = new System.Net.Http.HttpClientHandler();
-					var proxy = Helpers.NetworkHelper.GetWebProxy(config);
-					if (proxy != null) {
-						handler.Proxy = proxy;
-						handler.UseProxy = true;
-					} else {
-						handler.UseProxy = true;
-					}
-					return handler;
-				};
-
-				services.AddHttpClient<EastMoneyStockDataProvider>()
-					.ConfigureHttpClient(configureHttpClient)
-					.ConfigurePrimaryHttpMessageHandler(configureHandler);
-					
-				services.AddHttpClient<ExternalStockDataProvider>()
-					.ConfigureHttpClient(configureHttpClient)
-					.ConfigurePrimaryHttpMessageHandler(configureHandler);
-				services.AddSingleton(sp => new PreferredStockDataProvider(
-					sp.GetRequiredService<ExternalStockDataProvider>(),
-					sp.GetRequiredService<EastMoneyStockDataProvider>()
-				));
-				services.AddSingleton(sp => new FallbackStockDataProvider(
-					sp.GetRequiredService<PreferredStockDataProvider>(),
-					sp.GetRequiredService<LocalStockCacheProvider>()
-				));
-				services.AddSingleton<IStockDataProvider>(sp => sp.GetRequiredService<FallbackStockDataProvider>());
-
-				// Windows
-				services.AddTransient<MainWindow>();
-			})
+			.ConfigureServices((_, services) => ConfigureServices(services))
 			.Build();
 
 		AppHost.Start();
 		
-		AIHelper.Helpers.NetworkHelper.ServiceProvider = AppHost.Services;
-
 		App app = new App();
 		app.InitializeComponent();
 		
@@ -151,5 +92,68 @@ public class App : Application
 		app.Run(mainWindow);
 
 		AppHost.StopAsync().GetAwaiter().GetResult();
+	}
+
+	public static void ConfigureServices(IServiceCollection services)
+	{
+		services.AddSingleton(provider => Helpers.ConfigManager.Load());
+		services.AddHttpClient();
+
+		// ViewModels
+		services.AddSingleton<MainViewModel>();
+		services.AddTransient<StockViewModel>();
+		services.AddTransient<LogViewModel>();
+		services.AddTransient<SparrowViewModel>();
+
+		// Memory Cache
+		services.AddMemoryCache();
+
+		// Dialog Service
+		services.AddSingleton<IDialogService, WpfDialogService>();
+
+		// Data Providers
+		services.AddSingleton<LocalStockCacheProvider>();
+		services.AddSingleton<IStockDataCache>(sp => sp.GetRequiredService<LocalStockCacheProvider>());
+
+		Action<IServiceProvider, System.Net.Http.HttpClient> configureHttpClient = (sp, client) => {
+			var config = sp.GetRequiredService<AppConfig>();
+			client.Timeout = TimeSpan.FromSeconds(config.TimeoutSeconds > 0 ? config.TimeoutSeconds : 10);
+			client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36");
+		};
+
+		Func<IServiceProvider, System.Net.Http.HttpMessageHandler> configureHandler = sp => {
+			var config = sp.GetRequiredService<AppConfig>();
+			var handler = new System.Net.Http.HttpClientHandler();
+			var proxy = Helpers.NetworkHelper.GetWebProxy(config);
+			if (proxy != null) {
+				handler.Proxy = proxy;
+				handler.UseProxy = true;
+			} else {
+				handler.UseProxy = true;
+			}
+			return handler;
+		};
+
+		services.AddHttpClient<EastMoneyStockDataProvider>()
+			.ConfigureHttpClient(configureHttpClient)
+			.ConfigurePrimaryHttpMessageHandler(configureHandler);
+
+		services.AddHttpClient<ExternalStockDataProvider>()
+			.ConfigureHttpClient(configureHttpClient)
+			.ConfigurePrimaryHttpMessageHandler(configureHandler);
+		services.AddSingleton(sp => new PreferredStockDataProvider(
+			sp.GetRequiredService<ExternalStockDataProvider>(),
+			sp.GetRequiredService<EastMoneyStockDataProvider>()
+		));
+		services.AddSingleton(sp => new FallbackStockDataProvider(
+			sp.GetRequiredService<PreferredStockDataProvider>(),
+			sp.GetRequiredService<LocalStockCacheProvider>()
+		));
+		services.AddSingleton<IStockDataProvider>(sp => sp.GetRequiredService<FallbackStockDataProvider>());
+		services.AddSingleton<IStockDataStatusSource>(sp => sp.GetRequiredService<FallbackStockDataProvider>());
+		services.AddSingleton<IStockDataGateway, StockDataGateway>();
+
+		// Windows
+		services.AddTransient<MainWindow>();
 	}
 }
