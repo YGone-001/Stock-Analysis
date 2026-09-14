@@ -28,16 +28,33 @@ Stock Analysis is a recovered and maintained C# / WPF stock analysis workspace b
 ## Requirements
 
 - Windows
-- .NET 8 SDK
+- .NET 10 SDK
 - WebView2 Runtime
+- Python 3.12 for the optional market-data gateway
 
-The project builds with the .NET 8 SDK pinned by `global.json`.
+The desktop solution builds with the .NET SDK pinned by `global.json`.
 
-## Build
+## Development
 
 ```powershell
-dotnet build .\src\AIHelper.csproj
+dotnet restore .\AIHelper.sln
+dotnet build .\AIHelper.sln -c Release --no-restore
+dotnet test .\AIHelper.sln -c Release --no-build
 ```
+
+### Market Data Server
+
+```powershell
+cd market-data-server
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m compileall app
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+The gateway smoke test calls only its local `/health` endpoint; it does not
+contact East Money, AkShare, or Tushare.
 
 ## Data Source Notes
 

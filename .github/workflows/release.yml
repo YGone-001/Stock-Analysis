@@ -17,10 +17,16 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
-      - name: Restore win-x64 dependencies
-        run: dotnet restore .\src\AIHelper.csproj -r win-x64
+      - name: Restore solution and win-x64 dependencies
+        run: dotnet restore .\AIHelper.sln -r win-x64
+
+      - name: Build solution (Release)
+        run: dotnet build .\AIHelper.sln -c Release --no-restore
+
+      - name: Test solution (Release)
+        run: dotnet test .\AIHelper.sln -c Release --no-build
 
       - name: Publish self-contained single-file build
         run: >-

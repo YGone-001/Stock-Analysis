@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 
@@ -22,7 +24,28 @@ name_cache = JsonFileCache(settings.cache_dir / "StockNameMap.json")
 etf_name_cache = JsonFileCache(settings.cache_dir / "EtfNameMap.json")
 store = MarketDataStore(settings.db_path)
 
-app = FastAPI(title="AIHelper Market Data Gateway", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    timeout = httpx.Timeout(settings.http_timeout_seconds)
+    client = httpx.AsyncClient(timeout=timeout, trust_env=False)
+    application.state.http_client = client
+    application.state.eastmoney = EastMoneyProvider(
+        client, memory_cache, name_cache, etf_name_cache
+    )
+    application.state.tushare = TushareProvider(
+        settings.tushare_token, settings.http_timeout_seconds
+    )
+    application.state.akshare = AkShareProvider()
+    try:
+        yield
+    finally:
+        await client.aclose()
+
+
+app = FastAPI(
+    title="AIHelper Market Data Gateway", version="0.1.0", lifespan=lifespan
+)
 
 
 @app.get("/")
@@ -39,21 +62,6 @@ async def root() -> dict[str, Any]:
             "akshare_kline": "/api/kline-all?code=000001&type=day&limit=120&source=akshare",
         },
     }
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    timeout = httpx.Timeout(settings.http_timeout_seconds)
-    client = httpx.AsyncClient(timeout=timeout, trust_env=False)
-    app.state.http_client = client
-    app.state.eastmoney = EastMoneyProvider(client, memory_cache, name_cache, etf_name_cache)
-    app.state.tushare = TushareProvider(settings.tushare_token, settings.http_timeout_seconds)
-    app.state.akshare = AkShareProvider()
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    await app.state.http_client.aclose()
 
 
 @app.middleware("http")

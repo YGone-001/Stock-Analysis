@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'AIHelper' Or '$(MSBuildProjectName)' == 'AIHelper.Core' Or '$(MSBuildProjectName)' == 'AIHelper.Infrastructure' Or '$(MSBuildProjectName)' == 'AIHelper.Services' Or '$(MSBuildProjectName)' == 'AIHelper.ViewModels' Or '$(MSBuildProjectName)' == 'AIHelper.Services.Tests'">
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1605;NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
+  </PropertyGroup>
+</Project>
