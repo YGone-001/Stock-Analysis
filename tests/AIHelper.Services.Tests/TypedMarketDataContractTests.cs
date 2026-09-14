@@ -144,10 +144,13 @@ public sealed class TypedMarketDataContractTests
 	}
 
 	[Fact]
-	public async Task ClassicSparrow_UsesTypedKlineService_WithItsExistingDailyEndpoint()
+	public async Task ClassicSparrow_UsesTypedQuoteAndKlineServices_WithExistingEndpoints()
 	{
 		var transport = new RoutedTransport();
-		var scanner = new SparrowClassicScanner(transport, klineService: new KlineService(transport));
+		var scanner = new SparrowClassicScanner(
+			transport,
+			klineService: new KlineService(transport),
+			quoteService: new QuoteService(transport));
 		var parameters = new SparrowClassicScanParameters
 		{
 			MacroDef = false,

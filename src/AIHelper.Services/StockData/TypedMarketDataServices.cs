@@ -167,7 +167,7 @@ internal static class MarketDataContractParser
 		}
 		catch (JsonException ex)
 		{
-			throw new MarketDataContractException("Quote", transport.Endpoint, transport.Source, "Malformed JSON.", ex);
+			throw Invalid("Quote", transport, "Malformed JSON.", ex);
 		}
 	}
 
@@ -205,7 +205,7 @@ internal static class MarketDataContractParser
 		}
 		catch (JsonException ex)
 		{
-			throw new MarketDataContractException("Kline", transport.Endpoint, transport.Source, "Malformed JSON.", ex);
+			throw Invalid("Kline", transport, "Malformed JSON.", ex);
 		}
 	}
 
@@ -236,12 +236,21 @@ internal static class MarketDataContractParser
 		}
 		catch (JsonException ex)
 		{
-			throw new MarketDataContractException("Trading calendar", transport.Endpoint, transport.Source, "Malformed JSON.", ex);
+			throw Invalid("Trading calendar", transport, "Malformed JSON.", ex);
 		}
 	}
 
-	private static MarketDataContractException Invalid(string contract, StockDataResult transport, string message) =>
-		new(contract, transport.Endpoint, transport.Source, message);
+	private static MarketDataContractException Invalid(
+		string contract,
+		StockDataResult transport,
+		string message,
+		Exception? innerException = null)
+	{
+		Log.Warning(innerException,
+			"Market-data contract parsing failed. Contract={Contract} Endpoint={Endpoint} Source={Source} Detail={Detail}",
+			contract, transport.Endpoint, transport.Source, message);
+		return new MarketDataContractException(contract, transport.Endpoint, transport.Source, message, innerException);
+	}
 
 	private static JsonElement UnwrapKlineData(JsonElement root)
 	{

@@ -18,6 +18,7 @@ public sealed class SparrowClassicScanner
 {
     private readonly IStockDataProvider _dataProvider;
 	private readonly IKlineService? _klineService;
+	private readonly IQuoteService? _quoteService;
     private readonly SparrowMarketRegimeService _marketRegimeService;
     private readonly SparrowMarketDataCache _klineCache;
 
@@ -27,12 +28,14 @@ public sealed class SparrowClassicScanner
         IStockDataProvider dataProvider,
         SparrowMarketRegimeService? marketRegimeService = null,
 		SparrowMarketDataCache? klineCache = null,
-		IKlineService? klineService = null)
+		IKlineService? klineService = null,
+		IQuoteService? quoteService = null)
     {
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
         _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
         _klineCache = klineCache ?? new SparrowMarketDataCache();
 		_klineService = klineService;
+		_quoteService = quoteService;
     }
 
     public async Task<List<SparrowClassicCandidate>> ScanAsync(
@@ -131,27 +134,49 @@ public sealed class SparrowClassicScanner
                 {
                     await semaphore.WaitAsync(cancellationToken);
                     entered = true;
-                    string codes = string.Join(",", batch.Select(stock => stock.Code));
-                    StockDataResult response = await _dataProvider.GetDataAsync(
-                        StockDataRequest.Parse("/api/quote?code=" + codes + refreshQuery), cancellationToken);
-                    if (!response.Success || string.IsNullOrWhiteSpace(response.Json))
+                    var quoteRows = new List<(string Code, SparrowQuoteData Quote)>();
+                    if (_quoteService is not null)
                     {
-                        return;
+                        MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
+                            batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
+                        if (!response.Success)
+                        {
+                            return;
+                        }
+                        quoteRows.AddRange(response.Data.Select(quote =>
+                            (NormalizeCode(quote.Symbol), SparrowQuoteDataContract.FromSnapshot(quote))));
+                    }
+                    else
+                    {
+                        string codes = string.Join(",", batch.Select(stock => stock.Code));
+                        StockDataResult response = await _dataProvider.GetDataAsync(
+                            StockDataRequest.Parse("/api/quote?code=" + codes + refreshQuery), cancellationToken);
+                        if (!response.Success || string.IsNullOrWhiteSpace(response.Json))
+                        {
+                            return;
+                        }
+
+                        foreach (JsonElement item in EnumerateDataArray(response.Json))
+                        {
+                            string code = NormalizeCode(GetString(item, "Code"));
+                            if (code.Length > 0)
+                            {
+                                SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote);
+                                quoteRows.Add((code, quote));
+                            }
+                        }
                     }
 
-                    foreach (JsonElement item in EnumerateDataArray(response.Json))
+                    foreach ((string code, SparrowQuoteData quote) in quoteRows)
                     {
-                        string code = NormalizeCode(GetString(item, "Code"));
                         var stock = batch.FirstOrDefault(candidate => candidate.Code == code);
                         if (string.IsNullOrEmpty(stock.Code))
                         {
                             continue;
                         }
-
                         p2Processed.TryAdd(stock.Code, true);
                         Interlocked.Increment(ref batchQuoteLoaded);
-                        if (!SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote)
-                            || !quote.PriceDerivedPercent.HasValue
+                        if (!quote.PriceDerivedPercent.HasValue
                             || !quote.Amount.HasValue)
                         {
                             Interlocked.Increment(ref quoteDataUnavailable);

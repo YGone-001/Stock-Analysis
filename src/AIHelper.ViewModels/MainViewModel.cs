@@ -140,14 +140,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
 	public IStockDataProvider DataProvider { get; }
 	public IStockDataGateway? DataGateway { get; }
+	public IQuoteService? QuoteService { get; }
 	public IMarketCalendarService? MarketCalendar { get; }
 	public IKlineService? KlineService { get; }
-	public MainViewModel(StockViewModel stockVm, LogViewModel logVm, AIHelper.Services.IDialogService dialogService, IStockDataProvider dataProvider, IStockDataGateway? dataGateway = null, IHttpClientFactory? httpClientFactory = null, IMarketCalendarService? marketCalendar = null, IKlineService? klineService = null)
+	public MainViewModel(StockViewModel stockVm, LogViewModel logVm, AIHelper.Services.IDialogService dialogService, IStockDataProvider dataProvider, IStockDataGateway? dataGateway = null, IHttpClientFactory? httpClientFactory = null, IQuoteService? quoteService = null, IMarketCalendarService? marketCalendar = null, IKlineService? klineService = null)
 	{
 		_dialogService = dialogService;
 		_httpClientFactory = httpClientFactory;
 		DataProvider = dataProvider;
 		DataGateway = dataGateway ?? dataProvider as IStockDataGateway;
+		QuoteService = quoteService;
 		MarketCalendar = marketCalendar;
 		KlineService = klineService;
 		StockVM = stockVm;

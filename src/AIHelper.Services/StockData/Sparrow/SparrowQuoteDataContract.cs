@@ -27,6 +27,16 @@ public readonly record struct SparrowQuoteData(
 /// <summary>Reads the normalized /api/quote wire contract consumed by Sparrow scanners.</summary>
 public static class SparrowQuoteDataContract
 {
+	/// <summary>Adapts the application quote contract without changing Sparrow's existing rule inputs.</summary>
+	public static SparrowQuoteData FromSnapshot(QuoteSnapshot quote) => new(
+		quote.Price,
+		quote.PreviousClose,
+		quote.ChangePercent,
+		quote.Amount,
+		quote.Turnover,
+		quote.OuterVolume,
+		quote.InnerVolume);
+
     public static bool TryParse(JsonElement item, out SparrowQuoteData quote)
     {
         double? price = ReadNullable(item, "Price");

@@ -22,6 +22,7 @@ public sealed class SparrowComparisonService
 
     private readonly IStockDataProvider _dataProvider;
 	private readonly IKlineService? _klineService;
+	private readonly IQuoteService? _quoteService;
     private readonly SparrowMarketRegimeService _marketRegimeService;
     private readonly SparrowMarketDataCache _klineCache;
     private readonly TimeProvider _timeProvider;
@@ -33,7 +34,8 @@ public sealed class SparrowComparisonService
         SparrowMarketDataCache? klineCache = null,
         TimeProvider? timeProvider = null,
 		SparrowRankingEngine? rankingEngine = null,
-		IKlineService? klineService = null)
+		IKlineService? klineService = null,
+		IQuoteService? quoteService = null)
     {
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
         _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
@@ -41,6 +43,7 @@ public sealed class SparrowComparisonService
         _timeProvider = timeProvider ?? TimeProvider.System;
         _rankingEngine = rankingEngine ?? new SparrowRankingEngine();
 		_klineService = klineService;
+		_quoteService = quoteService;
     }
 
     public async Task<SparrowComparisonResult> CompareAsync(
@@ -270,12 +273,24 @@ public sealed class SparrowComparisonService
             Report(progress, "[P2] Loading one full-market quote snapshot...");
             try
             {
-                string refresh = parameters.UseCache ? "" : "?refresh=1";
-                StockDataResult response = await _dataProvider.GetDataAsync(
-                    StockDataRequest.Parse("/api/quote-all" + refresh), cancellationToken);
-                if (response.Success && !string.IsNullOrWhiteSpace(response.Json))
+                if (_quoteService is not null)
                 {
-                    AddQuotesFromJson(response.Json, quotes, universeCodes);
+                    MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetAllQuotesAsync(
+                        !parameters.UseCache, cancellationToken);
+                    if (response.Success)
+                    {
+                        AddQuotes(response.Data, quotes, universeCodes);
+                    }
+                }
+                else
+                {
+                    string refresh = parameters.UseCache ? "" : "?refresh=1";
+                    StockDataResult response = await _dataProvider.GetDataAsync(
+                        StockDataRequest.Parse("/api/quote-all" + refresh), cancellationToken);
+                    if (response.Success && !string.IsNullOrWhiteSpace(response.Json))
+                    {
+                        AddQuotesFromJson(response.Json, quotes, universeCodes);
+                    }
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -308,16 +323,29 @@ public sealed class SparrowComparisonService
             await semaphore.WaitAsync(cancellationToken);
             try
             {
-                string refresh = parameters.UseCache ? "" : "&refresh=1";
-                string codes = string.Join(',', batch.Select(stock => stock.Code));
-                StockDataResult response = await _dataProvider.GetDataAsync(
-                    StockDataRequest.Parse("/api/quote?code=" + codes + refresh), cancellationToken);
-                if (!response.Success || string.IsNullOrWhiteSpace(response.Json))
+                if (_quoteService is not null)
                 {
-                    return;
+                    MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
+                        batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
+                    if (!response.Success)
+                    {
+                        return;
+                    }
+                    AddQuotes(response.Data, quotes, universeCodes);
                 }
+                else
+                {
+                    string refresh = parameters.UseCache ? "" : "&refresh=1";
+                    string codes = string.Join(',', batch.Select(stock => stock.Code));
+                    StockDataResult response = await _dataProvider.GetDataAsync(
+                        StockDataRequest.Parse("/api/quote?code=" + codes + refresh), cancellationToken);
+                    if (!response.Success || string.IsNullOrWhiteSpace(response.Json))
+                    {
+                        return;
+                    }
 
-                AddQuotesFromJson(response.Json, quotes, universeCodes);
+                    AddQuotesFromJson(response.Json, quotes, universeCodes);
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -366,6 +394,21 @@ public sealed class SparrowComparisonService
                 && SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote))
             {
                 quotes[code] = quote;
+            }
+        }
+    }
+
+    private static void AddQuotes(
+        IEnumerable<QuoteSnapshot> snapshots,
+        ConcurrentDictionary<string, SparrowQuoteData> quotes,
+        IReadOnlySet<string> universeCodes)
+    {
+        foreach (QuoteSnapshot snapshot in snapshots)
+        {
+            string code = NormalizeCode(snapshot.Symbol);
+            if (code.Length > 0 && universeCodes.Contains(code))
+            {
+                quotes[code] = SparrowQuoteDataContract.FromSnapshot(snapshot);
             }
         }
     }

@@ -149,8 +149,8 @@ public partial class SparrowViewModel : ObservableObject
         };
         var sharedKlineCache = new SparrowMarketDataCache();
 		_scannerService = new SparrowScannerService(mainVm.DataProvider, sharedKlineCache);
-		_classicScanner = new SparrowClassicScanner(mainVm.DataProvider, klineCache: sharedKlineCache, klineService: mainVm.KlineService);
-		_comparisonService = new SparrowComparisonService(mainVm.DataProvider, klineCache: sharedKlineCache, klineService: mainVm.KlineService);
+		_classicScanner = new SparrowClassicScanner(mainVm.DataProvider, klineCache: sharedKlineCache, klineService: mainVm.KlineService, quoteService: mainVm.QuoteService);
+		_comparisonService = new SparrowComparisonService(mainVm.DataProvider, klineCache: sharedKlineCache, klineService: mainVm.KlineService, quoteService: mainVm.QuoteService);
         _rankingSettings.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName != nameof(SparrowRankingSettings.TopN)) return;
