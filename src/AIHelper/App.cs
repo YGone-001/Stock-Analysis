@@ -112,6 +112,8 @@ public class App : Application
 		services.AddSingleton<IDialogService, WpfDialogService>();
 
 		// Data Providers
+		services.AddSingleton<IDataSourcePolicyProvider, DefaultDataSourcePolicyProvider>();
+		services.AddSingleton<IProviderHealthService, ProviderHealthService>();
 		services.AddSingleton<LocalStockCacheProvider>();
 		services.AddSingleton<IStockDataCache>(sp => sp.GetRequiredService<LocalStockCacheProvider>());
 
@@ -143,11 +145,14 @@ public class App : Application
 			.ConfigurePrimaryHttpMessageHandler(configureHandler);
 		services.AddSingleton(sp => new PreferredStockDataProvider(
 			sp.GetRequiredService<ExternalStockDataProvider>(),
-			sp.GetRequiredService<EastMoneyStockDataProvider>()
+			sp.GetRequiredService<EastMoneyStockDataProvider>(),
+			sp.GetRequiredService<IProviderHealthService>()
 		));
 		services.AddSingleton(sp => new FallbackStockDataProvider(
 			sp.GetRequiredService<PreferredStockDataProvider>(),
-			sp.GetRequiredService<LocalStockCacheProvider>()
+			sp.GetRequiredService<LocalStockCacheProvider>(),
+			sp.GetRequiredService<IDataSourcePolicyProvider>(),
+			sp.GetRequiredService<IProviderHealthService>()
 		));
 		services.AddSingleton<IStockDataProvider>(sp => sp.GetRequiredService<FallbackStockDataProvider>());
 		services.AddSingleton<IStockDataStatusSource>(sp => sp.GetRequiredService<FallbackStockDataProvider>());

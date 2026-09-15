@@ -65,7 +65,8 @@ public sealed class QuoteService : IQuoteService
 	}
 
 	private static MarketDataMetadata ToMetadata(StockDataResult result) =>
-		new(result.Source, result.UsedCache, result.IsStale, result.IsBackgroundRefresh);
+		new(result.Source, result.UsedCache, result.IsStale, result.IsBackgroundRefresh,
+			result.SourceKind, result.FallbackReason, result.CacheFreshness);
 }
 
 public sealed class KlineService : IKlineService
@@ -87,7 +88,8 @@ public sealed class KlineService : IKlineService
 		ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
 		string endpoint = $"/api/kline-all?code={Uri.EscapeDataString(symbol.Trim())}&type=day&limit={limit}" + (forceRefresh ? "&refresh=1" : "");
 		StockDataResult response = await _transport.GetDataAsync(StockDataRequest.Parse(endpoint), cancellationToken);
-		MarketDataMetadata metadata = new(response.Source, response.UsedCache, response.IsStale, response.IsBackgroundRefresh);
+		MarketDataMetadata metadata = new(response.Source, response.UsedCache, response.IsStale, response.IsBackgroundRefresh,
+			response.SourceKind, response.FallbackReason, response.CacheFreshness);
 		if (!response.Success)
 		{
 			return new MarketDataResult<KlineSeries?>(null, metadata, response.Error);
@@ -111,7 +113,8 @@ public sealed class MarketCalendarService : IMarketCalendarService
 	{
 		string endpoint = $"/api/workday?date={date:yyyyMMdd}";
 		StockDataResult response = await _transport.GetDataAsync(StockDataRequest.Parse(endpoint), cancellationToken);
-		MarketDataMetadata metadata = new(response.Source, response.UsedCache, response.IsStale, response.IsBackgroundRefresh);
+		MarketDataMetadata metadata = new(response.Source, response.UsedCache, response.IsStale, response.IsBackgroundRefresh,
+			response.SourceKind, response.FallbackReason, response.CacheFreshness);
 		if (!response.Success)
 		{
 			return new MarketDataResult<TradingDayResult?>(null, metadata, response.Error);

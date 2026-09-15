@@ -43,6 +43,8 @@ public sealed class StockDataRequest
 
 	public IReadOnlyDictionary<string, string> Query { get; }
 
+	public MarketDataOperation Operation => MarketDataOperationClassifier.Classify(Path, Query);
+
 	public bool ForceRefresh => GetBoolean("force") || GetBoolean("refresh");
 
 	private StockDataRequest(string endpoint, string path, IReadOnlyDictionary<string, string> query)
@@ -98,11 +100,19 @@ public sealed class StockDataResult
 
 	public string Source { get; init; } = "";
 
+	public DataSourceKind SourceKind { get; init; } = DataSourceKind.Unknown;
+
 	public bool UsedCache { get; init; }
 
 	public bool IsStale { get; init; }
 
 	public bool IsBackgroundRefresh { get; init; }
+
+	public FallbackReason FallbackReason { get; init; }
+
+	public CacheFreshness CacheFreshness { get; init; } = CacheFreshness.NotApplicable;
+
+	public ProviderFailureKind FailureKind { get; init; }
 
 	public string Error { get; init; } = "";
 

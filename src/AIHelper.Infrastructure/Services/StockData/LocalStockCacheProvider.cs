@@ -56,9 +56,12 @@ public sealed class LocalStockCacheProvider : IStockDataCache
 				Endpoint = request.Endpoint,
 				Handled = true,
 				Success = false,
-				Source = "LocalStockCache",
+				Source = DataSourceKind.LocalCache.ToLegacySource(),
+				SourceKind = DataSourceKind.LocalCache,
 				UsedCache = true,
 				IsStale = true,
+				CacheFreshness = CacheFreshness.Missing,
+				FailureKind = ProviderFailureKind.Unavailable,
 				Error = "StockNameMap cache is empty",
 				Json = EmptyJson(request.Path)
 			};
@@ -328,9 +331,12 @@ public sealed class LocalStockCacheProvider : IStockDataCache
 			Handled = true,
 			Success = true,
 			Json = json,
-			Source = string.IsNullOrWhiteSpace(snapshot.Source) ? "LocalStockCache" : snapshot.Source,
+			Source = string.IsNullOrWhiteSpace(snapshot.Source) ? DataSourceKind.LocalCache.ToLegacySource() : snapshot.Source,
+			SourceKind = DataSourceKind.LocalCache,
 			UsedCache = true,
-			IsStale = snapshot.IsStale
+			IsStale = snapshot.IsStale,
+			CacheFreshness = snapshot.IsStale ? CacheFreshness.Stale : CacheFreshness.Fresh,
+			FallbackReason = snapshot.IsStale ? FallbackReason.StaleCache : FallbackReason.FreshCache
 		};
 	}
 

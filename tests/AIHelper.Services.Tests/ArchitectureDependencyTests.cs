@@ -55,6 +55,8 @@ public sealed class ArchitectureDependencyTests
         Assert.IsType<QuoteService>(provider.GetRequiredService<IQuoteService>());
         Assert.IsType<KlineService>(provider.GetRequiredService<IKlineService>());
         Assert.IsType<MarketCalendarService>(provider.GetRequiredService<IMarketCalendarService>());
+        Assert.IsType<DefaultDataSourcePolicyProvider>(provider.GetRequiredService<IDataSourcePolicyProvider>());
+        Assert.IsType<ProviderHealthService>(provider.GetRequiredService<IProviderHealthService>());
         Assert.IsType<StockViewModel>(provider.GetRequiredService<StockViewModel>());
         Assert.IsType<SparrowViewModel>(provider.GetRequiredService<SparrowViewModel>());
     }

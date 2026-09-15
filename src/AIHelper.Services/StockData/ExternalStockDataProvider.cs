@@ -13,15 +13,17 @@ namespace AIHelper.Services.StockData;
 public sealed class ExternalStockDataProvider : IStockDataProvider
 {
 	private readonly HttpClient _client;
+	private readonly IDataSourcePolicyProvider _policyProvider;
 
 	private static readonly HashSet<string> SupportedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 	{
 		"/api/quote", "/api/kline-all", "/api/index", "/api/minute", "/api/minute-trade-all", "/api/trend", "/api/search", "/api/codes", "/api/etf", "/api/workday"
 	};
 
-	public ExternalStockDataProvider(HttpClient client)
+	public ExternalStockDataProvider(HttpClient client, IDataSourcePolicyProvider? policyProvider = null)
 	{
 		_client = client ?? throw new ArgumentNullException(nameof(client));
+		_policyProvider = policyProvider ?? new DefaultDataSourcePolicyProvider();
 	}
 
 	public bool CanHandle(StockDataRequest request)
@@ -44,7 +46,7 @@ public sealed class ExternalStockDataProvider : IStockDataProvider
 		try
 		{
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-			cts.CancelAfter(TimeSpan.FromSeconds(15));
+			cts.CancelAfter(_policyProvider.GetPolicy(request.Operation).ExternalProviderTimeout);
 			
 			using HttpRequestMessage message = new HttpRequestMessage(HttpMethod.Get, url);
 			using HttpResponseMessage response = await _client.SendAsync(message, cts.Token);
@@ -60,18 +62,27 @@ public sealed class ExternalStockDataProvider : IStockDataProvider
 					Handled = true,
 					Success = false,
 					Json = json,
-					Source = "ExternalGateway",
-					Error = schemaError
+					Source = DataSourceKind.ExternalGateway.ToLegacySource(),
+					SourceKind = DataSourceKind.ExternalGateway,
+					Error = schemaError,
+					FailureKind = ProviderFailureKind.Contract
 				};
 			}
 			StockDataLog.Write(request.Path, request.Get("code"), url, null, false, "external gateway");
-			return new StockDataResult { Endpoint = request.Endpoint, Handled = true, Success = true, Json = json, Source = "ExternalGateway" };
+			return new StockDataResult { Endpoint = request.Endpoint, Handled = true, Success = true, Json = json,
+				Source = DataSourceKind.ExternalGateway.ToLegacySource(), SourceKind = DataSourceKind.ExternalGateway };
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			throw;
 		}
 		catch (Exception ex)
 		{
 			string json = EmptyJsonFor(request.Path);
 			StockDataLog.Write(request.Path, request.Get("code"), url, ex, false, "external gateway failed");
-			return new StockDataResult { Endpoint = request.Endpoint, Handled = true, Success = false, Json = json, Source = "ExternalGateway", Error = ex.Message };
+			return new StockDataResult { Endpoint = request.Endpoint, Handled = true, Success = false, Json = json,
+				Source = DataSourceKind.ExternalGateway.ToLegacySource(), SourceKind = DataSourceKind.ExternalGateway,
+				Error = ex.Message, FailureKind = ProviderFailureClassifier.Classify(ex) };
 		}
 	}
 

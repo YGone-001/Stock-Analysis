@@ -637,13 +637,31 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 	private static StockDataResult Success(StockDataRequest request, string json, string url, string code, string note)
 	{
 		StockDataLog.Write(request.Path, code, url, null, false, note);
-		return new StockDataResult { Endpoint = request.Endpoint, Handled = true, Success = true, Json = json, Source = "EastMoney" };
+		return new StockDataResult
+		{
+			Endpoint = request.Endpoint,
+			Handled = true,
+			Success = true,
+			Json = json,
+			Source = DataSourceKind.EastMoney.ToLegacySource(),
+			SourceKind = DataSourceKind.EastMoney
+		};
 	}
 
 	private static StockDataResult Failure(StockDataRequest request, string json, string error, string url = "-", Exception exception = null, string code = "-")
 	{
 		StockDataLog.Write(request.Path, code, url, exception, false, error);
-		return new StockDataResult { Endpoint = request.Endpoint, Handled = true, Success = false, Json = json, Source = "EastMoney", Error = error };
+		return new StockDataResult
+		{
+			Endpoint = request.Endpoint,
+			Handled = true,
+			Success = false,
+			Json = json,
+			Source = DataSourceKind.EastMoney.ToLegacySource(),
+			SourceKind = DataSourceKind.EastMoney,
+			Error = error,
+			FailureKind = ProviderFailureClassifier.Classify(exception, error)
+		};
 	}
 
 	private static string NormalizeCode(string code)

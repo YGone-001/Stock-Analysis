@@ -10,7 +10,10 @@ public sealed record MarketDataMetadata(
 	string Source,
 	bool UsedCache,
 	bool IsStale,
-	bool IsBackgroundRefresh);
+	bool IsBackgroundRefresh,
+	DataSourceKind SourceKind = DataSourceKind.Unknown,
+	FallbackReason FallbackReason = FallbackReason.None,
+	CacheFreshness CacheFreshness = CacheFreshness.NotApplicable);
 
 /// <summary>
 /// A typed market-data response. Provider failures remain values so existing callers can retain
