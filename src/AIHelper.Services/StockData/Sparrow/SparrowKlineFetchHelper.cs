@@ -17,7 +17,8 @@ internal sealed record SparrowKlineFetchOutcome(
     string Code,
     string? Json,
     SparrowKlineFetchFailureReason? FailureReason,
-    string? Error)
+    string? Error,
+    KlineSeries? Series = null)
 {
     public bool Success => FailureReason == null && !string.IsNullOrWhiteSpace(Json);
 }
@@ -122,7 +123,11 @@ internal static class SparrowKlineFetchHelper
 			{
 				return new SparrowKlineFetchOutcome(code, null, SparrowKlineFetchFailureReason.EmptyResponse, "Empty Kline response");
 			}
-			return new SparrowKlineFetchOutcome(code, SerializeForLegacySparrow(response.Data), null, null);
+			if (SparrowKlineSnapshotFactory.FromSeries(response.Data) is not { ClosesNewestFirst.Count: > 0 })
+			{
+				return new SparrowKlineFetchOutcome(code, null, SparrowKlineFetchFailureReason.InvalidResponse, "Invalid Kline response");
+			}
+			return new SparrowKlineFetchOutcome(code, SerializeForLegacySparrow(response.Data), null, null, response.Data);
 		}
 		catch (OperationCanceledException) when (callerToken.IsCancellationRequested)
 		{
@@ -211,7 +216,7 @@ internal static class SparrowKlineFetchHelper
     }
 
 	public static bool IsUsableKlineJson(string json) =>
-		SparrowV2RuleEvaluator.ParseKline(json) is { ClosesNewestFirst.Count: > 0 };
+		SparrowKlineSnapshotFactory.FromLegacyJson(json) is { ClosesNewestFirst.Count: > 0 };
 
 	private static string SerializeForLegacySparrow(KlineSeries series) => JsonSerializer.Serialize(new
 	{

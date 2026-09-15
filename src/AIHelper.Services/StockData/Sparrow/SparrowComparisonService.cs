@@ -513,7 +513,7 @@ public sealed class SparrowComparisonService
                     }
                 }
 
-                SparrowKlineSnapshot? snapshot = SparrowV2RuleEvaluator.ParseKline(json);
+                SparrowKlineSnapshot? snapshot = SparrowKlineSnapshotFactory.FromLegacyJson(json);
                 if (snapshot != null)
                 {
                     snapshots[code] = snapshot;

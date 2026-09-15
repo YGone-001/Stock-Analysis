@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Core.Sparrow;
+using AIHelper.Core.StockData;
 using AIHelper.Helpers;
 using AIHelper.Models;
 using AIHelper.Services.StockData.Sparrow;
@@ -28,14 +29,22 @@ public class SparrowScanReport
 public class SparrowScannerService
 {
     private readonly IStockDataProvider _dataProvider;
+    private readonly IKlineService? _klineService;
+    private readonly IQuoteService? _quoteService;
     private readonly SparrowMarketDataCache _klineCache;
 
     public SparrowMarketDataCache KlineCache => _klineCache;
 
-    public SparrowScannerService(IStockDataProvider dataProvider, SparrowMarketDataCache? klineCache = null)
+    public SparrowScannerService(
+        IStockDataProvider dataProvider,
+        SparrowMarketDataCache? klineCache = null,
+        IKlineService? klineService = null,
+        IQuoteService? quoteService = null)
     {
-        _dataProvider = dataProvider;
+        _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
         _klineCache = klineCache ?? new SparrowMarketDataCache();
+        _klineService = klineService;
+        _quoteService = quoteService;
     }
 
     public async Task<List<(string Code, string Name, string Reason)>> ScanAsync(
@@ -55,7 +64,7 @@ public class SparrowScannerService
         CancellationToken ct)
     {
         // Scan-local session state: quotes are fresh per scan and never frozen across scans
-        var quoteCache = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        var quoteCache = new ConcurrentDictionary<string, SparrowQuoteData>(StringComparer.Ordinal);
         var p3Winners = new ConcurrentDictionary<string, SparrowV2Candidate>(StringComparer.Ordinal);
 
         ReportLog(progress, $"🦅 [麻雀-全景高速版] 引擎点火！初始标的: {targetPool.Count} 只");
@@ -79,12 +88,27 @@ public class SparrowScannerService
             ReportLog(progress, "\n🌐 [阶段2] 优先加载全市场盘口快照...");
             try
             {
-                string refreshQuery = parameters.UseCache ? "" : "?refresh=1";
-                StockDataResult snapshot = await _dataProvider.GetDataAsync(
-                    StockDataRequest.Parse("/api/quote-all" + refreshQuery), ct);
-                if (snapshot.Success)
+                if (_quoteService != null)
                 {
-                    AddQuotesToCache(snapshot.Json, quoteCache);
+                    MarketDataResult<IReadOnlyList<QuoteSnapshot>> snapshot = await _quoteService.GetAllQuotesAsync(
+                        forceRefresh: !parameters.UseCache, cancellationToken: ct);
+                    if (snapshot.Success)
+                    {
+                        AddQuotesToCache(snapshot.Data, quoteCache);
+                    }
+                }
+                else
+                {
+                    string refreshQuery = parameters.UseCache ? "" : "?refresh=1";
+                    StockDataResult snapshot = await _dataProvider.GetDataAsync(
+                        StockDataRequest.Parse("/api/quote-all" + refreshQuery), ct);
+                    if (snapshot.Success)
+                    {
+                        AddQuotesToCache(snapshot.Json, quoteCache);
+                    }
+                }
+                if (!quoteCache.IsEmpty)
+                {
                     ReportLog(progress, $"✅ [阶段2快照] 已加载 {quoteCache.Count} 只股票；缺失项将自动批量补取。");
                 }
             }
@@ -120,22 +144,39 @@ public class SparrowScannerService
                 try
                 {
                     if (ct.IsCancellationRequested) return;
-                    string codesStr = string.Join(",", batch.Select(x => x.Code));
-                    var req = StockDataRequest.Parse("/api/quote?code=" + codesStr + refreshQuery);
-                    var res = await _dataProvider.GetDataAsync(req, ct);
-                    if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
+                    string[] codes = batch.Select(x => x.Code).ToArray();
+                    if (_quoteService != null)
                     {
-                        try
+                        MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
+                            codes, forceRefresh: !parameters.UseCache, cancellationToken: ct);
+                        if (response.Success)
                         {
-                            AddQuotesToCache(res.Json, quoteCache);
+                            AddQuotesToCache(response.Data, quoteCache);
                         }
-                        catch (Exception ex) { Log.Error(ex, "Failed to parse batch quote JSON"); }
+                        else
+                        {
+                            Interlocked.Increment(ref p2FailedBatches);
+                        }
                     }
 					else
 					{
-						Interlocked.Increment(ref p2FailedBatches);
+                        string codesStr = string.Join(",", codes);
+                        var req = StockDataRequest.Parse("/api/quote?code=" + codesStr + refreshQuery);
+                        var res = await _dataProvider.GetDataAsync(req, ct);
+                        if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
+                        {
+                            try
+                            {
+                                AddQuotesToCache(res.Json, quoteCache);
+                            }
+                            catch (Exception ex) { Log.Error(ex, "Failed to parse batch quote JSON"); }
+                        }
+                        else
+                        {
+                            Interlocked.Increment(ref p2FailedBatches);
+                        }
 					}
-				}
+                }
 				catch (OperationCanceledException) when (ct.IsCancellationRequested)
 				{
 					throw;
@@ -173,49 +214,41 @@ public class SparrowScannerService
         int volRatioPassed = 0;
         foreach (var item in targetPool)
         {
-            if (!quoteCache.TryGetValue(item.Code, out string? value))
+            if (!quoteCache.TryGetValue(item.Code, out SparrowQuoteData quote))
             {
                 quoteDataUnavailable++;
                 continue;
             }
 
-            using JsonDocument quoteDocument = JsonDocument.Parse(value);
-            if (!SparrowQuoteDataContract.TryParse(quoteDocument.RootElement, out SparrowQuoteData quote)
-                || quote.Price is not > 0.001
-                || !quote.Percent.HasValue
-                || !quote.Amount.HasValue)
+            SparrowRuleComparison quoteRule = SparrowV2CandidateEvaluator.EvaluateQuote(quote, parameters);
+            if (quoteRule.ReasonCode == SparrowComparisonReasonCodes.P2QuoteDataMissing)
             {
                 quoteDataUnavailable++;
                 continue;
             }
 
-            if (quote.Percent.Value < parameters.MinRise
-                || quote.Percent.Value > parameters.MaxRise
-                || quote.Amount.Value < parameters.MinAmount)
+            if (quoteRule.ReasonCode is SparrowComparisonReasonCodes.P2RiseBelowMin
+                or SparrowComparisonReasonCodes.P2RiseAboveMax
+                or SparrowComparisonReasonCodes.P2Amount)
             {
                 continue;
             }
 
             coarseSurvivors++;
-            SparrowVolumeCheckResult volumeResult = SparrowQuoteDataContract.EvaluateVolume(
-                quote.OuterVolume, quote.InnerVolume, parameters.VolRatio);
-            if (volumeResult == SparrowVolumeCheckResult.OuterInnerUnavailable)
+            if (quoteRule.ReasonCode == SparrowComparisonReasonCodes.P2OuterInnerMissing)
             {
                 outerInnerUnavailable++;
                 continue;
             }
 
             outerInnerValid++;
-            if (volumeResult != SparrowVolumeCheckResult.Passed)
+            if (quoteRule.ReasonCode == SparrowComparisonReasonCodes.P2VolRatio)
             {
                 continue;
             }
 
             volRatioPassed++;
-            if (!quote.Turnover.HasValue
-                || quote.Turnover.Value <= 0
-                || quote.Turnover.Value >= parameters.MinTurnover
-                    && quote.Turnover.Value <= parameters.MaxTurnover)
+            if (quoteRule.Passed)
             {
                 p2List.Add((item.Code, item.Name));
                 rankingQuotes[item.Code] = quote;
@@ -230,8 +263,8 @@ public class SparrowScannerService
 
         if (p2List.Count == 0) return new List<SparrowV2Candidate>();
 
-        // Scan-local Kline dictionary: stores data to evaluate during this scan session
-        var klineData = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        // Scan-local typed snapshots: cache serialization remains legacy-compatible, evaluation is not.
+        var klineData = new ConcurrentDictionary<string, SparrowKlineSnapshot>(StringComparer.Ordinal);
         var klineStatistics = new SparrowKlineFetchStatistics();
         var klineStopwatch = Stopwatch.StartNew();
         int klineCacheHits = 0;
@@ -245,8 +278,16 @@ public class SparrowScannerService
                 && !string.IsNullOrWhiteSpace(cachedJson)
                 && SparrowKlineFetchHelper.IsUsableKlineJson(cachedJson))
             {
-                klineData[stock.Code] = cachedJson;
-                klineCacheHits++;
+                SparrowKlineSnapshot? snapshot = SparrowKlineSnapshotFactory.FromLegacyJson(cachedJson);
+                if (snapshot != null)
+                {
+                    klineData[stock.Code] = snapshot;
+                    klineCacheHits++;
+                }
+                else
+                {
+                    p3Missing.Add(stock);
+                }
             }
             else
             {
@@ -268,19 +309,31 @@ public class SparrowScannerService
                 await semaphore.WaitAsync(ct);
                 try
                 {
-                    StockDataRequest request = StockDataRequest.Parse(
-                        "/api/kline-all?code=" + stock.Code + "&limit=120" + refreshParam);
-                    SparrowKlineFetchOutcome outcome = await SparrowKlineFetchHelper.FetchAsync(
-                        _dataProvider,
-                        stock.Code,
-                        request,
-                        SparrowKlineFetchHelper.IsUsableKlineJson,
-                        ct);
+                    SparrowKlineFetchOutcome outcome;
+                    if (_klineService != null)
+                    {
+                        outcome = await SparrowKlineFetchHelper.FetchDailyAsync(
+                            _klineService, stock.Code, 120, !parameters.UseCache, ct);
+                    }
+                    else
+                    {
+                        StockDataRequest request = StockDataRequest.Parse(
+                            "/api/kline-all?code=" + stock.Code + "&limit=120" + refreshParam);
+                        outcome = await SparrowKlineFetchHelper.FetchAsync(
+                            _dataProvider, stock.Code, request, SparrowKlineFetchHelper.IsUsableKlineJson, ct);
+                    }
                     klineStatistics.Record(outcome);
                     if (outcome.Success)
                     {
                         string json = outcome.Json!;
-                        klineData[stock.Code] = json;
+                        SparrowKlineSnapshot? snapshot = outcome.Series != null
+                            ? SparrowKlineSnapshotFactory.FromSeries(outcome.Series)
+                            : SparrowKlineSnapshotFactory.FromLegacyJson(json);
+                        if (snapshot == null)
+                        {
+                            throw new InvalidOperationException("Usable Sparrow Kline response produced no snapshot.");
+                        }
+                        klineData[stock.Code] = snapshot;
                         string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, 120, "day");
                         _klineCache.Set(cacheKey, json, SparrowDataCachePolicy.DefaultKlineTtl);
                     }
@@ -322,15 +375,15 @@ public class SparrowScannerService
                 progress?.Report(new SparrowScanReport { ProgressValue = memCheckCount });
             }
 
-            string value = klineData[item.Code];
-
-            SparrowKlineSnapshot? snapshot = SparrowV2RuleEvaluator.ParseKline(value);
+            SparrowKlineSnapshot snapshot = klineData[item.Code];
+            SparrowQuoteData quote = rankingQuotes[item.Code];
             SparrowTechnicalEvaluation technical = SparrowV2RuleEvaluator.Evaluate(
                 snapshot, shIndexPctChg, parameters);
-            if (technical.Rule.Passed)
+            SparrowV2CandidateEvaluation evidence = SparrowV2CandidateEvaluator.Evaluate(
+                item.Code, quote, snapshot, shIndexPctChg, parameters);
+            if (evidence.Passed)
             {
                 string reason = $"黏合:{technical.Adhesion * 100.0:F1}% 动量:{technical.Momentum * 100.0:F1}%";
-                SparrowQuoteData quote = rankingQuotes[item.Code];
                 p3Winners[item.Code] = new SparrowV2Candidate
                 {
                     Code = item.Code,
@@ -373,7 +426,7 @@ public class SparrowScannerService
 
     private static void AddQuotesToCache(
         string json,
-        ConcurrentDictionary<string, string> quoteCache)
+        ConcurrentDictionary<string, SparrowQuoteData> quoteCache)
     {
         using JsonDocument document = JsonDocument.Parse(json);
         if (!document.RootElement.TryGetProperty("data", out JsonElement data)
@@ -384,18 +437,38 @@ public class SparrowScannerService
 
         foreach (JsonElement item in data.EnumerateArray())
         {
-            if (!item.TryGetProperty("Code", out JsonElement codeElement)) continue;
-            string code = codeElement.GetString() ?? "";
-            if (code.StartsWith("1.", StringComparison.Ordinal)
-                || code.StartsWith("0.", StringComparison.Ordinal))
-            {
-                code = code.Substring(2);
-            }
+            if (!item.TryGetProperty("Code", out JsonElement codeElement)
+                || !SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote)) continue;
+            string code = NormalizeCode(codeElement.GetString() ?? "");
             if (!string.IsNullOrEmpty(code))
             {
-                quoteCache.TryAdd(code, item.GetRawText());
+                quoteCache.TryAdd(code, quote);
             }
         }
+    }
+
+    private static void AddQuotesToCache(
+        IEnumerable<QuoteSnapshot> quotes,
+        ConcurrentDictionary<string, SparrowQuoteData> quoteCache)
+    {
+        foreach (QuoteSnapshot snapshot in quotes)
+        {
+            string code = NormalizeCode(snapshot.Symbol);
+            if (!string.IsNullOrEmpty(code))
+            {
+                quoteCache.TryAdd(code, SparrowQuoteDataContract.FromSnapshot(snapshot));
+            }
+        }
+    }
+
+    private static string NormalizeCode(string code)
+    {
+        if (code.StartsWith("1.", StringComparison.Ordinal)
+            || code.StartsWith("0.", StringComparison.Ordinal))
+        {
+            return code.Substring(2);
+        }
+        return code;
     }
 
     private async Task<(bool IsWeak, double ShIndexPctChg)> CheckIndexWeakness(bool forceRefresh, CancellationToken cancellationToken)

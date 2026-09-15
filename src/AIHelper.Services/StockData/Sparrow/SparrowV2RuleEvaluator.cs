@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Text.Json;
 using AIHelper.Models;
 
 namespace AIHelper.Services.StockData.Sparrow;
@@ -98,68 +96,6 @@ public static class SparrowV2RuleEvaluator
             adhesion, momentum, snapshot.LatestPercent);
     }
 
-    public static SparrowKlineSnapshot? ParseKline(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return null;
-        }
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(json);
-            JsonElement root = document.RootElement;
-            JsonElement data = root.ValueKind == JsonValueKind.Array
-                ? root
-                : TryGetPropertyIgnoreCase(root, "data", out JsonElement wrapped) ? wrapped : default;
-            if (data.ValueKind == JsonValueKind.Object)
-            {
-                data = TryGetPropertyIgnoreCase(data, "list", out JsonElement list) ? list
-                    : TryGetPropertyIgnoreCase(data, "klines", out JsonElement klines) ? klines
-                    : default;
-            }
-            if (data.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
-
-            JsonElement[] elements = data.EnumerateArray().ToArray();
-            var closesNewestFirst = new List<double>();
-            double latestPrice = 0;
-            double latestPercent = 0;
-            for (int index = elements.Length - 1; index >= 0; index--)
-            {
-                if (TryGetDouble(elements[index], "Close", out double rawClose))
-                {
-                    double close = rawClose / 1000.0;
-                    if (close > 0)
-                    {
-                        closesNewestFirst.Add(close);
-                    }
-                    if (index == elements.Length - 1)
-                    {
-                        latestPrice = close;
-                        if (index > 0 && TryGetDouble(elements[index - 1], "Close", out double previousRaw))
-                        {
-                            double previous = previousRaw / 1000.0;
-                            latestPercent = previous > 0 ? (close - previous) / previous * 100.0 : 0;
-                        }
-                    }
-                }
-            }
-
-            if (closesNewestFirst.Count == 0)
-            {
-                return new SparrowKlineSnapshot(Array.Empty<double>(), 0, 0);
-            }
-            return new SparrowKlineSnapshot(closesNewestFirst, latestPrice, latestPercent);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
     private static SparrowTechnicalEvaluation Missing(string code, string reason) =>
         new(SparrowRuleComparison.Unavailable("P3", code, reason));
 
@@ -186,35 +122,4 @@ public static class SparrowV2RuleEvaluator
         return sum / count;
     }
 
-    private static bool TryGetPropertyIgnoreCase(JsonElement element, string name, out JsonElement value)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            foreach (JsonProperty property in element.EnumerateObject())
-            {
-                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    value = property.Value;
-                    return true;
-                }
-            }
-        }
-        value = default;
-        return false;
-    }
-
-    private static bool TryGetDouble(JsonElement element, string name, out double value)
-    {
-        value = 0;
-        if (!TryGetPropertyIgnoreCase(element, name, out JsonElement property))
-        {
-            return false;
-        }
-        if (property.ValueKind == JsonValueKind.Number)
-        {
-            return property.TryGetDouble(out value);
-        }
-        return property.ValueKind == JsonValueKind.String
-            && double.TryParse(property.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out value);
-    }
 }

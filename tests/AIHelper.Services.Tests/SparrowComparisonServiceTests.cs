@@ -125,7 +125,7 @@ public sealed class SparrowComparisonServiceTests
     {
         var provider = ProviderForSingle(Quote("600000", turnover: 10), PassingCloses(120));
         SparrowScanParameters v2 = V2();
-        SparrowKlineSnapshot snapshot = SparrowV2RuleEvaluator.ParseKline(KlineJson(PassingCloses(120)))!;
+        SparrowKlineSnapshot snapshot = SparrowKlineSnapshotFactory.FromLegacyJson(KlineJson(PassingCloses(120)))!;
         SparrowTechnicalEvaluation baseline = SparrowV2RuleEvaluator.Evaluate(snapshot, 0, v2);
         v2.MomentumThreshold = baseline.Momentum;
 
