@@ -20,6 +20,8 @@ public sealed class SparrowResearchWindowTests
             SparrowResearchWindow window = new(vm);
             try
             {
+                window.Show();
+                window.UpdateLayout();
                 Assert.Same(vm, window.DataContext);
                 Assert.NotNull(window.FindName("LoadDatasetButton"));
                 Assert.NotNull(window.FindName("RunReplayButton"));
