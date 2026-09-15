@@ -1,7 +1,5 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Windows;
-using System.Windows.Media;
 
 namespace AIHelper.Models;
 
@@ -20,28 +18,6 @@ public sealed record SparrowStrategyModeOption(SparrowStrategyMode Mode, string 
 {
     public SparrowStrategyModeOption(SparrowStrategyMode mode) : this(mode, mode.ToDisplayName()) { }
     public override string ToString() => DisplayName;
-}
-
-public static class SparrowUiTreeHelper
-{
-    public static T? FindAncestor<T>(DependencyObject? current)
-        where T : DependencyObject
-    {
-        while (current != null)
-        {
-            if (current is T target)
-                return target;
-
-            DependencyObject? next = LogicalTreeHelper.GetParent(current);
-
-            if (next == null && current is Visual)
-                next = VisualTreeHelper.GetParent(current);
-
-            current = next;
-        }
-
-        return null;
-    }
 }
 
 public interface ISparrowStrategyUiParameters : INotifyPropertyChanged

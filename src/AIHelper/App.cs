@@ -12,6 +12,7 @@ using AIHelper.Models;
 using AIHelper.ViewModels;
 using AIHelper.Views;
 using AIHelper.Services.StockData;
+using AIHelper.Services.StockData.Sparrow;
 using AIHelper.Services;
 
 namespace AIHelper;
@@ -160,6 +161,10 @@ public class App : Application
 		services.AddSingleton<IQuoteService, QuoteService>();
 		services.AddSingleton<IKlineService, KlineService>();
 		services.AddSingleton<IMarketCalendarService, MarketCalendarService>();
+		services.AddSingleton<SparrowHistoricalReplayEngine>();
+		services.AddSingleton<SparrowHistoricalBacktestEngine>();
+		services.AddTransient<SparrowResearchViewModel>();
+		services.AddTransient<SparrowResearchWindow>();
 
 		// Windows
 		services.AddTransient<MainWindow>();

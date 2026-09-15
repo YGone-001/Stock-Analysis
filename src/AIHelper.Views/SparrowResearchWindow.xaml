@@ -1,0 +1,29 @@
+<Window x:Class="AIHelper.Views.SparrowResearchWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Sparrow Research · Historical Replay / Backtest" Width="1180" Height="760" MinWidth="900" MinHeight="620">
+  <Grid Margin="16">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <StackPanel>
+      <TextBlock Text="Research Backtest / Selection Study" FontSize="22" FontWeight="SemiBold"/>
+      <TextBlock Text="Historical analysis is close-to-close only. It does not simulate portfolio allocation, execution feasibility, or an equity curve." Opacity="0.72" TextWrapping="Wrap" Margin="0,4,0,10"/>
+      <TextBlock Text="{Binding DatasetSummary}" TextWrapping="Wrap"/>
+    </StackPanel>
+    <WrapPanel Grid.Row="1" Margin="0,16,0,12">
+      <TextBlock Text="Strategy" VerticalAlignment="Center" Margin="0,0,6,0"/><ComboBox ItemsSource="{Binding SupportedStrategies}" SelectedItem="{Binding Strategy}" Width="120" Margin="0,0,14,0"/>
+      <TextBlock Text="Replay date" VerticalAlignment="Center" Margin="0,0,6,0"/><DatePicker SelectedDate="{Binding ReplayDate}" Width="130" Margin="0,0,14,0"/>
+      <TextBlock Text="Start" VerticalAlignment="Center" Margin="0,0,6,0"/><DatePicker SelectedDate="{Binding StartDate}" Width="130" Margin="0,0,14,0"/>
+      <TextBlock Text="End" VerticalAlignment="Center" Margin="0,0,6,0"/><DatePicker SelectedDate="{Binding EndDate}" Width="130" Margin="0,0,14,0"/>
+      <TextBlock Text="Top-N" VerticalAlignment="Center" Margin="0,0,6,0"/><TextBox Text="{Binding TopN}" Width="44" Margin="0,0,14,0"/>
+      <TextBlock Text="Round-trip cost (%)" VerticalAlignment="Center" Margin="0,0,6,0"/><TextBox Text="{Binding RoundTripCostPercent}" Width="54" Margin="0,0,14,0"/>
+      <TextBlock Text="Slippage/side (%)" VerticalAlignment="Center" Margin="0,0,6,0"/><TextBox Text="{Binding SlippagePerSidePercent}" Width="54" Margin="0,0,14,0"/>
+      <Button Content="Run Replay" Command="{Binding RunReplayCommand}" Margin="0,0,6,0"/><Button Content="Run Backtest" Command="{Binding RunBacktestCommand}" Margin="0,0,6,0"/><Button Content="Cancel" Command="{Binding CancelCommand}"/>
+    </WrapPanel>
+    <Grid Grid.Row="2"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="120"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <TextBlock Text="{Binding Message}" TextWrapping="Wrap"/>
+      <DataGrid Grid.Row="1" ItemsSource="{Binding Metrics}" AutoGenerateColumns="False" IsReadOnly="True" EnableRowVirtualization="True" EnableColumnVirtualization="True" Margin="0,8"><DataGrid.Columns><DataGridTextColumn Header="Horizon" Binding="{Binding Horizon}"/><DataGridTextColumn Header="Available" Binding="{Binding Available}"/><DataGridTextColumn Header="Average Return" Binding="{Binding Average}"/><DataGridTextColumn Header="Median Return" Binding="{Binding Median}"/><DataGridTextColumn Header="Win Rate" Binding="{Binding WinRate}"/></DataGrid.Columns></DataGrid>
+      <DataGrid Grid.Row="2" ItemsSource="{Binding Selections}" AutoGenerateColumns="False" IsReadOnly="True" EnableRowVirtualization="True" EnableColumnVirtualization="True" Margin="0,8,0,0"><DataGrid.Columns><DataGridTextColumn Header="Replay Date" Binding="{Binding Date}"/><DataGridTextColumn Header="Code" Binding="{Binding Code}"/><DataGridTextColumn Header="Rank" Binding="{Binding Rank}"/><DataGridTextColumn Header="Score" Binding="{Binding Score}"/><DataGridTextColumn Header="Reason Code" Binding="{Binding ReasonCode}"/><DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="*"/><DataGridTextColumn Header="1D" Binding="{Binding Return1D}"/><DataGridTextColumn Header="3D" Binding="{Binding Return3D}"/><DataGridTextColumn Header="5D" Binding="{Binding Return5D}"/><DataGridTextColumn Header="10D" Binding="{Binding Return10D}"/><DataGridTextColumn Header="20D" Binding="{Binding Return20D}"/></DataGrid.Columns></DataGrid>
+    </Grid>
+    <Expander Grid.Row="3" Header="Data limitations" Margin="0,12,0,0"><TextBlock Text="{Binding Limitations}" TextWrapping="Wrap" Margin="8"/></Expander>
+  </Grid>
+</Window>

@@ -1,4 +1,5 @@
 using AIHelper.Models;
+using AIHelper.Views;
 using Xunit;
 
 namespace AIHelper.Services.Tests;
