@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <AssemblyName>AIHelper</AssemblyName>
-    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <Version>2.0.0+dev</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Company>AIHelper</Company>
+    <Product>AIHelper</Product>
+    <Title>AIHelper</Title>
     <OutputType>WinExe</OutputType>
     <UseWPF>True</UseWPF>
     <PlatformTarget>x64</PlatformTarget>
