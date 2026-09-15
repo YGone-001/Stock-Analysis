@@ -27,6 +27,7 @@ public sealed class SparrowWindowRealUiTests
         public void ShowImportExport() { }
         public void ShowProxySettings() { }
         public void ShowSparrowScanner() { }
+        public void ShowSparrowResearch() { }
     }
 
     private sealed class DummyStockDataProvider : IStockDataProvider
@@ -280,13 +281,19 @@ public sealed class SparrowWindowRealUiTests
         }
     }
 
-    private static void RunWindowTest(Action<SparrowWindowDC, SparrowViewModel> action)
+    internal static void RunOnSharedUiDispatcher(Action action)
     {
         EnsureStaThread();
         lock (s_staLock)
         {
-            s_dispatcher!.Invoke(() =>
-            {
+            s_dispatcher!.Invoke(action);
+        }
+    }
+
+    private static void RunWindowTest(Action<SparrowWindowDC, SparrowViewModel> action)
+    {
+        RunOnSharedUiDispatcher(() =>
+        {
                 var dummyData = new DummyStockDataProvider();
                 var dummyDialog = new DummyDialogService();
                 var stockVm = new StockViewModel(dummyData, dummyDialog);
@@ -307,8 +314,7 @@ public sealed class SparrowWindowRealUiTests
                 {
                     window.Close();
                 }
-            });
-        }
+        });
     }
 
     private static void AssertNoVisibleConcurrencyText(DependencyObject node)

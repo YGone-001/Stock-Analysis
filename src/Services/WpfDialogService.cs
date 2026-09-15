@@ -162,4 +162,14 @@ public class WpfDialogService : IDialogService
 			}.Show();
 		});
 	}
+
+	public void ShowSparrowResearch()
+	{
+		Application.Current?.Dispatcher.Invoke(() =>
+		{
+			var window = _serviceProvider.GetRequiredService<SparrowResearchWindow>();
+			window.Owner = Application.Current.MainWindow;
+			window.Show();
+		});
+	}
 }

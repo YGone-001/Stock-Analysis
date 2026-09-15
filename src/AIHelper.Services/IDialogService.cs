@@ -14,4 +14,5 @@ public interface IDialogService
 	void ShowImportExport();
 	void ShowProxySettings();
 	void ShowSparrowScanner();
+	void ShowSparrowResearch();
 }

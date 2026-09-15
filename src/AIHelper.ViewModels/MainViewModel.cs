@@ -436,6 +436,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		}
 	}
 
+	[RelayCommand]
+	private void OpenSparrowResearch()
+	{
+		_dialogService.ShowSparrowResearch();
+	}
+
 	private void InitMenu()
 	{
 		MenuItems = new ObservableCollection<MenuItemModel>();
@@ -476,6 +482,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
 			Header = "诊断股票数据源",
 			Icon = "🩺",
 			Command = DiagnoseDataSourcesCommand
+		});
+		menuItemModel2.Children.Add(new MenuItemModel
+		{
+			Header = "Historical Research / 回放回测",
+			Icon = "📈",
+			Command = OpenSparrowResearchCommand
 		});
 		MenuItemModel menuItemModel3 = new MenuItemModel
 		{

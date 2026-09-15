@@ -14,6 +14,7 @@ using AIHelper.Views;
 using AIHelper.Services.StockData;
 using AIHelper.Services.StockData.Sparrow;
 using AIHelper.Services;
+using AIHelper.Core.Sparrow;
 
 namespace AIHelper;
 
@@ -161,6 +162,9 @@ public class App : Application
 		services.AddSingleton<IQuoteService, QuoteService>();
 		services.AddSingleton<IKlineService, KlineService>();
 		services.AddSingleton<IMarketCalendarService, MarketCalendarService>();
+		services.AddSingleton<IHistoricalDatasetLoader, HistoricalDatasetJsonLoader>();
+		services.AddSingleton<IHistoricalResultExporter, HistoricalResultExporter>();
+		services.AddSingleton<IFileDialogService, WpfFileDialogService>();
 		services.AddSingleton<SparrowHistoricalReplayEngine>();
 		services.AddSingleton<SparrowHistoricalBacktestEngine>();
 		services.AddTransient<SparrowResearchViewModel>();

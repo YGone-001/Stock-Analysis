@@ -386,25 +386,6 @@ public sealed class SparrowUiParametersTests
 
     private static void RunOnStaThread(Action action)
     {
-        Exception? error = null;
-        var thread = new System.Threading.Thread(() =>
-        {
-            try
-            {
-                action();
-            }
-            catch (Exception ex)
-            {
-                error = ex;
-            }
-        });
-        thread.SetApartmentState(System.Threading.ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-
-        if (error != null)
-        {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
-        }
+        SparrowWindowRealUiTests.RunOnSharedUiDispatcher(action);
     }
 }
