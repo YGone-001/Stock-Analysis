@@ -134,6 +134,25 @@ public sealed record HistoricalObservationDeclaration(
     HistoricalObservationStatus ObservationStatus,
     string Reason = "");
 
+/// <summary>Positive ST evidence from a dated historical source. Absence only means non-ST when coverage is Full.</summary>
+public sealed record HistoricalRiskStatusObservation(DateOnly TradingDate, string Symbol, bool IsSt, string Source);
+public sealed record HistoricalAdjustmentFactor(string Symbol, DateOnly TradingDate, double Factor, string Source, DateTimeOffset? RetrievedAtUtc = null);
+
+/// <summary>Structured quality facts; intentionally not a numeric score.</summary>
+public sealed record HistoricalDatasetQualitySummary(
+    HistoricalUniverseQuality UniverseQuality,
+    HistoricalLifecycleQuality LifecycleQuality,
+    HistoricalFieldCoverage HistoricalStCoverage,
+    HistoricalFieldCoverage SuspensionCoverage,
+    HistoricalFieldCoverage TurnoverCoverage,
+    HistoricalFieldCoverage AdjustmentFactorCoverage,
+    HistoricalFieldCoverage IndexCoverage,
+    HistoricalFieldCoverage OuterInnerCoverage,
+    IReadOnlyList<string>? Reasons = null)
+{
+    public IReadOnlyList<string> Reasons { get; init; } = Reasons ?? Array.Empty<string>();
+}
+
 /// <summary>Pure resolver for explicit historical universe snapshots and lifecycle boundaries.</summary>
 public sealed class HistoricalUniverseResolver
 {

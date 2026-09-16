@@ -25,6 +25,12 @@ class FixtureClient(HistoricalTushareClient):
         if api_name == "stock_basic":
             status = str(params["list_status"])
             return [{"ts_code": "600001.SH", "symbol": "600001", "name": "Delisted", "market": "主板", "exchange": "SSE", "list_status": status, "list_date": "20200101", "delist_date": "20240105"}]
+        if api_name == "stock_st":
+            return [{"ts_code": "600000.SH", "trade_date": "20240102", "type": "ST"}]
+        if api_name == "suspend_d":
+            return [{"ts_code": "600000.SH", "trade_date": "20240104", "suspend_type": "S", "suspend_timing": None}, {"ts_code": "600001.SH", "trade_date": "20240104", "suspend_type": "S", "suspend_timing": None}]
+        if api_name == "adj_factor":
+            return [{"ts_code": "600000.SH", "trade_date": "20240102", "adj_factor": "100"}]
         return []
 
 
@@ -57,3 +63,15 @@ def test_missing_token_probe_is_explicitly_unavailable() -> None:
     result = asyncio.run(HistoricalTushareClient("").probe())
 
     assert {entry.status for entry in result.capabilities} == {HistoricalCapabilityStatus.UNAVAILABLE}
+
+
+def test_st_suspension_and_factor_are_typed_and_not_name_inference() -> None:
+    client = FixtureClient()
+    st = asyncio.run(client.st_statuses(date(2024, 1, 2), date(2024, 1, 4)))
+    suspension = asyncio.run(client.suspensions(date(2024, 1, 2), date(2024, 1, 4)))
+    factor = asyncio.run(client.adjustment_factors("600000.SH", date(2024, 1, 2), date(2024, 1, 4)))
+
+    assert st[0].symbol == "600000"
+    assert st[0].type == "ST"
+    assert len(suspension) == 2
+    assert factor[0].factor == 100

@@ -73,10 +73,28 @@ public static class SparrowHistoricalFingerprint
             HistoricalObservationDeclaration d = pair.Value;
             return Row("Observation", d.TradingDate, d.Symbol, d.SecurityStatus, d.ObservationStatus, d.Reason);
         }));
+        rows.AddRange(dataset.RiskStatusObservations.OrderBy(pair => pair.Key.Date).ThenBy(pair => pair.Key.Symbol, StringComparer.Ordinal).Select(pair =>
+        {
+            HistoricalRiskStatusObservation s = pair.Value;
+            return Row("HistoricalSt", s.TradingDate, s.Symbol, s.IsSt, s.Source);
+        }));
+        rows.AddRange(dataset.AdjustmentFactors.OrderBy(pair => pair.Key.Date).ThenBy(pair => pair.Key.Symbol, StringComparer.Ordinal).Select(pair =>
+        {
+            HistoricalAdjustmentFactor factor = pair.Value;
+            return Row("AdjustmentFactor", factor.TradingDate, factor.Symbol, factor.Factor, factor.Source);
+        }));
+        HistoricalDatasetQualitySummary quality = dataset.QualitySummary;
+        if (HasExplicitCoverageEvidence(quality))
+            rows.Add(Row("Quality", quality.UniverseQuality, quality.LifecycleQuality, quality.HistoricalStCoverage, quality.SuspensionCoverage,
+                quality.TurnoverCoverage, quality.AdjustmentFactorCoverage, quality.IndexCoverage, quality.OuterInnerCoverage,
+                string.Join('\u001e', quality.Reasons.OrderBy(value => value, StringComparer.Ordinal))));
         return Hash(string.Join('\n', rows));
     }
 
     private static string Row(params object?[] values) => string.Join('\u001f', values.Select(Canonical));
+    private static bool HasExplicitCoverageEvidence(HistoricalDatasetQualitySummary quality) =>
+        quality.HistoricalStCoverage != HistoricalFieldCoverage.Unknown || quality.SuspensionCoverage != HistoricalFieldCoverage.Unknown ||
+        quality.AdjustmentFactorCoverage != HistoricalFieldCoverage.Unknown || quality.Reasons.Count > 0;
     private static string Canonical(object? value) => value switch
     {
         null => "<null>",

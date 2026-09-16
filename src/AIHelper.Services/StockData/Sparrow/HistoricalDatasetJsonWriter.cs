@@ -64,6 +64,9 @@ public sealed class HistoricalDatasetJsonWriter
         FieldCapabilities = dataset.FieldCapabilities.Values.OrderBy(item => item.Field).ToList(),
         PriceSeriesProvenance = dataset.PriceSeriesProvenance.Values.OrderBy(item => item.Symbol, StringComparer.Ordinal).ToList(),
         MarketContextProvenance = dataset.MarketContextProvenance.Values.OrderBy(item => item.TradingDate).ToList(),
-        ObservationDeclarations = dataset.ObservationDeclarations.Values.OrderBy(item => item.TradingDate).ThenBy(item => item.Symbol, StringComparer.Ordinal).ToList()
+        ObservationDeclarations = dataset.ObservationDeclarations.Values.OrderBy(item => item.TradingDate).ThenBy(item => item.Symbol, StringComparer.Ordinal).ToList(),
+        RiskStatusObservations = dataset.RiskStatusObservations.Values.OrderBy(item => item.TradingDate).ThenBy(item => item.Symbol, StringComparer.Ordinal).ToList(),
+        AdjustmentFactors = dataset.AdjustmentFactors.Values.OrderBy(item => item.TradingDate).ThenBy(item => item.Symbol, StringComparer.Ordinal).ToList(),
+        QualitySummary = dataset.QualitySummary
     };
 }

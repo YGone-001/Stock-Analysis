@@ -82,6 +82,8 @@ public sealed class SparrowHistoricalReplayEngine
         if (request.StrategyMode == SparrowStrategyMode.Classic && request.ClassicParameters == null) return Unsupported(dataset, request, "Classic parameter snapshot is required.");
         if (request.StrategyMode == SparrowStrategyMode.V2 && request.V2Parameters == null) return Unsupported(dataset, request, "V2 parameter snapshot is required.");
         if (!HasRequiredCapabilities(dataset, request, snapshot.MarketContext, out string? gap)) return Unsupported(dataset, request, gap!);
+        if (request.StrategyMode == SparrowStrategyMode.Classic && dataset.QualitySummary.HistoricalStCoverage != HistoricalFieldCoverage.Unknown && dataset.QualitySummary.HistoricalStCoverage != HistoricalFieldCoverage.Full)
+            return Unsupported(dataset, request, "Historical ST evidence is not complete for this dataset.");
         return request.StrategyMode == SparrowStrategyMode.Classic
             ? ReplayClassic(dataset, request, snapshot, warnings, cancellationToken)
             : ReplayV2(dataset, request, snapshot, warnings, cancellationToken);
@@ -99,7 +101,11 @@ public sealed class SparrowHistoricalReplayEngine
         foreach (HistoricalSecuritySnapshot security in snapshot.Securities)
         {
             ct.ThrowIfCancellationRequested();
-            if (!SparrowClassicUniverseEligibility.Evaluate(security.Security.Symbol, security.Security.Name).Eligible) continue;
+            SparrowClassicEligibilityResult eligibility = dataset.QualitySummary.HistoricalStCoverage == HistoricalFieldCoverage.Unknown
+                ? SparrowClassicUniverseEligibility.Evaluate(security.Security.Symbol, security.Security.Name)
+                : SparrowClassicUniverseEligibility.Evaluate(security.Security.Symbol, security.Security.Name,
+                    dataset.RiskStatusObservations.TryGetValue((snapshot.TradingDate, security.Security.Symbol), out HistoricalRiskStatusObservation? risk) ? risk.IsSt : false);
+            if (!eligibility.Eligible) continue;
             if (!HasRequiredQuoteFields(dataset, security.Quote, SparrowStrategyMode.Classic))
             {
                 warnings.Add($"{security.Security.Symbol}: required historical quote field is unavailable; skipped.");

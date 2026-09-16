@@ -24,6 +24,8 @@ from app.historical_tushare import (
     HistoricalSecurityResponse,
     HistoricalSourceError,
     HistoricalSuspensionResponse,
+    HistoricalStResponse,
+    HistoricalAdjustmentFactorResponse,
     HistoricalTurnoverResponse,
     HistoricalTushareClient,
 )
@@ -278,6 +280,24 @@ async def historical_suspensions(
     try:
         return HistoricalSuspensionResponse(start_date=start_date, end_date=end_date,
             data=await historical_source(source).suspensions(start_date, end_date))
+    except HistoricalSourceError as error:
+        raise historical_failure(error) from error
+
+
+@app.get("/api/historical/st", response_model=HistoricalStResponse)
+async def historical_st(start_date: date = Query(...), end_date: date = Query(...), source: str = Query("tushare")) -> HistoricalStResponse:
+    if start_date > end_date: raise HTTPException(status_code=422, detail="historical_date_range_invalid")
+    try:
+        return HistoricalStResponse(start_date=start_date, end_date=end_date, data=await historical_source(source).st_statuses(start_date, end_date))
+    except HistoricalSourceError as error:
+        raise historical_failure(error) from error
+
+
+@app.get("/api/historical/adjustment-factors", response_model=HistoricalAdjustmentFactorResponse)
+async def historical_adjustment_factors(ts_code: str = Query(...), start_date: date = Query(...), end_date: date = Query(...), source: str = Query("tushare")) -> HistoricalAdjustmentFactorResponse:
+    if start_date > end_date: raise HTTPException(status_code=422, detail="historical_date_range_invalid")
+    try:
+        return HistoricalAdjustmentFactorResponse(start_date=start_date, end_date=end_date, data=await historical_source(source).adjustment_factors(ts_code, start_date, end_date))
     except HistoricalSourceError as error:
         raise historical_failure(error) from error
 

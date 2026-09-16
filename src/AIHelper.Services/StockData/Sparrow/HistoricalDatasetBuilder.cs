@@ -65,25 +65,41 @@ public sealed class HistoricalDatasetBuilder
         }
         bool wantsTurnover = request.IncludeTurnover && capabilities.TryGetValue("daily_basic", out HistoricalSourceCapabilityStatus dailyBasic) && dailyBasic == HistoricalSourceCapabilityStatus.Available;
         if (request.IncludeTurnover && !wantsTurnover) warnings.Add("Historical turnover is unavailable because daily_basic capability is not available.");
-        if (request.IncludeHistoricalSt) warnings.Add("Historical ST acquisition is not implemented in the strict V1 builder; Classic ST eligibility is partial.");
-        if (request.IncludeSuspension) warnings.Add("Historical suspension acquisition is not implemented in the strict V1 builder; absent prices remain UnknownDataGap.");
+        IReadOnlyList<HistoricalStStatus> st = [];
+        bool stAvailable = request.IncludeHistoricalSt && capabilities.TryGetValue("stock_st", out HistoricalSourceCapabilityStatus stStatus) && stStatus == HistoricalSourceCapabilityStatus.Available;
+        if (stAvailable) st = await _source.GetStStatusesAsync(request.StartDate, request.EndDate, cancellationToken).ConfigureAwait(false);
+        else if (request.IncludeHistoricalSt) warnings.Add("Historical ST status is unavailable because stock_st capability is not available.");
+        IReadOnlyList<HistoricalSuspension> suspensions = [];
+        bool suspensionAvailable = request.IncludeSuspension && capabilities.TryGetValue("suspend_d", out HistoricalSourceCapabilityStatus suspensionStatus) && suspensionStatus == HistoricalSourceCapabilityStatus.Available;
+        if (suspensionAvailable) suspensions = await _source.GetSuspensionsAsync(request.StartDate, request.EndDate, cancellationToken).ConfigureAwait(false);
+        else if (request.IncludeSuspension) warnings.Add("Historical suspension evidence is unavailable because suspend_d capability is not available.");
+        Dictionary<(DateOnly Date, string Symbol), HistoricalSourceAdjustmentFactor> factors = new();
+        bool factorAvailable = request.IncludeAdjustmentFactors && capabilities.TryGetValue("adj_factor", out HistoricalSourceCapabilityStatus factorStatus) && factorStatus == HistoricalSourceCapabilityStatus.Available;
+        if (factorAvailable)
+            foreach (HistoricalSourceSecurity security in eligible.Where(item => prices.ContainsKey(item.Symbol)))
+                foreach (HistoricalSourceAdjustmentFactor factor in await _source.GetAdjustmentFactorsAsync(security.TsCode, request.StartDate, request.EndDate, cancellationToken).ConfigureAwait(false))
+                    factors.Add((factor.TradingDate, factor.Symbol), factor);
+        else if (request.IncludeAdjustmentFactors) warnings.Add("Adjustment-factor evidence is unavailable because adj_factor capability is not available.");
 
         IReadOnlyList<HistoricalIndexDaily> index = [];
         if (request.IncludeV2IndexContext && capabilities.TryGetValue("index_daily", out HistoricalSourceCapabilityStatus indexStatus) && indexStatus == HistoricalSourceCapabilityStatus.Available)
             index = await _source.GetIndexDailyAsync(request.V2IndexCode, request.StartDate, request.EndDate, cancellationToken).ConfigureAwait(false);
         else if (request.IncludeV2IndexContext) warnings.Add("V2 Shanghai daily-percent context is unavailable because index_daily capability is not available.");
 
-        HistoricalMarketDataset dataset = Construct(request, dates, eligible, prices, turnover, wantsTurnover, index, warnings);
+        HistoricalMarketDataset dataset = Construct(request, dates, eligible, prices, turnover, wantsTurnover, index, st, stAvailable, suspensions, suspensionAvailable, factors.Values, factorAvailable, warnings);
         await _writer.WriteAsync(dataset, request.OutputPath, cancellationToken).ConfigureAwait(false);
         timer.Stop();
         HistoricalDatasetBuildStatistics statistics = new(master.Count, eligible.Length, eligible.Length, prices.Count, skipped, dates.Length,
-            prices.Values.Sum(rows => rows.Count), dataset.Quotes.Count, 0, 0, index.Count, warnings.ToArray(), timer.Elapsed);
-        return new HistoricalDatasetBuildResult(dataset, statistics, IsPartial: skipped > 0 || !wantsTurnover || request.IncludeHistoricalSt || request.IncludeSuspension);
+            prices.Values.Sum(rows => rows.Count), dataset.Quotes.Count, suspensions.Count, st.Count, index.Count, warnings.ToArray(), timer.Elapsed,
+            factors.Count, eligible.Count(item => string.Equals(item.ListStatus, "D", StringComparison.OrdinalIgnoreCase)), eligible.Count(item => !item.ListingDate.HasValue),
+            stAvailable ? 0 : eligible.Length, suspensionAvailable ? 0 : eligible.Length * dates.Length);
+        return new HistoricalDatasetBuildResult(dataset, statistics, IsPartial: skipped > 0 || !wantsTurnover || !stAvailable || !suspensionAvailable || !factorAvailable);
     }
 
     private static HistoricalMarketDataset Construct(HistoricalDatasetBuildRequest request, IReadOnlyList<DateOnly> dates, IReadOnlyList<HistoricalSourceSecurity> master,
         IReadOnlyDictionary<string, IReadOnlyList<HistoricalDailyPrice>> prices, IReadOnlyDictionary<(DateOnly Date, string Symbol), HistoricalTurnover> turnover,
-        bool wantsTurnover, IReadOnlyList<HistoricalIndexDaily> index, IReadOnlyList<string> warnings)
+        bool wantsTurnover, IReadOnlyList<HistoricalIndexDaily> index, IReadOnlyList<HistoricalStStatus> st, bool stAvailable,
+        IReadOnlyList<HistoricalSuspension> suspensions, bool suspensionAvailable, IEnumerable<HistoricalSourceAdjustmentFactor> factors, bool factorAvailable, IReadOnlyList<string> warnings)
     {
         HistoricalSecurity[] securities = master.Select(item => new HistoricalSecurity(item.Symbol, item.Name, HistoricalSecurityType.Stock, Market(item.Exchange),
             item.ListingDate, item.DelistingDate, HistoricalLifecycleQuality.Partial, prices.TryGetValue(item.Symbol, out IReadOnlyList<HistoricalDailyPrice>? rows) ? rows.Min(row => row.TradingDate) : null)).ToArray();
@@ -101,9 +117,12 @@ public sealed class HistoricalDatasetBuilder
         HistoricalUniverseSnapshot[] universes = dates.Select(day => new HistoricalUniverseSnapshot(day,
             securities.Where(security => IsActive(security, day)).Select(security => security.Symbol).OrderBy(symbol => symbol, StringComparer.Ordinal).ToArray(),
             HistoricalUniverseQuality.Partial, "tushare:stock_basic", new[] { "Historical universe is source-backed but completeness is not independently verified." })).ToArray();
+        HashSet<(DateOnly Date, string Symbol)> suspended = suspensions.Where(item => string.Equals(item.Action, "S", StringComparison.OrdinalIgnoreCase)).Select(item => (item.TradingDate, item.Symbol)).ToHashSet();
         HistoricalObservationDeclaration[] declarations = universes.SelectMany(universe => universe.SecuritySymbols.Select(symbol => byDate.ContainsKey((universe.TradingDate, symbol))
             ? new HistoricalObservationDeclaration(universe.TradingDate, symbol, HistoricalSecurityStatus.Active, HistoricalObservationStatus.Available, "Tushare daily observed")
-            : new HistoricalObservationDeclaration(universe.TradingDate, symbol, HistoricalSecurityStatus.Unknown, HistoricalObservationStatus.UnknownDataGap, "No daily row; not inferred as suspended"))).ToArray();
+            : suspended.Contains((universe.TradingDate, symbol))
+                ? new HistoricalObservationDeclaration(universe.TradingDate, symbol, HistoricalSecurityStatus.Suspended, HistoricalObservationStatus.Suspended, "Tushare suspend_d observed suspension")
+                : new HistoricalObservationDeclaration(universe.TradingDate, symbol, HistoricalSecurityStatus.Unknown, HistoricalObservationStatus.UnknownDataGap, "No daily row; not inferred as suspended"))).ToArray();
         HistoricalMarketContext[] contexts = index.Where(row => dates.Contains(row.TradingDate)).Select(row => new HistoricalMarketContext(row.TradingDate, null, row.Percent)).ToArray();
         HistoricalMarketContextProvenance[] contextProvenance = contexts.Select(context => new HistoricalMarketContextProvenance(context.TradingDate,
             HistoricalFieldOrigin.Unavailable, "Historical intraday Classic market regime is unavailable", HistoricalFieldOrigin.Observed, "tushare:index_daily")).ToArray();
@@ -121,7 +140,16 @@ public sealed class HistoricalDatasetBuilder
             universes: universes, fieldCapabilities: fieldCapabilities,
             priceSeriesProvenance: klines.Select(series => new HistoricalPriceSeriesProvenance(series.Symbol, "tushare:daily", HistoricalPriceAdjustmentMode.Raw,
                 DateOnly.FromDateTime(series.Bars.First().Date), DateOnly.FromDateTime(series.Bars.Last().Date))), marketContextProvenance: contextProvenance,
-            observationDeclarations: declarations);
+            observationDeclarations: declarations,
+            riskStatusObservations: st.Select(item => new HistoricalRiskStatusObservation(item.TradingDate, item.Symbol, true, item.Source)),
+            adjustmentFactors: factors.Select(item => new HistoricalAdjustmentFactor(item.Symbol, item.TradingDate, item.Factor, item.Source, item.RetrievedAtUtc)),
+            qualitySummary: new HistoricalDatasetQualitySummary(HistoricalUniverseQuality.Partial, HistoricalLifecycleQuality.Partial,
+                stAvailable ? HistoricalFieldCoverage.Partial : HistoricalFieldCoverage.None,
+                suspensionAvailable ? HistoricalFieldCoverage.Partial : HistoricalFieldCoverage.None,
+                fieldCapabilities.Single(item => item.Field == HistoricalField.Turnover).Coverage,
+                factorAvailable ? CoverageFactors(factors) : HistoricalFieldCoverage.None,
+                index.Count == dates.Count ? HistoricalFieldCoverage.Full : index.Count > 0 ? HistoricalFieldCoverage.Partial : HistoricalFieldCoverage.None,
+                HistoricalFieldCoverage.None, warnings));
     }
 
     private static bool IsAshare(HistoricalSourceSecurity item) => item.Exchange is "SSE" or "SZSE" or "BSE" || item.TsCode.EndsWith(".SH", StringComparison.Ordinal) || item.TsCode.EndsWith(".SZ", StringComparison.Ordinal) || item.TsCode.EndsWith(".BJ", StringComparison.Ordinal);
@@ -132,5 +160,10 @@ public sealed class HistoricalDatasetBuilder
     {
         bool[] values = observations.Select(item => hasValue(item.Quote)).ToArray();
         return values.Length == 0 || values.All(item => !item) ? HistoricalFieldCoverage.None : values.All(item => item) ? HistoricalFieldCoverage.Full : HistoricalFieldCoverage.Partial;
+    }
+    private static HistoricalFieldCoverage CoverageFactors(IEnumerable<HistoricalSourceAdjustmentFactor> factors)
+    {
+        int count = factors.Count();
+        return count == 0 ? HistoricalFieldCoverage.None : HistoricalFieldCoverage.Partial;
     }
 }

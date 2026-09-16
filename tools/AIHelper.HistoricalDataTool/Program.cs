@@ -14,11 +14,19 @@ try
     HistoricalDatasetBuildRequest request = new(
         Value("dataset-id", $"tushare-{Value("start")}-{Value("end")}"), Date("start"), Date("end"), Value("output"),
         HistoricalPriceAdjustmentMode.Raw,
-        Bool("include-turnover", true), Bool("include-suspension", false), Bool("include-st", false), Bool("include-v2-index", true));
+        IncludeTurnover: Bool("include-turnover", true), IncludeSuspension: Bool("include-suspension", false), IncludeHistoricalSt: Bool("include-st", false),
+        IncludeAdjustmentFactors: Bool("include-adjustment-factors", false), IncludeV2IndexContext: Bool("include-v2-index", true));
     HistoricalDatasetBuildResult result = await new HistoricalDatasetBuilder(new HistoricalHttpMarketDataSource(client)).BuildAsync(request);
     Console.WriteLine($"DATASET={result.Dataset.DatasetId}");
     Console.WriteLine($"FINGERPRINT={result.Dataset.Fingerprint}");
     Console.WriteLine($"QUALITY={(result.IsPartial ? "PARTIAL" : "SOURCE_BACKED")}");
+    Console.WriteLine($"UNIVERSE={result.Dataset.QualitySummary.UniverseQuality}");
+    Console.WriteLine($"LIFECYCLE={result.Dataset.QualitySummary.LifecycleQuality}");
+    Console.WriteLine($"ST={result.Dataset.QualitySummary.HistoricalStCoverage}");
+    Console.WriteLine($"SUSPENSION={result.Dataset.QualitySummary.SuspensionCoverage}");
+    Console.WriteLine($"ADJUSTMENT_FACTORS={result.Dataset.QualitySummary.AdjustmentFactorCoverage}");
+    Console.WriteLine("STRATEGY_CLASSIC=PARTIAL");
+    Console.WriteLine("STRATEGY_V2=PARTIAL");
     Console.WriteLine($"OUTPUT={Path.GetFullPath(request.OutputPath)}");
     foreach (string warning in result.Statistics.Warnings) Console.WriteLine($"WARNING={warning}");
     return 0;

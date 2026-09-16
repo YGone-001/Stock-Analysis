@@ -59,6 +59,18 @@ public sealed class HistoricalHttpMarketDataSource : IHistoricalMarketDataSource
         return result.Data.Select(item => new HistoricalSuspension(item.Symbol, item.TsCode, item.TradingDate, item.Action, item.Timing, item.Source ?? "tushare")).ToArray();
     }
 
+    public async Task<IReadOnlyList<HistoricalStStatus>> GetStStatusesAsync(DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default)
+    {
+        DataEnvelope<StDto>? result = await GetAsync<DataEnvelope<StDto>>(Range("/api/historical/st", startDate, endDate), cancellationToken);
+        return result.Data.Select(item => new HistoricalStStatus(item.Symbol, item.TsCode, item.TradingDate, item.Type, item.Source ?? "tushare")).ToArray();
+    }
+
+    public async Task<IReadOnlyList<HistoricalSourceAdjustmentFactor>> GetAdjustmentFactorsAsync(string tsCode, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default)
+    {
+        DataEnvelope<FactorDto>? result = await GetAsync<DataEnvelope<FactorDto>>(Range("/api/historical/adjustment-factors", startDate, endDate) + "&ts_code=" + Uri.EscapeDataString(tsCode), cancellationToken);
+        return result.Data.Select(item => new HistoricalSourceAdjustmentFactor(item.Symbol, item.TsCode, item.TradingDate, item.Factor, item.Source ?? "tushare")).ToArray();
+    }
+
     private async Task<T> GetAsync<T>(string relativePath, CancellationToken cancellationToken) where T : class
     {
         using HttpResponseMessage response = await _client.GetAsync(relativePath, cancellationToken).ConfigureAwait(false);
@@ -87,4 +99,6 @@ public sealed class HistoricalHttpMarketDataSource : IHistoricalMarketDataSource
     private sealed class TurnoverDto { public string Symbol { get; set; } = ""; [JsonPropertyName("ts_code")] public string TsCode { get; set; } = ""; [JsonPropertyName("trading_date")] public DateOnly TradingDate { get; set; } [JsonPropertyName("turnover_rate")] public double? TurnoverRate { get; set; } public string? Source { get; set; } }
     private sealed class IndexDto { [JsonPropertyName("index_code")] public string IndexCode { get; set; } = ""; [JsonPropertyName("trading_date")] public DateOnly TradingDate { get; set; } public double? Close { get; set; } [JsonPropertyName("previous_close")] public double? PreviousClose { get; set; } public double? Percent { get; set; } public string? Source { get; set; } }
     private sealed class SuspensionDto { public string Symbol { get; set; } = ""; [JsonPropertyName("ts_code")] public string TsCode { get; set; } = ""; [JsonPropertyName("trading_date")] public DateOnly TradingDate { get; set; } public string Action { get; set; } = ""; public string? Timing { get; set; } public string? Source { get; set; } }
+    private sealed class StDto { public string Symbol { get; set; } = ""; [JsonPropertyName("ts_code")] public string TsCode { get; set; } = ""; [JsonPropertyName("trading_date")] public DateOnly TradingDate { get; set; } public string Type { get; set; } = ""; public string? Source { get; set; } }
+    private sealed class FactorDto { public string Symbol { get; set; } = ""; [JsonPropertyName("ts_code")] public string TsCode { get; set; } = ""; [JsonPropertyName("trading_date")] public DateOnly TradingDate { get; set; } public double Factor { get; set; } public string? Source { get; set; } }
 }

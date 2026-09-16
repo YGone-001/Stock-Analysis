@@ -175,6 +175,21 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
             if (!securitySymbols.Contains(declaration.Symbol)) errors.Add($"Observation declaration references unknown security '{declaration.Symbol}'.");
             if (!declarationKeys.Add((declaration.TradingDate, declaration.Symbol))) errors.Add($"Duplicate observation declaration for '{declaration.Symbol}' on {declaration.TradingDate:yyyy-MM-dd}.");
         }
+        HashSet<(DateOnly Date, string Symbol)> riskKeys = new();
+        foreach (HistoricalRiskStatusObservation observation in file.RiskStatusObservations ?? Enumerable.Empty<HistoricalRiskStatusObservation>())
+        {
+            if (!dates.Contains(observation.TradingDate)) errors.Add($"Historical ST observation has a date outside tradingDates: {observation.TradingDate:yyyy-MM-dd}.");
+            if (!securitySymbols.Contains(observation.Symbol)) errors.Add($"Historical ST observation references unknown security '{observation.Symbol}'.");
+            if (!riskKeys.Add((observation.TradingDate, observation.Symbol))) errors.Add($"Duplicate historical ST observation for '{observation.Symbol}' on {observation.TradingDate:yyyy-MM-dd}.");
+        }
+        HashSet<(DateOnly Date, string Symbol)> factorKeys = new();
+        foreach (HistoricalAdjustmentFactor factor in file.AdjustmentFactors ?? Enumerable.Empty<HistoricalAdjustmentFactor>())
+        {
+            if (!dates.Contains(factor.TradingDate)) errors.Add($"Adjustment factor has a date outside tradingDates: {factor.TradingDate:yyyy-MM-dd}.");
+            if (!securitySymbols.Contains(factor.Symbol)) errors.Add($"Adjustment factor references unknown security '{factor.Symbol}'.");
+            if (!factorKeys.Add((factor.TradingDate, factor.Symbol))) errors.Add($"Duplicate adjustment factor for '{factor.Symbol}' on {factor.TradingDate:yyyy-MM-dd}.");
+            if (double.IsNaN(factor.Factor) || double.IsInfinity(factor.Factor) || factor.Factor <= 0) errors.Add($"Adjustment factor for '{factor.Symbol}' must be positive and finite.");
+        }
     }
 
     private static bool HasQuoteField(HistoricalQuoteFile quote, HistoricalField field) => field switch
@@ -238,7 +253,10 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
             fieldCapabilities: file.FieldCapabilities,
             priceSeriesProvenance: priceProvenance,
             marketContextProvenance: file.MarketContextProvenance,
-            observationDeclarations: file.ObservationDeclarations);
+            observationDeclarations: file.ObservationDeclarations,
+            riskStatusObservations: file.RiskStatusObservations,
+            adjustmentFactors: file.AdjustmentFactors,
+            qualitySummary: file.QualitySummary);
     }
 
     private static HistoricalDataCapabilities CompatibilityCapabilities(IEnumerable<HistoricalFieldCapability> capabilities)
@@ -271,6 +289,9 @@ public sealed class HistoricalDatasetFile
     public List<HistoricalPriceSeriesProvenance>? PriceSeriesProvenance { get; set; }
     public List<HistoricalMarketContextProvenance>? MarketContextProvenance { get; set; }
     public List<HistoricalObservationDeclaration>? ObservationDeclarations { get; set; }
+    public List<HistoricalRiskStatusObservation>? RiskStatusObservations { get; set; }
+    public List<HistoricalAdjustmentFactor>? AdjustmentFactors { get; set; }
+    public HistoricalDatasetQualitySummary? QualitySummary { get; set; }
 }
 public sealed class HistoricalDatasetMetadataFile
 {

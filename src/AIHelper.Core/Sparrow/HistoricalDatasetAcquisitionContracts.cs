@@ -17,6 +17,8 @@ public sealed record HistoricalDailyPrice(
 public sealed record HistoricalTurnover(string Symbol, string TsCode, DateOnly TradingDate, double? TurnoverRate, string Source);
 public sealed record HistoricalIndexDaily(string IndexCode, DateOnly TradingDate, double? Close, double? PreviousClose, double? Percent, string Source);
 public sealed record HistoricalSuspension(string Symbol, string TsCode, DateOnly TradingDate, string Action, string? Timing, string Source);
+public sealed record HistoricalStStatus(string Symbol, string TsCode, DateOnly TradingDate, string Type, string Source);
+public sealed record HistoricalSourceAdjustmentFactor(string Symbol, string TsCode, DateOnly TradingDate, double Factor, string Source, DateTimeOffset? RetrievedAtUtc = null);
 
 /// <summary>Historical acquisition is isolated from live IQuoteService/IKlineService by design.</summary>
 public interface IHistoricalMarketDataSource
@@ -28,6 +30,8 @@ public interface IHistoricalMarketDataSource
     Task<IReadOnlyList<HistoricalTurnover>> GetTurnoverAsync(string tsCode, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<HistoricalIndexDaily>> GetIndexDailyAsync(string indexCode, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<HistoricalSuspension>> GetSuspensionsAsync(DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<HistoricalStStatus>> GetStStatusesAsync(DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<HistoricalSourceAdjustmentFactor>> GetAdjustmentFactorsAsync(string tsCode, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default);
 }
 
 public sealed record HistoricalDatasetBuildRequest(
@@ -39,6 +43,7 @@ public sealed record HistoricalDatasetBuildRequest(
     bool IncludeTurnover = true,
     bool IncludeSuspension = false,
     bool IncludeHistoricalSt = false,
+    bool IncludeAdjustmentFactors = false,
     bool IncludeV2IndexContext = true,
     string Exchange = "SSE",
     string V2IndexCode = "000001.SH")
@@ -56,7 +61,9 @@ public sealed record HistoricalDatasetBuildRequest(
 public sealed record HistoricalDatasetBuildStatistics(
     int SecurityMasterCount, int UniverseSecurityCount, int SymbolsRequested, int SymbolsBuilt,
     int SymbolsSkipped, int TradingDays, int KlineBars, int QuotesBuilt, int SuspensionRecords,
-    int StRecords, int IndexBars, IReadOnlyList<string> Warnings, TimeSpan Duration);
+    int StRecords, int IndexBars, IReadOnlyList<string> Warnings, TimeSpan Duration,
+    int AdjustmentFactorRows = 0, int DelistedSecurityCount = 0, int MissingLifecycleCount = 0,
+    int MissingHistoricalStCount = 0, int MissingSuspensionEvidenceCount = 0);
 
 public sealed record HistoricalDatasetBuildResult(
     HistoricalMarketDataset Dataset, HistoricalDatasetBuildStatistics Statistics, bool IsPartial);

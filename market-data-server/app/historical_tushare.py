@@ -149,6 +149,36 @@ class HistoricalSuspensionResponse(BaseModel):
     data: list[HistoricalSuspensionDto]
 
 
+class HistoricalStDto(BaseModel):
+    symbol: str
+    ts_code: str
+    trading_date: date
+    type: str
+    source: str = "tushare"
+
+
+class HistoricalStResponse(BaseModel):
+    source: str = "tushare"
+    start_date: date
+    end_date: date
+    data: list[HistoricalStDto]
+
+
+class HistoricalAdjustmentFactorDto(BaseModel):
+    symbol: str
+    ts_code: str
+    trading_date: date
+    factor: float
+    source: str = "tushare"
+
+
+class HistoricalAdjustmentFactorResponse(BaseModel):
+    source: str = "tushare"
+    start_date: date
+    end_date: date
+    data: list[HistoricalAdjustmentFactorDto]
+
+
 def _date(value: Any) -> date | None:
     text = str(value or "").strip()
     if len(text) != 8 or not text.isdigit():
@@ -258,7 +288,23 @@ class HistoricalTushareClient:
         rows = await self._call("suspend_d", {"start_date": _wire_date(start), "end_date": _wire_date(end)},
                                 "ts_code,trade_date,suspend_type,suspend_timing")
         return self._strict_range([HistoricalSuspensionDto(symbol=str(item.get("ts_code") or "").split(".")[0], ts_code=str(item.get("ts_code") or ""),
-            trading_date=_required_date(item, "trade_date"), action=str(item.get("suspend_type") or ""), timing=_text(item.get("suspend_timing"))) for item in rows], start, end, lambda item: item.trading_date)
+            trading_date=_required_date(item, "trade_date"), action=str(item.get("suspend_type") or ""), timing=_text(item.get("suspend_timing"))) for item in rows], start, end, lambda item: item.trading_date, lambda item: (item.trading_date, item.symbol, item.action))
+
+    async def st_statuses(self, start: date, end: date) -> list[HistoricalStDto]:
+        rows = await self._call("stock_st", {"start_date": _wire_date(start), "end_date": _wire_date(end)}, "ts_code,trade_date,type")
+        return self._strict_range([HistoricalStDto(symbol=str(item.get("ts_code") or "").split(".")[0], ts_code=str(item.get("ts_code") or ""),
+            trading_date=_required_date(item, "trade_date"), type=str(item.get("type") or "ST")) for item in rows], start, end, lambda item: item.trading_date, lambda item: (item.trading_date, item.symbol))
+
+    async def adjustment_factors(self, ts_code: str, start: date, end: date) -> list[HistoricalAdjustmentFactorDto]:
+        rows = await self._call("adj_factor", {"ts_code": ts_code, "start_date": _wire_date(start), "end_date": _wire_date(end)}, "ts_code,trade_date,adj_factor")
+        symbol = ts_code.split(".")[0]
+        output: list[HistoricalAdjustmentFactorDto] = []
+        for item in rows:
+            factor = _number(item.get("adj_factor"))
+            if factor is None or factor <= 0:
+                raise HistoricalSourceError(HistoricalCapabilityStatus.UNKNOWN, "Tushare adjustment factor must be positive and finite")
+            output.append(HistoricalAdjustmentFactorDto(symbol=symbol, ts_code=str(item.get("ts_code") or ts_code), trading_date=_required_date(item, "trade_date"), factor=factor))
+        return self._strict_range(output, start, end, lambda item: item.trading_date)
 
     async def _call(self, api_name: str, params: dict[str, Any], fields: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._call_sync_retry, api_name, params, fields)
@@ -298,11 +344,11 @@ class HistoricalTushareClient:
         return [dict(zip(keys, row)) for row in items if isinstance(row, list)]
 
     @staticmethod
-    def _strict_range(items: list[Any], start: date, end: date, date_of: Any) -> list[Any]:
+    def _strict_range(items: list[Any], start: date, end: date, date_of: Any, key_of: Any | None = None) -> list[Any]:
         selected = [item for item in items if start <= date_of(item) <= end]
         selected.sort(key=date_of)
-        dates = [date_of(item) for item in selected]
-        if len(dates) != len(set(dates)):
+        keys = [(key_of(item) if key_of else date_of(item)) for item in selected]
+        if len(keys) != len(set(keys)):
             raise HistoricalSourceError(HistoricalCapabilityStatus.UNKNOWN, "Tushare response has duplicate trading dates")
         return selected
 

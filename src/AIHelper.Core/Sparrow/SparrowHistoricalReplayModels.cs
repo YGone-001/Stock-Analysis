@@ -41,7 +41,10 @@ public sealed class HistoricalMarketDataset
         IEnumerable<HistoricalFieldCapability>? fieldCapabilities = null,
         IEnumerable<HistoricalPriceSeriesProvenance>? priceSeriesProvenance = null,
         IEnumerable<HistoricalMarketContextProvenance>? marketContextProvenance = null,
-        IEnumerable<HistoricalObservationDeclaration>? observationDeclarations = null)
+        IEnumerable<HistoricalObservationDeclaration>? observationDeclarations = null,
+        IEnumerable<HistoricalRiskStatusObservation>? riskStatusObservations = null,
+        IEnumerable<HistoricalAdjustmentFactor>? adjustmentFactors = null,
+        HistoricalDatasetQualitySummary? qualitySummary = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(datasetId);
         DatasetId = datasetId;
@@ -78,6 +81,13 @@ public sealed class HistoricalMarketDataset
             .ToDictionary(provenance => provenance.TradingDate);
         ObservationDeclarations = (observationDeclarations ?? Array.Empty<HistoricalObservationDeclaration>())
             .ToDictionary(declaration => (declaration.TradingDate, declaration.Symbol), StringComparerTuple.Ordinal);
+        RiskStatusObservations = (riskStatusObservations ?? Array.Empty<HistoricalRiskStatusObservation>())
+            .ToDictionary(observation => (observation.TradingDate, observation.Symbol), StringComparerTuple.Ordinal);
+        AdjustmentFactors = (adjustmentFactors ?? Array.Empty<HistoricalAdjustmentFactor>())
+            .ToDictionary(factor => (factor.TradingDate, factor.Symbol), StringComparerTuple.Ordinal);
+        QualitySummary = qualitySummary ?? new HistoricalDatasetQualitySummary(Metadata.UniverseQuality, HistoricalLifecycleQuality.Unknown,
+            HistoricalFieldCoverage.Unknown, HistoricalFieldCoverage.Unknown, HistoricalFieldCoverage.Unknown,
+            HistoricalFieldCoverage.Unknown, HistoricalFieldCoverage.Unknown, HistoricalFieldCoverage.Unknown, Array.Empty<string>());
         Fingerprint = SparrowHistoricalFingerprint.Dataset(this);
     }
 
@@ -100,6 +110,9 @@ public sealed class HistoricalMarketDataset
     public IReadOnlyDictionary<string, HistoricalPriceSeriesProvenance> PriceSeriesProvenance { get; }
     public IReadOnlyDictionary<DateOnly, HistoricalMarketContextProvenance> MarketContextProvenance { get; }
     public IReadOnlyDictionary<(DateOnly Date, string Symbol), HistoricalObservationDeclaration> ObservationDeclarations { get; }
+    public IReadOnlyDictionary<(DateOnly Date, string Symbol), HistoricalRiskStatusObservation> RiskStatusObservations { get; }
+    public IReadOnlyDictionary<(DateOnly Date, string Symbol), HistoricalAdjustmentFactor> AdjustmentFactors { get; }
+    public HistoricalDatasetQualitySummary QualitySummary { get; }
     public bool TryGetQuote(DateOnly date, string symbol, out QuoteSnapshot quote) => Quotes.TryGetValue((date, symbol), out quote!);
 
     public HistoricalFieldCapability? GetFieldCapability(HistoricalField field) =>
