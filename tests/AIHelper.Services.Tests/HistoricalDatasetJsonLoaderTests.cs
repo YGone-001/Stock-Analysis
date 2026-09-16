@@ -16,17 +16,18 @@ public sealed class HistoricalDatasetJsonLoaderTests
         Assert.NotNull(result.Dataset);
         Assert.Equal("fixture-v1", result.Dataset.DatasetId);
         Assert.Equal(2, result.Dataset.TradingDates.Count);
-        Assert.Equal("ForwardAdjusted", result.Dataset.PriceAdjustmentMode);
+        Assert.Equal(HistoricalPriceAdjustmentMode.ForwardAdjusted, result.Dataset.PriceAdjustmentMode);
         Assert.NotEmpty(result.Dataset.Fingerprint);
+        Assert.Equal(SparrowHistoricalFingerprint.DatasetV1(result.Dataset), result.Dataset.Fingerprint);
     }
 
     [Theory]
-    [InlineData(2, "Unsupported")]
+    [InlineData(3, "Unsupported")]
     [InlineData(1, "datasetId")]
     public async Task LoadAsync_RejectsSchemaAndMissingIdentity(int version, string expected)
     {
         HistoricalDatasetFile file = DatasetFile();
-        if (version == 2) file.SchemaVersion = version; else file.DatasetId = " ";
+        if (version == 3) file.SchemaVersion = version; else file.DatasetId = " ";
         HistoricalDatasetLoadResult result = await Load(file);
         Assert.False(result.Success);
         Assert.Contains(result.Errors, error => error.Contains(expected, StringComparison.OrdinalIgnoreCase));
@@ -76,7 +77,7 @@ public sealed class HistoricalDatasetJsonLoaderTests
 
     private static HistoricalDatasetFile DatasetFile() => new()
     {
-        SchemaVersion = HistoricalDatasetJsonLoader.CurrentSchemaVersion,
+        SchemaVersion = HistoricalDatasetJsonLoader.LegacySchemaVersion,
         DatasetId = "fixture-v1",
         Source = "Test",
         PriceAdjustmentMode = "ForwardAdjusted",

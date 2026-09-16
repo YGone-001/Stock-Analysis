@@ -14,6 +14,10 @@
           <TextBlock Text="Historical Dataset" FontWeight="SemiBold"/>
           <TextBlock Text="{Binding DatasetDisplayName}"/><TextBlock Text="{Binding DatasetStatus}" TextWrapping="Wrap" Opacity="0.75"/>
           <TextBlock Text="{Binding DatasetSummary}" TextWrapping="Wrap" Opacity="0.75"/>
+          <TextBlock Text="{Binding DatasetSchema, StringFormat=Schema: {0}}" Opacity="0.75"/>
+          <TextBlock Text="{Binding UniverseQuality, StringFormat=Universe: {0}}" Opacity="0.75"/>
+          <TextBlock Text="{Binding LifecycleQuality, StringFormat=Lifecycle: {0}}" TextWrapping="Wrap" Opacity="0.75"/>
+          <TextBlock Text="{Binding DataQualityWarning}" TextWrapping="Wrap" Foreground="DarkOrange"/>
           <TextBlock Text="{Binding CapabilitiesSummary}" TextWrapping="Wrap" Opacity="0.75"/>
         </StackPanel>
         <Button x:Name="LoadDatasetButton" Grid.Column="1" Content="Load Dataset" Command="{Binding LoadDatasetCommand}" MinWidth="112" Margin="12,0,0,0" VerticalAlignment="Top"/>

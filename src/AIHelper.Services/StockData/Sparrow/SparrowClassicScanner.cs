@@ -488,18 +488,7 @@ public sealed class SparrowClassicScanner
     }
 
     public static bool IsEligibleStock(string? code, string? name)
-    {
-        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name))
-        {
-            return false;
-        }
-
-        return !name.Contains("ST", StringComparison.OrdinalIgnoreCase)
-            && !code.StartsWith("688", StringComparison.Ordinal)
-            && (code.StartsWith("60", StringComparison.Ordinal)
-                || code.StartsWith("00", StringComparison.Ordinal)
-                || code.StartsWith("30", StringComparison.Ordinal));
-    }
+        => SparrowClassicUniverseEligibility.Evaluate(code, name).Eligible;
 
     private static IEnumerable<JsonElement> EnumerateDataArray(string json)
     {

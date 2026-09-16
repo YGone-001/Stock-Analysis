@@ -8,7 +8,8 @@ namespace AIHelper.Services.StockData.Sparrow;
 /// <summary>Loads schema-versioned historical research input. It deliberately does not accept replay/result exports.</summary>
 public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int LegacySchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public async Task<HistoricalDatasetLoadResult> LoadAsync(string path, CancellationToken cancellationToken = default)
@@ -28,8 +29,10 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
             if (!string.IsNullOrWhiteSpace(file.Fingerprint) && !string.Equals(file.Fingerprint, dataset.Fingerprint, StringComparison.OrdinalIgnoreCase))
                 return HistoricalDatasetLoadResult.Failed("Dataset fingerprint mismatch. The file contents do not match its declared fingerprint.");
             List<string> warnings = new();
-            if (string.Equals(dataset.PriceAdjustmentMode, "Unknown", StringComparison.OrdinalIgnoreCase))
+            if (dataset.PriceAdjustmentMode == HistoricalPriceAdjustmentMode.Unknown)
                 warnings.Add("Price adjustment mode is Unknown; corporate-action comparability may be limited.");
+            if (dataset.Metadata.UniverseQuality != HistoricalUniverseQuality.Complete)
+                warnings.Add("Historical universe is partial; survivorship bias may remain.");
             return HistoricalDatasetLoadResult.Loaded(dataset, warnings);
         }
         catch (OperationCanceledException) { throw; }
@@ -42,7 +45,7 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
     private static List<string> Validate(HistoricalDatasetFile file)
     {
         List<string> errors = new();
-        if (file.SchemaVersion != CurrentSchemaVersion) errors.Add($"Unsupported historical dataset schema version '{file.SchemaVersion}'. Supported version: {CurrentSchemaVersion}.");
+        if (file.SchemaVersion is not LegacySchemaVersion and not CurrentSchemaVersion) errors.Add($"Unsupported historical dataset schema version '{file.SchemaVersion}'. Supported versions: {LegacySchemaVersion}, {CurrentSchemaVersion}.");
         if (string.IsNullOrWhiteSpace(file.DatasetId)) errors.Add("Historical dataset requires a non-empty datasetId.");
         if (file.TradingDates is not { Count: > 0 }) errors.Add("Historical dataset requires tradingDates.");
         else
@@ -50,7 +53,7 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
             for (int i = 1; i < file.TradingDates.Count; i++)
                 if (file.TradingDates[i - 1] >= file.TradingDates[i]) { errors.Add("Trading dates must be strictly ascending with no duplicates."); break; }
         }
-        if (file.Capabilities is null) errors.Add("Historical dataset requires an explicit capabilities declaration.");
+        if (file.SchemaVersion == LegacySchemaVersion && file.Capabilities is null) errors.Add("Historical dataset requires an explicit capabilities declaration.");
         if (file.Quotes is null) errors.Add("Historical dataset requires a quotes collection.");
         if (file.Klines is null) errors.Add("Historical dataset requires a klines collection.");
         if (errors.Count > 0) return errors;
@@ -87,8 +90,104 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
         }
         foreach (HistoricalMarketContextFile context in file.MarketContexts ?? Enumerable.Empty<HistoricalMarketContextFile>())
             if (!dates.Contains(context.TradingDate)) errors.Add($"Market context has a date outside tradingDates: {context.TradingDate:yyyy-MM-dd}.");
+        if (file.SchemaVersion == CurrentSchemaVersion) ValidateV2(file, dates, errors);
         return errors.Distinct(StringComparer.Ordinal).ToList();
     }
+
+    private static void ValidateV2(HistoricalDatasetFile file, HashSet<DateOnly> dates, List<string> errors)
+    {
+        if (file.Metadata is null) errors.Add("Schema V2 requires metadata.");
+        else if (!string.Equals(file.Metadata.DatasetId, file.DatasetId, StringComparison.Ordinal)) errors.Add("Schema V2 metadata.datasetId must match datasetId.");
+        if (file.Securities is not { Count: > 0 }) { errors.Add("Schema V2 requires securities."); return; }
+        if (file.Universes is null) errors.Add("Schema V2 requires universes.");
+        if (file.FieldCapabilities is null) errors.Add("Schema V2 requires fieldCapabilities.");
+        if (file.PriceSeriesProvenance is null) errors.Add("Schema V2 requires priceSeriesProvenance.");
+        if (file.MarketContextProvenance is null) errors.Add("Schema V2 requires marketContextProvenance.");
+        if (errors.Count > 0) return;
+
+        HashSet<string> securitySymbols = new(StringComparer.Ordinal);
+        foreach (HistoricalSecurityFile security in file.Securities)
+        {
+            if (string.IsNullOrWhiteSpace(security.Symbol)) { errors.Add("Historical security requires a symbol."); continue; }
+            if (!securitySymbols.Add(security.Symbol)) errors.Add($"Duplicate historical security '{security.Symbol}'.");
+            if (!Enum.IsDefined(security.SecurityType) || !Enum.IsDefined(security.Market) || !Enum.IsDefined(security.LifecycleQuality)) errors.Add($"Historical security '{security.Symbol}' has an invalid enum value.");
+            if (security.DelistingEffectiveDate.HasValue && security.ListingDate.HasValue && security.DelistingEffectiveDate <= security.ListingDate)
+                errors.Add($"Historical security '{security.Symbol}' has an invalid lifecycle range.");
+        }
+        foreach (HistoricalQuoteFile quote in file.Quotes!)
+        {
+            if (!securitySymbols.Contains(quote.Symbol)) errors.Add($"Quote '{quote.Symbol}' does not reference a historical security.");
+            HistoricalSecurityFile? security = file.Securities.FirstOrDefault(item => string.Equals(item.Symbol, quote.Symbol, StringComparison.Ordinal));
+            if (security is not null && !string.IsNullOrWhiteSpace(quote.Name) && !string.Equals(security.Name, quote.Name, StringComparison.Ordinal)) errors.Add($"Quote name for '{quote.Symbol}' does not match security master.");
+        }
+        foreach (HistoricalKlineSeriesFile series in file.Klines!)
+            if (!securitySymbols.Contains(series.Symbol)) errors.Add($"K-line '{series.Symbol}' does not reference a historical security.");
+
+        Dictionary<DateOnly, HistoricalUniverseSnapshotFile> universes = new();
+        foreach (HistoricalUniverseSnapshotFile universe in file.Universes!)
+        {
+            if (!dates.Contains(universe.TradingDate)) errors.Add($"Universe has a date outside tradingDates: {universe.TradingDate:yyyy-MM-dd}.");
+            else if (!universes.TryAdd(universe.TradingDate, universe)) errors.Add($"Duplicate universe for {universe.TradingDate:yyyy-MM-dd}.");
+            if (!Enum.IsDefined(universe.Quality)) errors.Add($"Universe '{universe.TradingDate:yyyy-MM-dd}' has an invalid quality value.");
+            foreach (string symbol in universe.SecuritySymbols ?? Enumerable.Empty<string>())
+                if (!securitySymbols.Contains(symbol)) errors.Add($"Universe '{universe.TradingDate:yyyy-MM-dd}' references unknown security '{symbol}'.");
+        }
+        foreach (DateOnly date in dates) if (!universes.ContainsKey(date)) errors.Add($"Schema V2 requires an explicit universe for {date:yyyy-MM-dd}.");
+
+        Dictionary<HistoricalField, HistoricalFieldCapability> capabilities = new();
+        foreach (HistoricalFieldCapability capability in file.FieldCapabilities!)
+        {
+            if (!Enum.IsDefined(capability.Field) || !Enum.IsDefined(capability.Origin) || !Enum.IsDefined(capability.Coverage) || !Enum.IsDefined(capability.Unit)) errors.Add("A field capability has an invalid enum value.");
+            if (!capabilities.TryAdd(capability.Field, capability)) errors.Add($"Duplicate field capability '{capability.Field}'.");
+            if (capability.Origin == HistoricalFieldOrigin.Unavailable && capability.Coverage != HistoricalFieldCoverage.None)
+                errors.Add($"Unavailable field '{capability.Field}' must declare None coverage.");
+            if (capability.Coverage == HistoricalFieldCoverage.None && capability.Origin != HistoricalFieldOrigin.Unavailable)
+                errors.Add($"None coverage field '{capability.Field}' must declare Unavailable origin.");
+        }
+        foreach (HistoricalField field in Enum.GetValues<HistoricalField>())
+            if (!capabilities.ContainsKey(field)) errors.Add($"Schema V2 requires field capability '{field}'.");
+        foreach (HistoricalFieldCapability capability in capabilities.Values.Where(item => item.Coverage == HistoricalFieldCoverage.Full))
+            if (file.Quotes!.Any(quote => !HasQuoteField(quote, capability.Field))) errors.Add($"Field '{capability.Field}' declares Full coverage but one or more quote observations have no value.");
+
+        HashSet<string> klineSymbols = file.Klines!.Select(series => series.Symbol).ToHashSet(StringComparer.Ordinal);
+        HashSet<string> provenanceSymbols = new(StringComparer.Ordinal);
+        foreach (HistoricalPriceSeriesProvenance provenance in file.PriceSeriesProvenance!)
+        {
+            if (!provenanceSymbols.Add(provenance.Symbol)) errors.Add($"Duplicate price-series provenance for '{provenance.Symbol}' indicates unsupported mixed adjustment modes.");
+            if (!Enum.IsDefined(provenance.AdjustmentMode)) errors.Add($"Price-series provenance '{provenance.Symbol}' has an invalid adjustment mode.");
+            if (!klineSymbols.Contains(provenance.Symbol)) errors.Add($"Price-series provenance '{provenance.Symbol}' has no K-line series.");
+            if (provenance.ObservationEnd.HasValue && provenance.ObservationStart.HasValue && provenance.ObservationEnd < provenance.ObservationStart) errors.Add($"Price-series provenance '{provenance.Symbol}' has an invalid observation range.");
+        }
+        foreach (string symbol in klineSymbols) if (!provenanceSymbols.Contains(symbol)) errors.Add($"Schema V2 requires price-series provenance for '{symbol}'.");
+
+        HashSet<DateOnly> contextDates = (file.MarketContexts ?? Enumerable.Empty<HistoricalMarketContextFile>()).Select(context => context.TradingDate).ToHashSet();
+        HashSet<DateOnly> provenanceDates = new();
+        foreach (HistoricalMarketContextProvenance provenance in file.MarketContextProvenance!)
+        {
+            if (!dates.Contains(provenance.TradingDate)) errors.Add($"Market-context provenance has a date outside tradingDates: {provenance.TradingDate:yyyy-MM-dd}.");
+            if (!provenanceDates.Add(provenance.TradingDate)) errors.Add($"Duplicate market-context provenance for {provenance.TradingDate:yyyy-MM-dd}.");
+        }
+        foreach (DateOnly date in contextDates) if (!provenanceDates.Contains(date)) errors.Add($"Market context {date:yyyy-MM-dd} requires provenance.");
+        HashSet<(DateOnly Date, string Symbol)> declarationKeys = new();
+        foreach (HistoricalObservationDeclaration declaration in file.ObservationDeclarations ?? Enumerable.Empty<HistoricalObservationDeclaration>())
+        {
+            if (!dates.Contains(declaration.TradingDate)) errors.Add($"Observation declaration has a date outside tradingDates: {declaration.TradingDate:yyyy-MM-dd}.");
+            if (!securitySymbols.Contains(declaration.Symbol)) errors.Add($"Observation declaration references unknown security '{declaration.Symbol}'.");
+            if (!declarationKeys.Add((declaration.TradingDate, declaration.Symbol))) errors.Add($"Duplicate observation declaration for '{declaration.Symbol}' on {declaration.TradingDate:yyyy-MM-dd}.");
+        }
+    }
+
+    private static bool HasQuoteField(HistoricalQuoteFile quote, HistoricalField field) => field switch
+    {
+        HistoricalField.Price => quote.Price.HasValue,
+        HistoricalField.PreviousClose => quote.PreviousClose.HasValue,
+        HistoricalField.ChangePercent => quote.ChangePercent.HasValue,
+        HistoricalField.Amount => quote.Amount.HasValue,
+        HistoricalField.Turnover => quote.Turnover.HasValue,
+        HistoricalField.OuterVolume => quote.OuterVolume.HasValue,
+        HistoricalField.InnerVolume => quote.InnerVolume.HasValue,
+        _ => false
+    };
 
     private static void ValidateBar(string symbol, HistoricalKlineBarFile bar, List<string> errors)
     {
@@ -118,7 +217,37 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
             context.TradingDate,
             context.ClassicMarketRegime is null ? null : new SparrowMarketRegime { Shanghai = context.ClassicMarketRegime.Shanghai, Csi1000 = context.ClassicMarketRegime.Csi1000, Defensive = context.ClassicMarketRegime.Defensive, Reason = context.ClassicMarketRegime.Reason ?? string.Empty },
             context.V2ShanghaiDailyPercent)).ToArray();
-        return new HistoricalMarketDataset(file.DatasetId!, file.TradingDates!, quotes, klines, contexts, file.Capabilities!, string.IsNullOrWhiteSpace(file.PriceAdjustmentMode) ? "Unknown" : file.PriceAdjustmentMode, string.IsNullOrWhiteSpace(file.Source) ? "Unknown" : file.Source);
+        if (file.SchemaVersion == LegacySchemaVersion)
+            return new HistoricalMarketDataset(file.DatasetId!, file.TradingDates!, quotes, klines, contexts, file.Capabilities!, string.IsNullOrWhiteSpace(file.PriceAdjustmentMode) ? "Unknown" : file.PriceAdjustmentMode, string.IsNullOrWhiteSpace(file.Source) ? "Unknown" : file.Source, LegacySchemaVersion);
+
+        HistoricalDatasetMetadataFile metadata = file.Metadata!;
+        HistoricalSecurity[] securities = file.Securities!.Select(item => new HistoricalSecurity(item.Symbol, item.Name ?? item.Symbol, item.SecurityType, item.Market, item.ListingDate, item.DelistingEffectiveDate, item.LifecycleQuality, item.ObservedHistoryStart)).ToArray();
+        HistoricalUniverseSnapshot[] universes = file.Universes!.Select(item => new HistoricalUniverseSnapshot(item.TradingDate, (IReadOnlyList<string>?)item.SecuritySymbols ?? Array.Empty<string>(), item.Quality, item.Source ?? string.Empty, (IReadOnlyList<string>?)item.Warnings ?? Array.Empty<string>())).ToArray();
+        HistoricalDatasetMetadata runtimeMetadata = new(metadata.DatasetId!, metadata.Source ?? "Unknown", metadata.CreatedAt, metadata.UniverseQuality, metadata.Warnings);
+        IReadOnlyList<HistoricalPriceSeriesProvenance> priceProvenance = file.PriceSeriesProvenance!;
+        return new HistoricalMarketDataset(
+            file.DatasetId!, file.TradingDates!, quotes, klines, contexts,
+            capabilities: CompatibilityCapabilities(file.FieldCapabilities!),
+            priceAdjustmentMode: priceProvenance.Select(item => item.AdjustmentMode).Distinct().Count() == 1
+                ? priceProvenance[0].AdjustmentMode.ToString() : "Unknown",
+            source: metadata.Source ?? "Unknown",
+            schemaVersion: CurrentSchemaVersion,
+            metadata: runtimeMetadata,
+            securities: securities,
+            universes: universes,
+            fieldCapabilities: file.FieldCapabilities,
+            priceSeriesProvenance: priceProvenance,
+            marketContextProvenance: file.MarketContextProvenance,
+            observationDeclarations: file.ObservationDeclarations);
+    }
+
+    private static HistoricalDataCapabilities CompatibilityCapabilities(IEnumerable<HistoricalFieldCapability> capabilities)
+    {
+        Dictionary<HistoricalField, HistoricalFieldCapability> values = capabilities.ToDictionary(item => item.Field);
+        return new(Has(HistoricalField.Amount), Has(HistoricalField.Turnover), Has(HistoricalField.OuterVolume), Has(HistoricalField.InnerVolume), true, true);
+        bool Has(HistoricalField field) => values.TryGetValue(field, out HistoricalFieldCapability? value)
+            && value.Origin != HistoricalFieldOrigin.Unavailable
+            && value.Coverage is not HistoricalFieldCoverage.None and not HistoricalFieldCoverage.Unknown;
     }
 }
 
@@ -135,6 +264,40 @@ public sealed class HistoricalDatasetFile
     public List<HistoricalQuoteFile>? Quotes { get; set; }
     public List<HistoricalKlineSeriesFile>? Klines { get; set; }
     public List<HistoricalMarketContextFile>? MarketContexts { get; set; }
+    public HistoricalDatasetMetadataFile? Metadata { get; set; }
+    public List<HistoricalSecurityFile>? Securities { get; set; }
+    public List<HistoricalUniverseSnapshotFile>? Universes { get; set; }
+    public List<HistoricalFieldCapability>? FieldCapabilities { get; set; }
+    public List<HistoricalPriceSeriesProvenance>? PriceSeriesProvenance { get; set; }
+    public List<HistoricalMarketContextProvenance>? MarketContextProvenance { get; set; }
+    public List<HistoricalObservationDeclaration>? ObservationDeclarations { get; set; }
+}
+public sealed class HistoricalDatasetMetadataFile
+{
+    public string? DatasetId { get; set; }
+    public string? Source { get; set; }
+    public DateTimeOffset? CreatedAt { get; set; }
+    public HistoricalUniverseQuality UniverseQuality { get; set; }
+    public List<string>? Warnings { get; set; }
+}
+public sealed class HistoricalSecurityFile
+{
+    public string Symbol { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public HistoricalSecurityType SecurityType { get; set; }
+    public HistoricalSecurityMarket Market { get; set; }
+    public DateOnly? ListingDate { get; set; }
+    public DateOnly? DelistingEffectiveDate { get; set; }
+    public HistoricalLifecycleQuality LifecycleQuality { get; set; }
+    public DateOnly? ObservedHistoryStart { get; set; }
+}
+public sealed class HistoricalUniverseSnapshotFile
+{
+    public DateOnly TradingDate { get; set; }
+    public List<string>? SecuritySymbols { get; set; }
+    public HistoricalUniverseQuality Quality { get; set; }
+    public string? Source { get; set; }
+    public List<string>? Warnings { get; set; }
 }
 public sealed class HistoricalQuoteFile
 {

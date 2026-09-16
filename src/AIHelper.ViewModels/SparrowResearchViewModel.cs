@@ -38,6 +38,10 @@ public partial class SparrowResearchViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _datasetDateRange = "N/A";
     [ObservableProperty] private int _datasetSymbolCount;
     [ObservableProperty] private string _datasetFingerprintShort = "N/A";
+    [ObservableProperty] private string _datasetSchema = "N/A";
+    [ObservableProperty] private string _universeQuality = "Unknown";
+    [ObservableProperty] private string _lifecycleQuality = "Unknown";
+    [ObservableProperty] private string _dataQualityWarning = string.Empty;
     [ObservableProperty] private string _priceAdjustmentMode = "Unknown";
     [ObservableProperty] private string _capabilitiesSummary = "N/A";
     [ObservableProperty] private string _datasetSummary = "No historical dataset loaded";
@@ -112,7 +116,11 @@ public partial class SparrowResearchViewModel : ObservableObject, IDisposable
         ReplayDate = dataset.TradingDates[^1].ToDateTime(TimeOnly.MinValue); StartDate = dataset.TradingDates[0].ToDateTime(TimeOnly.MinValue); EndDate = ReplayDate;
         DatasetDisplayName = string.IsNullOrWhiteSpace(DatasetPath) ? dataset.DatasetId : Path.GetFileName(DatasetPath);
         DatasetId = dataset.DatasetId; DatasetSource = dataset.Source; DatasetDateRange = $"{dataset.TradingDates[0]:yyyy-MM-dd} — {dataset.TradingDates[^1]:yyyy-MM-dd}";
-        DatasetSymbolCount = dataset.Klines.Count; DatasetFingerprintShort = ShortFingerprint(dataset.Fingerprint); PriceAdjustmentMode = dataset.PriceAdjustmentMode;
+        DatasetSymbolCount = dataset.Klines.Count; DatasetFingerprintShort = ShortFingerprint(dataset.Fingerprint); PriceAdjustmentMode = dataset.PriceAdjustmentMode.ToString();
+        DatasetSchema = $"V{dataset.SchemaVersion}"; UniverseQuality = dataset.Metadata.UniverseQuality.ToString();
+        LifecycleQuality = string.Join(", ", dataset.Securities.Values.Select(value => value.LifecycleQuality).Distinct().Order());
+        DataQualityWarning = dataset.Metadata.UniverseQuality == HistoricalUniverseQuality.Complete
+            ? string.Empty : "Historical universe is partial; survivorship bias may remain.";
         CapabilitiesSummary = Capabilities(dataset.Capabilities); DatasetSummary = $"{DatasetId} · {DatasetSource} · {DatasetDateRange} · {DatasetSymbolCount} symbols · Adjustment: {PriceAdjustmentMode} · {DatasetFingerprintShort}";
         RefreshStrategyCompatibility();
     }

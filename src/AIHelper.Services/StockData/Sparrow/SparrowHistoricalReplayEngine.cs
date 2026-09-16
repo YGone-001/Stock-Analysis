@@ -5,20 +5,64 @@ namespace AIHelper.Services.StockData.Sparrow;
 
 public sealed class HistoricalSnapshotBuilder
 {
+    private readonly HistoricalUniverseResolver _universeResolver;
+
+    public HistoricalSnapshotBuilder(HistoricalUniverseResolver? universeResolver = null) =>
+        _universeResolver = universeResolver ?? new HistoricalUniverseResolver();
+
     public HistoricalMarketSnapshot Build(HistoricalMarketDataset dataset, DateOnly tradingDate)
     {
         ArgumentNullException.ThrowIfNull(dataset);
         if (!dataset.TradingDates.Contains(tradingDate)) throw new ArgumentException("Replay date is not a dataset trading date.", nameof(tradingDate));
+        HistoricalUniverseResolution resolution = _universeResolver.GetUniverseAsOf(dataset, tradingDate);
         var securities = new List<HistoricalSecuritySnapshot>();
-        foreach ((DateOnly date, string symbol) key in dataset.Quotes.Keys.Where(key => key.Date == tradingDate).OrderBy(key => key.Symbol, StringComparer.Ordinal))
+        var observations = new List<HistoricalSecurityObservation>();
+        foreach (KeyValuePair<string, HistoricalObservationStatus> excluded in resolution.ExcludedStatuses.OrderBy(item => item.Key, StringComparer.Ordinal))
         {
-            if (!dataset.Klines.TryGetValue(key.symbol, out KlineSeries? series)) continue;
+            if (dataset.Securities.TryGetValue(excluded.Key, out HistoricalSecurity? security))
+                observations.Add(new HistoricalSecurityObservation(security, ToSecurityStatus(excluded.Value), excluded.Value, null, null, "Excluded by lifecycle boundary."));
+        }
+        foreach (HistoricalSecurity security in resolution.ActiveSecurities)
+        {
+            if (dataset.ObservationDeclarations.TryGetValue((tradingDate, security.Symbol), out HistoricalObservationDeclaration? declaration)
+                && declaration.ObservationStatus != HistoricalObservationStatus.Available)
+            {
+                observations.Add(new HistoricalSecurityObservation(security, declaration.SecurityStatus, declaration.ObservationStatus, null, null, declaration.Reason));
+                continue;
+            }
+            if (!dataset.TryGetQuote(tradingDate, security.Symbol, out QuoteSnapshot quote))
+            {
+                observations.Add(new HistoricalSecurityObservation(security, HistoricalSecurityStatus.Active, HistoricalObservationStatus.MissingQuote, null, null, "Universe member has no quote observation."));
+                continue;
+            }
+            if (!dataset.Klines.TryGetValue(security.Symbol, out KlineSeries? series))
+            {
+                observations.Add(new HistoricalSecurityObservation(security, HistoricalSecurityStatus.Active, HistoricalObservationStatus.MissingKline, quote, null, "Universe member has no K-line series."));
+                continue;
+            }
             KlineBar[] visibleBars = series.Bars.Where(bar => DateOnly.FromDateTime(bar.Date) <= tradingDate).ToArray();
-            securities.Add(new HistoricalSecuritySnapshot(dataset.Quotes[key], new KlineSeries(key.symbol, visibleBars)));
+            if (visibleBars.Length == 0)
+            {
+                observations.Add(new HistoricalSecurityObservation(security, HistoricalSecurityStatus.Active, HistoricalObservationStatus.MissingKline, quote, null, "Universe member has no K-line visible at the replay date."));
+                continue;
+            }
+            KlineSeries visible = new(security.Symbol, visibleBars);
+            observations.Add(new HistoricalSecurityObservation(security, HistoricalSecurityStatus.Active, HistoricalObservationStatus.Available, quote, visible));
+            securities.Add(new HistoricalSecuritySnapshot(security, quote, visible));
         }
         dataset.MarketContexts.TryGetValue(tradingDate, out HistoricalMarketContext? context);
-        return new HistoricalMarketSnapshot(tradingDate, securities, context, HistoricalReplaySupport.Supported, Array.Empty<string>());
+        string[] warnings = observations.Where(observation => observation.ObservationStatus != HistoricalObservationStatus.Available)
+            .Select(observation => $"{observation.Security.Symbol}: {observation.ObservationStatus}.").ToArray();
+        return new HistoricalMarketSnapshot(tradingDate, securities, context, HistoricalReplaySupport.Supported, warnings, resolution.Universe, observations);
     }
+
+    private static HistoricalSecurityStatus ToSecurityStatus(HistoricalObservationStatus status) => status switch
+    {
+        HistoricalObservationStatus.NotYetListed => HistoricalSecurityStatus.NotYetListed,
+        HistoricalObservationStatus.Delisted => HistoricalSecurityStatus.Delisted,
+        HistoricalObservationStatus.Suspended => HistoricalSecurityStatus.Suspended,
+        _ => HistoricalSecurityStatus.Unknown
+    };
 }
 
 public sealed class SparrowHistoricalReplayEngine
@@ -33,11 +77,11 @@ public sealed class SparrowHistoricalReplayEngine
         ValidateVersion(request);
         HistoricalMarketSnapshot snapshot = _snapshotBuilder.Build(dataset, request.TradingDate);
         cancellationToken.ThrowIfCancellationRequested();
-        var warnings = new List<string>();
+        var warnings = new List<string>(snapshot.Warnings);
         if (request.StrategyMode == SparrowStrategyMode.Compare) return Unsupported(dataset, request, "Comparison is orchestration, not a replay strategy.");
         if (request.StrategyMode == SparrowStrategyMode.Classic && request.ClassicParameters == null) return Unsupported(dataset, request, "Classic parameter snapshot is required.");
         if (request.StrategyMode == SparrowStrategyMode.V2 && request.V2Parameters == null) return Unsupported(dataset, request, "V2 parameter snapshot is required.");
-        if (!HasRequiredCapabilities(dataset.Capabilities, request, snapshot.MarketContext, out string? gap)) return Unsupported(dataset, request, gap!);
+        if (!HasRequiredCapabilities(dataset, request, snapshot.MarketContext, out string? gap)) return Unsupported(dataset, request, gap!);
         return request.StrategyMode == SparrowStrategyMode.Classic
             ? ReplayClassic(dataset, request, snapshot, warnings, cancellationToken)
             : ReplayV2(dataset, request, snapshot, warnings, cancellationToken);
@@ -55,6 +99,12 @@ public sealed class SparrowHistoricalReplayEngine
         foreach (HistoricalSecuritySnapshot security in snapshot.Securities)
         {
             ct.ThrowIfCancellationRequested();
+            if (!SparrowClassicUniverseEligibility.Evaluate(security.Security.Symbol, security.Security.Name).Eligible) continue;
+            if (!HasRequiredQuoteFields(dataset, security.Quote, SparrowStrategyMode.Classic))
+            {
+                warnings.Add($"{security.Security.Symbol}: required historical quote field is unavailable; skipped.");
+                continue;
+            }
             SparrowQuoteData quote = SparrowQuoteDataContract.FromSnapshot(security.Quote);
             SparrowRuleComparison p2 = SparrowComparisonRuleEvaluators.EvaluateClassicQuote(quote, parameters);
             if (!p2.Passed) continue;
@@ -80,6 +130,11 @@ public sealed class SparrowHistoricalReplayEngine
         foreach (HistoricalSecuritySnapshot security in snapshot.Securities)
         {
             ct.ThrowIfCancellationRequested();
+            if (!HasRequiredQuoteFields(dataset, security.Quote, SparrowStrategyMode.V2))
+            {
+                warnings.Add($"{security.Security.Symbol}: required historical quote field is unavailable; skipped.");
+                continue;
+            }
             SparrowQuoteData quote = SparrowQuoteDataContract.FromSnapshot(security.Quote);
             SparrowKlineSnapshot? kline = SparrowKlineSnapshotFactory.FromSeries(security.Klines);
             SparrowV2CandidateEvaluation evaluation = SparrowV2CandidateEvaluator.Evaluate(security.Quote.Symbol, quote, kline, shPercent, parameters);
@@ -97,11 +152,42 @@ public sealed class SparrowHistoricalReplayEngine
     { var map = evidence.ToDictionary(item => item.Features.Code, StringComparer.Ordinal); return ranked.Take(Math.Clamp(topN, 1, 20)).Select(candidate => new SparrowReplaySelection(candidate.Code, candidate.Name, candidate, map[candidate.Code].ReasonCode, map[candidate.Code].Reason)).ToArray(); }
     private static SparrowReplayResult Result(HistoricalMarketDataset d, SparrowReplayRequest r, HistoricalReplaySupport s, IReadOnlyList<SparrowReplaySelection> selections, IReadOnlyList<string> warnings) => new(r, SparrowHistoricalFingerprint.Parameters(r), d.DatasetId, d.Fingerprint, s, selections, warnings);
     private static SparrowReplayResult Unsupported(HistoricalMarketDataset d, SparrowReplayRequest r, string warning) => Result(d, r, HistoricalReplaySupport.Unsupported, Array.Empty<SparrowReplaySelection>(), new[] { warning });
-    private static bool HasRequiredCapabilities(HistoricalDataCapabilities c, SparrowReplayRequest r, HistoricalMarketContext? context, out string? gap)
+    private static bool HasRequiredCapabilities(HistoricalMarketDataset dataset, SparrowReplayRequest r, HistoricalMarketContext? context, out string? gap)
     {
-        bool common = c.HasAmount && c.HasOuterVolume && c.HasInnerVolume;
+        HistoricalDataCapabilities c = dataset.Capabilities;
+        bool common = dataset.SchemaVersion <= 1
+            ? c.HasAmount && c.HasOuterVolume && c.HasInnerVolume && (r.StrategyMode != SparrowStrategyMode.V2 || c.HasTurnover)
+            : RequiredFields(r.StrategyMode).All(field => HasDatasetField(dataset, field));
         bool market = r.StrategyMode == SparrowStrategyMode.Classic ? (!r.ClassicParameters!.MacroDef || c.HasClassicMarketRegime && context?.ClassicMarketRegime != null) : (!r.V2Parameters!.MacroDef || c.HasV2ShanghaiDailyPercent && context?.V2ShanghaiDailyPercent != null);
         gap = common && market ? null : "HistoricalFieldUnavailable: required quote or market-regime fields are not present for this replay date."; return gap == null;
+    }
+
+    private static IReadOnlyList<HistoricalField> RequiredFields(SparrowStrategyMode strategyMode) => strategyMode == SparrowStrategyMode.V2
+        ? new[] { HistoricalField.Price, HistoricalField.PreviousClose, HistoricalField.Amount, HistoricalField.Turnover, HistoricalField.OuterVolume, HistoricalField.InnerVolume }
+        : new[] { HistoricalField.Price, HistoricalField.PreviousClose, HistoricalField.Amount, HistoricalField.OuterVolume, HistoricalField.InnerVolume };
+
+    private static bool HasDatasetField(HistoricalMarketDataset dataset, HistoricalField field)
+    {
+        HistoricalFieldCapability? capability = dataset.GetFieldCapability(field);
+        return capability is not null
+            && capability.Origin != HistoricalFieldOrigin.Unavailable
+            && capability.Coverage is not HistoricalFieldCoverage.None and not HistoricalFieldCoverage.Unknown;
+    }
+
+    private static bool HasRequiredQuoteFields(HistoricalMarketDataset dataset, QuoteSnapshot quote, SparrowStrategyMode strategyMode)
+    {
+        if (dataset.SchemaVersion <= 1) return true;
+        return RequiredFields(strategyMode).All(field => field switch
+        {
+            HistoricalField.Price => quote.Price.HasValue,
+            HistoricalField.PreviousClose => quote.PreviousClose.HasValue,
+            HistoricalField.Amount => quote.Amount.HasValue,
+            HistoricalField.Turnover => quote.Turnover.HasValue,
+            HistoricalField.OuterVolume => quote.OuterVolume.HasValue,
+            HistoricalField.InnerVolume => quote.InnerVolume.HasValue,
+            HistoricalField.ChangePercent => quote.ChangePercent.HasValue,
+            _ => false
+        });
     }
     private static void ValidateVersion(SparrowReplayRequest request)
     { string expected = request.StrategyMode == SparrowStrategyMode.Classic ? SparrowStrategyVersions.Classic : request.StrategyMode == SparrowStrategyMode.V2 ? SparrowStrategyVersions.V2 : ""; if (!string.Equals(request.StrategyVersion, expected, StringComparison.Ordinal)) throw new ArgumentException($"Requested strategy version '{request.StrategyVersion}' does not match '{expected}'.", nameof(request)); }
