@@ -415,6 +415,13 @@ class HistoricalTushareClient:
                 status=HistoricalCoverageStatus.FULL if complete else HistoricalCoverageStatus.PARTIAL, proof="natural-calendar date-set equality"))
             output.extend(dto)
         output = self._strict_range(output, start, end, lambda item: item.trading_date)
+        open_days = [item for item in output if item.is_open]
+        invalid_chain = {item.trading_date for previous, item in zip(open_days, open_days[1:]) if item.previous_open_date != previous.trading_date}
+        if invalid_chain:
+            for item in evidence:
+                if any(item.scope.start_date <= day <= item.scope.end_date for day in invalid_chain) and item.coverage_status is HistoricalCoverageStatus.FULL:
+                    item.coverage_status = HistoricalCoverageStatus.PARTIAL
+                    item.failure_reason = "pretrade_date_chain_mismatch"
         return output, evidence
 
     async def acquire_daily(self, ts_code: str, start: date, end: date) -> tuple[list[HistoricalDailyPriceDto], list[HistoricalCoverageEvidence]]:
