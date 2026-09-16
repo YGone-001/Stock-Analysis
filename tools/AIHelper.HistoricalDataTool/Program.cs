@@ -5,6 +5,14 @@ using AIHelper.Services.StockData.Sparrow;
 Dictionary<string, string> options = Parse(args);
 try
 {
+    if (Bool("report-legacy-capability", false))
+    {
+        Console.WriteLine("LEGACY=Unsupported");
+        Console.WriteLine($"LEGACY_VERSION={SparrowStrategyVersions.Legacy}");
+        Console.WriteLine($"LEGACY_REASONS={string.Join(',', SparrowLegacyHistoricalReplayCapability.BlockerReasonCodes)}");
+        return 0;
+    }
+
     string source = Value("source", "tushare");
     string adjustment = Value("adjustment", "raw");
     if (!string.Equals(source, "tushare", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Only --source tushare is supported.");
