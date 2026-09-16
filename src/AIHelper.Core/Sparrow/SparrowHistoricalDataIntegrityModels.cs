@@ -81,7 +81,7 @@ public enum HistoricalField
 
 public enum HistoricalFieldOrigin { Unknown, Observed, Derived, Declared, LegacyDeclared, Unavailable }
 public enum HistoricalFieldCoverage { Unknown, None, Partial, Full }
-public enum HistoricalValueUnit { Unknown, CurrencyBaseUnit, Percentage, Hands }
+public enum HistoricalValueUnit { Unknown, CurrencyBaseUnit, CurrencyThousands, Percentage, Hands }
 
 /// <summary>Dataset-level declaration. Per-observation values still decide whether a symbol can be evaluated at T.</summary>
 public sealed record HistoricalFieldCapability(

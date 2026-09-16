@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIHelper.ViewModels", "src\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIHelper.Services.Tests", "tests\AIHelper.Services.Tests\AIHelper.Services.Tests.csproj", "{D6C5D18A-DC4A-4E8E-B0FD-E9E17B76A3A2}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIHelper.HistoricalDataTool", "tools\AIHelper.HistoricalDataTool\AIHelper.HistoricalDataTool.csproj", "{671B7C8E-59D4-4CD8-9A0F-55AF2D2F3A3A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -50,6 +52,10 @@ Global
 		{D6C5D18A-DC4A-4E8E-B0FD-E9E17B76A3A2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D6C5D18A-DC4A-4E8E-B0FD-E9E17B76A3A2}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D6C5D18A-DC4A-4E8E-B0FD-E9E17B76A3A2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{671B7C8E-59D4-4CD8-9A0F-55AF2D2F3A3A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{671B7C8E-59D4-4CD8-9A0F-55AF2D2F3A3A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{671B7C8E-59D4-4CD8-9A0F-55AF2D2F3A3A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{671B7C8E-59D4-4CD8-9A0F-55AF2D2F3A3A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{E04D61F6-DFEE-42C0-A687-64C8CCB66C88} = {E18E4A29-8E95-45E1-92D1-C09ABEF5C9C9}

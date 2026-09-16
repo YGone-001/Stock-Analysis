@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import httpx
@@ -16,6 +16,17 @@ from app.providers.akshare_provider import AkShareProvider
 from app.providers.eastmoney import EastMoneyProvider, normalize_code, previous_weekday
 from app.providers.tushare_provider import TushareProvider
 from app.storage import MarketDataStore
+from app.historical_tushare import (
+    HistoricalCalendarResponse,
+    HistoricalCapabilityProbeResponse,
+    HistoricalDailyPriceResponse,
+    HistoricalIndexDailyResponse,
+    HistoricalSecurityResponse,
+    HistoricalSourceError,
+    HistoricalSuspensionResponse,
+    HistoricalTurnoverResponse,
+    HistoricalTushareClient,
+)
 
 
 settings: Settings = load_settings()
@@ -34,6 +45,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         client, memory_cache, name_cache, etf_name_cache
     )
     application.state.tushare = TushareProvider(
+        settings.tushare_token, settings.http_timeout_seconds
+    )
+    application.state.historical_tushare = HistoricalTushareClient(
         settings.tushare_token, settings.http_timeout_seconds
     )
     application.state.akshare = AkShareProvider()
@@ -164,6 +178,108 @@ async def codes() -> dict[str, Any]:
 async def etf(limit: int = Query(10000)) -> dict[str, Any]:
     _ = limit
     return await app.state.eastmoney.code_table(is_etf=True)
+
+
+def historical_source(source: str) -> HistoricalTushareClient:
+    if source.lower() != "tushare":
+        raise HTTPException(status_code=422, detail="historical_source_unsupported")
+    return app.state.historical_tushare
+
+
+def historical_failure(error: HistoricalSourceError) -> HTTPException:
+    if error.status.value == "PermissionDenied":
+        return HTTPException(status_code=403, detail="historical_source_permission_denied")
+    if error.status.value == "Unavailable":
+        return HTTPException(status_code=503, detail="historical_source_unavailable")
+    return HTTPException(status_code=502, detail="historical_source_failure")
+
+
+# These endpoints are deliberately independent from the live provider paths above.
+# They are typed, source-locked and never read the local K-line cache.
+@app.get("/api/historical/capabilities", response_model=HistoricalCapabilityProbeResponse)
+async def historical_capabilities(source: str = Query("tushare")) -> HistoricalCapabilityProbeResponse:
+    return await historical_source(source).probe()
+
+
+@app.get("/api/historical/securities", response_model=HistoricalSecurityResponse)
+async def historical_securities(
+    start_date: date = Query(...), end_date: date = Query(...), source: str = Query("tushare")
+) -> HistoricalSecurityResponse:
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="historical_date_range_invalid")
+    try:
+        return HistoricalSecurityResponse(start_date=start_date, end_date=end_date,
+            data=await historical_source(source).securities(start_date, end_date))
+    except HistoricalSourceError as error:
+        raise historical_failure(error) from error
+
+
+@app.get("/api/historical/calendar", response_model=HistoricalCalendarResponse)
+async def historical_calendar(
+    exchange: str = Query("SSE"), start_date: date = Query(...), end_date: date = Query(...), source: str = Query("tushare")
+) -> HistoricalCalendarResponse:
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="historical_date_range_invalid")
+    try:
+        return HistoricalCalendarResponse(exchange=exchange, start_date=start_date, end_date=end_date,
+            data=await historical_source(source).calendar(exchange, start_date, end_date))
+    except HistoricalSourceError as error:
+        raise historical_failure(error) from error
+
+
+@app.get("/api/historical/daily", response_model=HistoricalDailyPriceResponse)
+async def historical_daily(
+    ts_code: str = Query(...), start_date: date = Query(...), end_date: date = Query(...),
+    source: str = Query("tushare"), adjustment: str = Query("raw")
+) -> HistoricalDailyPriceResponse:
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="historical_date_range_invalid")
+    if adjustment.lower() != "raw":
+        raise HTTPException(status_code=422, detail="historical_adjustment_unsupported")
+    try:
+        return HistoricalDailyPriceResponse(start_date=start_date, end_date=end_date,
+            data=await historical_source(source).daily(ts_code, start_date, end_date))
+    except HistoricalSourceError as error:
+        raise historical_failure(error) from error
+
+
+@app.get("/api/historical/turnover", response_model=HistoricalTurnoverResponse)
+async def historical_turnover(
+    ts_code: str = Query(...), start_date: date = Query(...), end_date: date = Query(...), source: str = Query("tushare")
+) -> HistoricalTurnoverResponse:
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="historical_date_range_invalid")
+    try:
+        return HistoricalTurnoverResponse(start_date=start_date, end_date=end_date,
+            data=await historical_source(source).turnover(ts_code, start_date, end_date))
+    except HistoricalSourceError as error:
+        raise historical_failure(error) from error
+
+
+@app.get("/api/historical/index-daily", response_model=HistoricalIndexDailyResponse)
+async def historical_index_daily(
+    index_code: str = Query(...), start_date: date = Query(...), end_date: date = Query(...), source: str = Query("tushare")
+) -> HistoricalIndexDailyResponse:
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="historical_date_range_invalid")
+    try:
+        return HistoricalIndexDailyResponse(start_date=start_date, end_date=end_date,
+            data=await historical_source(source).index_daily(index_code, start_date, end_date))
+    except HistoricalSourceError as error:
+        raise historical_failure(error) from error
+
+
+@app.get("/api/historical/suspensions", response_model=HistoricalSuspensionResponse)
+async def historical_suspensions(
+    start_date: date = Query(...), end_date: date = Query(...), source: str = Query("tushare")
+) -> HistoricalSuspensionResponse:
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="historical_date_range_invalid")
+    try:
+        return HistoricalSuspensionResponse(start_date=start_date, end_date=end_date,
+            data=await historical_source(source).suspensions(start_date, end_date))
+    except HistoricalSourceError as error:
+        raise historical_failure(error) from error
 
 
 @app.get("/api/workday")
