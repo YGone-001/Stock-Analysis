@@ -256,7 +256,10 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
             observationDeclarations: file.ObservationDeclarations,
             riskStatusObservations: file.RiskStatusObservations,
             adjustmentFactors: file.AdjustmentFactors,
-            qualitySummary: file.QualitySummary);
+            qualitySummary: file.QualitySummary,
+            datasetScope: file.DatasetScope,
+            coverageEvidence: file.CoverageEvidence,
+            strategyCapabilities: file.StrategyCapabilities);
     }
 
     private static HistoricalDataCapabilities CompatibilityCapabilities(IEnumerable<HistoricalFieldCapability> capabilities)
@@ -292,6 +295,9 @@ public sealed class HistoricalDatasetFile
     public List<HistoricalRiskStatusObservation>? RiskStatusObservations { get; set; }
     public List<HistoricalAdjustmentFactor>? AdjustmentFactors { get; set; }
     public HistoricalDatasetQualitySummary? QualitySummary { get; set; }
+    public HistoricalDatasetScope? DatasetScope { get; set; }
+    public List<HistoricalCoverageEvidence>? CoverageEvidence { get; set; }
+    public List<HistoricalStrategyCapabilityExplanation>? StrategyCapabilities { get; set; }
 }
 public sealed class HistoricalDatasetMetadataFile
 {

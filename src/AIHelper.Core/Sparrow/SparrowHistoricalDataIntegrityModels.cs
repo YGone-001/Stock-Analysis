@@ -1,4 +1,5 @@
 using AIHelper.Core.StockData;
+using AIHelper.Models;
 
 namespace AIHelper.Core.Sparrow;
 
@@ -82,6 +83,72 @@ public enum HistoricalField
 public enum HistoricalFieldOrigin { Unknown, Observed, Derived, Declared, LegacyDeclared, Unavailable }
 public enum HistoricalFieldCoverage { Unknown, None, Partial, Full }
 public enum HistoricalValueUnit { Unknown, CurrencyBaseUnit, CurrencyThousands, Percentage, Hands }
+
+/// <summary>Acquisition truth is deliberately separate from materialized field-value coverage.</summary>
+public enum HistoricalCoverageAcquisitionStatus { Full, Partial, Unavailable, PermissionDenied, RateLimited, Failed, NotRequested, Unknown }
+public enum HistoricalDatasetScopeKind { MarketUniverse, ValidationSubset, ExplicitSymbolSet }
+
+public sealed record HistoricalDatasetScope(
+    HistoricalDatasetScopeKind Kind = HistoricalDatasetScopeKind.MarketUniverse,
+    string MarketUniverse = "A-share",
+    IReadOnlyList<string>? Symbols = null)
+{
+    public IReadOnlyList<string> Symbols { get; init; } = (Symbols ?? Array.Empty<string>()).OrderBy(value => value, StringComparer.Ordinal).ToArray();
+}
+
+public sealed record HistoricalCoverageScope(
+    DateOnly StartDate,
+    DateOnly EndDate,
+    string? Exchange = null,
+    string? Symbol = null,
+    string? SymbolPartition = null,
+    string? IndexCode = null,
+    string? ListStatus = null);
+
+public sealed record HistoricalCoverageChunk(DateOnly StartDate, DateOnly EndDate, int ReturnedRows, bool ResponseCapHit = false);
+
+/// <summary>Stable, source-derived evidence explaining exactly why coverage is Full or Partial.</summary>
+public sealed record HistoricalCoverageEvidence(
+    string Endpoint,
+    string Source,
+    HistoricalCoverageScope Scope,
+    int? MaxRowsPerRequest,
+    bool PaginationSupported,
+    string? PermissionRequirement,
+    string QueryShape,
+    int QueryCount,
+    IReadOnlyList<HistoricalCoverageChunk>? RequestedChunks,
+    int ReturnedRows,
+    bool ResponseCapHit,
+    int DuplicateRows,
+    int InvalidRows,
+    int RetryCount,
+    int RateLimitEvents,
+    int PermissionDeniedEvents,
+    int? ExpectedCount,
+    int ObservedCount,
+    int? MissingCount,
+    HistoricalCoverageAcquisitionStatus CoverageStatus,
+    string ProofMethod,
+    string? FailureReason = null,
+    DateTimeOffset? RetrievedAtUtc = null)
+{
+    public IReadOnlyList<HistoricalCoverageChunk> RequestedChunks { get; init; } = RequestedChunks ?? Array.Empty<HistoricalCoverageChunk>();
+}
+
+public sealed record HistoricalAcquisitionResult<T>(IReadOnlyList<T> Data, IReadOnlyList<HistoricalCoverageEvidence>? CoverageEvidence = null, IReadOnlyList<string>? Warnings = null)
+{
+    public IReadOnlyList<HistoricalCoverageEvidence> CoverageEvidence { get; init; } = CoverageEvidence ?? Array.Empty<HistoricalCoverageEvidence>();
+    public IReadOnlyList<string> Warnings { get; init; } = Warnings ?? Array.Empty<string>();
+}
+
+public sealed record HistoricalStrategyCapabilityExplanation(
+    SparrowStrategyMode Strategy,
+    HistoricalReplaySupport Status,
+    IReadOnlyList<string>? ReasonCodes = null)
+{
+    public IReadOnlyList<string> ReasonCodes { get; init; } = (ReasonCodes ?? Array.Empty<string>()).OrderBy(value => value, StringComparer.Ordinal).ToArray();
+}
 
 /// <summary>Dataset-level declaration. Per-observation values still decide whether a symbol can be evaluated at T.</summary>
 public sealed record HistoricalFieldCapability(

@@ -29,6 +29,8 @@ public static class SparrowHistoricalFingerprint
             Row("SchemaVersion", dataset.SchemaVersion),
             Row("Dataset", dataset.DatasetId, dataset.Source, dataset.Metadata.UniverseQuality)
         };
+        if (dataset.HasExplicitDatasetScope)
+            rows.Add(Row("Scope", dataset.DatasetScope.Kind, dataset.DatasetScope.MarketUniverse, string.Join(',', dataset.DatasetScope.Symbols)));
         rows.AddRange(dataset.TradingDates.Order().Select(date => Row("TradingDate", date)));
         rows.AddRange(dataset.Securities.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair =>
         {
@@ -83,6 +85,15 @@ public static class SparrowHistoricalFingerprint
             HistoricalAdjustmentFactor factor = pair.Value;
             return Row("AdjustmentFactor", factor.TradingDate, factor.Symbol, factor.Factor, factor.Source);
         }));
+        rows.AddRange(dataset.CoverageEvidence.OrderBy(item => item.Endpoint, StringComparer.Ordinal).ThenBy(item => item.Scope.Symbol, StringComparer.Ordinal)
+            .ThenBy(item => item.Scope.ListStatus, StringComparer.Ordinal).ThenBy(item => item.Scope.StartDate).ThenBy(item => item.Scope.EndDate).Select(item =>
+                Row("Coverage", item.Endpoint, item.Source, item.Scope.Exchange, item.Scope.Symbol, item.Scope.SymbolPartition, item.Scope.IndexCode, item.Scope.ListStatus,
+                    item.Scope.StartDate, item.Scope.EndDate, item.MaxRowsPerRequest, item.PaginationSupported, item.PermissionRequirement, item.QueryShape,
+                    string.Join('\u001e', item.RequestedChunks.OrderBy(chunk => chunk.StartDate).ThenBy(chunk => chunk.EndDate).Select(chunk => Row("Chunk", chunk.StartDate, chunk.EndDate, chunk.ReturnedRows, chunk.ResponseCapHit))),
+                    item.ReturnedRows, item.ResponseCapHit, item.DuplicateRows, item.InvalidRows, item.RateLimitEvents, item.PermissionDeniedEvents,
+                    item.ExpectedCount, item.ObservedCount, item.MissingCount, item.CoverageStatus, item.ProofMethod, item.FailureReason)));
+        rows.AddRange(dataset.StrategyCapabilities.Values.OrderBy(item => item.Strategy).Select(item =>
+            Row("StrategyCapability", item.Strategy, item.Status, string.Join(',', item.ReasonCodes))));
         HistoricalDatasetQualitySummary quality = dataset.QualitySummary;
         if (HasExplicitCoverageEvidence(quality))
             rows.Add(Row("Quality", quality.UniverseQuality, quality.LifecycleQuality, quality.HistoricalStCoverage, quality.SuspensionCoverage,

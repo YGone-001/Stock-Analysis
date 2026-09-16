@@ -50,7 +50,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         settings.tushare_token, settings.http_timeout_seconds
     )
     application.state.historical_tushare = HistoricalTushareClient(
-        settings.tushare_token, settings.http_timeout_seconds
+        settings.tushare_token, settings.http_timeout_seconds,
+        minimum_request_interval_seconds=settings.historical_min_request_interval_seconds,
+        chunk_days=settings.historical_chunk_days,
     )
     application.state.akshare = AkShareProvider()
     try:
@@ -193,6 +195,8 @@ def historical_failure(error: HistoricalSourceError) -> HTTPException:
         return HTTPException(status_code=403, detail="historical_source_permission_denied")
     if error.status.value == "Unavailable":
         return HTTPException(status_code=503, detail="historical_source_unavailable")
+    if error.status.value == "RateLimited":
+        return HTTPException(status_code=429, detail="historical_source_rate_limited")
     return HTTPException(status_code=502, detail="historical_source_failure")
 
 
@@ -210,8 +214,8 @@ async def historical_securities(
     if start_date > end_date:
         raise HTTPException(status_code=422, detail="historical_date_range_invalid")
     try:
-        return HistoricalSecurityResponse(start_date=start_date, end_date=end_date,
-            data=await historical_source(source).securities(start_date, end_date))
+        data, evidence = await historical_source(source).acquire_securities(start_date, end_date)
+        return HistoricalSecurityResponse(start_date=start_date, end_date=end_date, data=data, evidence=evidence)
     except HistoricalSourceError as error:
         raise historical_failure(error) from error
 
@@ -223,8 +227,8 @@ async def historical_calendar(
     if start_date > end_date:
         raise HTTPException(status_code=422, detail="historical_date_range_invalid")
     try:
-        return HistoricalCalendarResponse(exchange=exchange, start_date=start_date, end_date=end_date,
-            data=await historical_source(source).calendar(exchange, start_date, end_date))
+        data, evidence = await historical_source(source).acquire_calendar(exchange, start_date, end_date)
+        return HistoricalCalendarResponse(exchange=exchange, start_date=start_date, end_date=end_date, data=data, evidence=evidence)
     except HistoricalSourceError as error:
         raise historical_failure(error) from error
 
@@ -239,8 +243,8 @@ async def historical_daily(
     if adjustment.lower() != "raw":
         raise HTTPException(status_code=422, detail="historical_adjustment_unsupported")
     try:
-        return HistoricalDailyPriceResponse(start_date=start_date, end_date=end_date,
-            data=await historical_source(source).daily(ts_code, start_date, end_date))
+        data, evidence = await historical_source(source).acquire_daily(ts_code, start_date, end_date)
+        return HistoricalDailyPriceResponse(start_date=start_date, end_date=end_date, data=data, evidence=evidence)
     except HistoricalSourceError as error:
         raise historical_failure(error) from error
 
@@ -252,8 +256,8 @@ async def historical_turnover(
     if start_date > end_date:
         raise HTTPException(status_code=422, detail="historical_date_range_invalid")
     try:
-        return HistoricalTurnoverResponse(start_date=start_date, end_date=end_date,
-            data=await historical_source(source).turnover(ts_code, start_date, end_date))
+        data, evidence = await historical_source(source).acquire_turnover(ts_code, start_date, end_date)
+        return HistoricalTurnoverResponse(start_date=start_date, end_date=end_date, data=data, evidence=evidence)
     except HistoricalSourceError as error:
         raise historical_failure(error) from error
 
@@ -265,8 +269,8 @@ async def historical_index_daily(
     if start_date > end_date:
         raise HTTPException(status_code=422, detail="historical_date_range_invalid")
     try:
-        return HistoricalIndexDailyResponse(start_date=start_date, end_date=end_date,
-            data=await historical_source(source).index_daily(index_code, start_date, end_date))
+        data, evidence = await historical_source(source).acquire_index_daily(index_code, start_date, end_date)
+        return HistoricalIndexDailyResponse(start_date=start_date, end_date=end_date, data=data, evidence=evidence)
     except HistoricalSourceError as error:
         raise historical_failure(error) from error
 
@@ -278,8 +282,8 @@ async def historical_suspensions(
     if start_date > end_date:
         raise HTTPException(status_code=422, detail="historical_date_range_invalid")
     try:
-        return HistoricalSuspensionResponse(start_date=start_date, end_date=end_date,
-            data=await historical_source(source).suspensions(start_date, end_date))
+        data, evidence = await historical_source(source).acquire_suspensions(start_date, end_date)
+        return HistoricalSuspensionResponse(start_date=start_date, end_date=end_date, data=data, evidence=evidence)
     except HistoricalSourceError as error:
         raise historical_failure(error) from error
 
@@ -288,7 +292,10 @@ async def historical_suspensions(
 async def historical_st(start_date: date = Query(...), end_date: date = Query(...), source: str = Query("tushare")) -> HistoricalStResponse:
     if start_date > end_date: raise HTTPException(status_code=422, detail="historical_date_range_invalid")
     try:
-        return HistoricalStResponse(start_date=start_date, end_date=end_date, data=await historical_source(source).st_statuses(start_date, end_date))
+        calendar, _ = await historical_source(source).acquire_calendar("SSE", start_date, end_date)
+        dates = [row.trading_date for row in calendar if row.is_open]
+        data, evidence = await historical_source(source).acquire_st_statuses(dates)
+        return HistoricalStResponse(start_date=start_date, end_date=end_date, data=data, evidence=evidence)
     except HistoricalSourceError as error:
         raise historical_failure(error) from error
 
@@ -297,7 +304,8 @@ async def historical_st(start_date: date = Query(...), end_date: date = Query(..
 async def historical_adjustment_factors(ts_code: str = Query(...), start_date: date = Query(...), end_date: date = Query(...), source: str = Query("tushare")) -> HistoricalAdjustmentFactorResponse:
     if start_date > end_date: raise HTTPException(status_code=422, detail="historical_date_range_invalid")
     try:
-        return HistoricalAdjustmentFactorResponse(start_date=start_date, end_date=end_date, data=await historical_source(source).adjustment_factors(ts_code, start_date, end_date))
+        data, evidence = await historical_source(source).acquire_adjustment_factors(ts_code, start_date, end_date)
+        return HistoricalAdjustmentFactorResponse(start_date=start_date, end_date=end_date, data=data, evidence=evidence)
     except HistoricalSourceError as error:
         raise historical_failure(error) from error
 

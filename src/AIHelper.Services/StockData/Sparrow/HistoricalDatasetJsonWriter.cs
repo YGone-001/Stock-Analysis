@@ -25,7 +25,7 @@ public sealed class HistoricalDatasetJsonWriter
                 await JsonSerializer.SerializeAsync(stream, file, Json, cancellationToken).ConfigureAwait(false);
             HistoricalDatasetLoadResult check = await _loader.LoadAsync(temporary, cancellationToken).ConfigureAwait(false);
             if (!check.Success || check.Dataset is null || !string.Equals(check.Dataset.Fingerprint, dataset.Fingerprint, StringComparison.Ordinal))
-                throw new InvalidOperationException("Historical dataset export failed loader/fingerprint verification.");
+                throw new InvalidOperationException($"Historical dataset export failed loader/fingerprint verification: {string.Join("; ", check.Errors)}");
             File.Move(temporary, fullPath, true);
         }
         finally
@@ -67,6 +67,9 @@ public sealed class HistoricalDatasetJsonWriter
         ObservationDeclarations = dataset.ObservationDeclarations.Values.OrderBy(item => item.TradingDate).ThenBy(item => item.Symbol, StringComparer.Ordinal).ToList(),
         RiskStatusObservations = dataset.RiskStatusObservations.Values.OrderBy(item => item.TradingDate).ThenBy(item => item.Symbol, StringComparer.Ordinal).ToList(),
         AdjustmentFactors = dataset.AdjustmentFactors.Values.OrderBy(item => item.TradingDate).ThenBy(item => item.Symbol, StringComparer.Ordinal).ToList(),
-        QualitySummary = dataset.QualitySummary
+        QualitySummary = dataset.QualitySummary,
+        DatasetScope = dataset.HasExplicitDatasetScope ? dataset.DatasetScope : null,
+        CoverageEvidence = dataset.CoverageEvidence.ToList(),
+        StrategyCapabilities = dataset.StrategyCapabilities.Values.OrderBy(item => item.Strategy).ToList()
     };
 }

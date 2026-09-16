@@ -11,22 +11,30 @@ try
     if (!string.Equals(adjustment, "raw", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Only --adjustment raw is supported.");
     Uri gateway = new(Environment.GetEnvironmentVariable("HISTORICAL_GATEWAY_URL") ?? throw new InvalidOperationException("HISTORICAL_GATEWAY_URL is required."));
     using HttpClient client = new() { BaseAddress = gateway };
+    string[] explicitSymbols = Value("symbols", "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    HistoricalDatasetScope? scope = explicitSymbols.Length == 0 ? null : new HistoricalDatasetScope(HistoricalDatasetScopeKind.ExplicitSymbolSet, Symbols: explicitSymbols);
     HistoricalDatasetBuildRequest request = new(
         Value("dataset-id", $"tushare-{Value("start")}-{Value("end")}"), Date("start"), Date("end"), Value("output"),
         HistoricalPriceAdjustmentMode.Raw,
         IncludeTurnover: Bool("include-turnover", true), IncludeSuspension: Bool("include-suspension", false), IncludeHistoricalSt: Bool("include-st", false),
-        IncludeAdjustmentFactors: Bool("include-adjustment-factors", false), IncludeV2IndexContext: Bool("include-v2-index", true));
+        IncludeAdjustmentFactors: Bool("include-adjustment-factors", false), IncludeV2IndexContext: Bool("include-v2-index", true), Scope: scope, ExplicitSymbols: explicitSymbols);
     HistoricalDatasetBuildResult result = await new HistoricalDatasetBuilder(new HistoricalHttpMarketDataSource(client)).BuildAsync(request);
     Console.WriteLine($"DATASET={result.Dataset.DatasetId}");
     Console.WriteLine($"FINGERPRINT={result.Dataset.Fingerprint}");
-    Console.WriteLine($"QUALITY={(result.IsPartial ? "PARTIAL" : "SOURCE_BACKED")}");
+    Console.WriteLine($"SCOPE={result.Dataset.DatasetScope.Kind}");
+    Console.WriteLine($"QUALITY={(result.IsPartial ? "PARTIAL" : "FULL")}");
     Console.WriteLine($"UNIVERSE={result.Dataset.QualitySummary.UniverseQuality}");
     Console.WriteLine($"LIFECYCLE={result.Dataset.QualitySummary.LifecycleQuality}");
     Console.WriteLine($"ST={result.Dataset.QualitySummary.HistoricalStCoverage}");
     Console.WriteLine($"SUSPENSION={result.Dataset.QualitySummary.SuspensionCoverage}");
     Console.WriteLine($"ADJUSTMENT_FACTORS={result.Dataset.QualitySummary.AdjustmentFactorCoverage}");
-    Console.WriteLine("STRATEGY_CLASSIC=PARTIAL");
-    Console.WriteLine("STRATEGY_V2=PARTIAL");
+    Console.WriteLine($"INDEX={result.Dataset.QualitySummary.IndexCoverage}");
+    Console.WriteLine($"UNKNOWN_GAPS={result.Dataset.ObservationDeclarations.Values.Count(item => item.ObservationStatus == HistoricalObservationStatus.UnknownDataGap)}");
+    foreach (HistoricalStrategyCapabilityExplanation capability in result.StrategyCapabilities.OrderBy(item => item.Strategy))
+    {
+        Console.WriteLine($"{capability.Strategy.ToString().ToUpperInvariant()}={capability.Status}");
+        Console.WriteLine($"{capability.Strategy.ToString().ToUpperInvariant()}_REASONS={string.Join(',', capability.ReasonCodes)}");
+    }
     Console.WriteLine($"OUTPUT={Path.GetFullPath(request.OutputPath)}");
     foreach (string warning in result.Statistics.Warnings) Console.WriteLine($"WARNING={warning}");
     return 0;

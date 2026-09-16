@@ -13,6 +13,8 @@ class Settings:
     cache_dir: Path
     db_path: Path
     tushare_token: str
+    historical_min_request_interval_seconds: float
+    historical_chunk_days: int
 
 
 def load_settings() -> Settings:
@@ -25,4 +27,6 @@ def load_settings() -> Settings:
         cache_dir=cache_dir,
         db_path=db_path,
         tushare_token=os.getenv("TUSHARE_TOKEN", "").strip(),
+        historical_min_request_interval_seconds=float(os.getenv("HISTORICAL_MIN_REQUEST_INTERVAL_SECONDS", "0.05")),
+        historical_chunk_days=int(os.getenv("HISTORICAL_CHUNK_DAYS", "366")),
     )
