@@ -57,4 +57,4 @@ jobs:
         run: python -m compileall app
 
       - name: Run offline smoke tests
-        run: pytest -q
+        run: python -m pytest -q
