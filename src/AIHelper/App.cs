@@ -167,6 +167,7 @@ public class App : Application
 		services.AddSingleton<IFileDialogService, WpfFileDialogService>();
 		services.AddSingleton<SparrowHistoricalReplayEngine>();
 		services.AddSingleton<SparrowHistoricalBacktestEngine>();
+		services.AddSingleton<ISparrowPortfolioSimulationEngine, SparrowPortfolioSimulationEngine>();
 		services.AddTransient<SparrowResearchViewModel>();
 		services.AddTransient<SparrowResearchWindow>();
 
