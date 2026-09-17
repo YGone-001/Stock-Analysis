@@ -16,6 +16,8 @@ try
     }
     if (Bool("analyze-benchmark", false))
         return await AnalyzeBenchmarkAsync();
+    if (Bool("export-portfolio-research", false))
+        return await ExportPortfolioResearchAsync();
 
     string source = Value("source", "tushare");
     string adjustment = Value("adjustment", "raw");
@@ -106,6 +108,59 @@ async Task<int> AnalyzeBenchmarkAsync()
         Console.WriteLine($"HORIZON_{metric.HorizonTradingDays}_OUTPERFORMANCE={metric.OutperformanceRate?.ToString("R", CultureInfo.InvariantCulture) ?? "N/A"}");
     }
     return result.Support == HistoricalReplaySupport.Supported ? 0 : 1;
+}
+
+async Task<int> ExportPortfolioResearchAsync()
+{
+    if (!Bool("simulate-portfolio", false) || !Bool("analyze-portfolio", false))
+        throw new ArgumentException("Portfolio research export requires --simulate-portfolio true and --analyze-portfolio true.");
+    HistoricalDatasetLoadResult loaded = await new HistoricalDatasetJsonLoader().LoadAsync(Value("dataset"));
+    if (!loaded.Success || loaded.Dataset is null) throw new InvalidOperationException($"Dataset load failed: {string.Join("; ", loaded.Errors)}");
+    SparrowStrategyMode strategy = Value("strategy").Trim().ToLowerInvariant() switch
+    {
+        "classic" => SparrowStrategyMode.Classic,
+        "v2" => SparrowStrategyMode.V2,
+        _ => throw new ArgumentException("--strategy must be classic or v2.")
+    };
+    JsonSerializerOptions json = new() { PropertyNameCaseInsensitive = true };
+    SparrowClassicParameterSnapshot? classic = null;
+    SparrowV2ParameterSnapshot? v2 = null;
+    if (options.TryGetValue("parameters", out string? parameterPath))
+    {
+        string parameterJson = await File.ReadAllTextAsync(parameterPath);
+        classic = strategy == SparrowStrategyMode.Classic ? JsonSerializer.Deserialize<SparrowClassicParameterSnapshot>(parameterJson, json) : null;
+        v2 = strategy == SparrowStrategyMode.V2 ? JsonSerializer.Deserialize<SparrowV2ParameterSnapshot>(parameterJson, json) : null;
+    }
+    else
+    {
+        classic = strategy == SparrowStrategyMode.Classic ? SparrowClassicParameterSnapshot.From(new SparrowClassicScanParameters()) : null;
+        v2 = strategy == SparrowStrategyMode.V2 ? SparrowV2ParameterSnapshot.From(new SparrowScanParameters()) : null;
+    }
+    if (strategy == SparrowStrategyMode.Classic && classic is null || strategy == SparrowStrategyMode.V2 && v2 is null)
+        throw new ArgumentException("Strategy parameter snapshot is invalid.");
+    string version = strategy == SparrowStrategyMode.Classic ? SparrowStrategyVersions.Classic : SparrowStrategyVersions.V2;
+    int topN = int.Parse(Value("top-n"), CultureInfo.InvariantCulture);
+    int horizon = int.Parse(Value("horizon"), CultureInfo.InvariantCulture);
+    decimal initialCapital = decimal.Parse(Value("initial-capital"), CultureInfo.InvariantCulture);
+    SparrowBacktestRequest backtestRequest = new(strategy, version, Date("start"), Date("end"), topN, new[] { horizon }, ClassicParameters: classic, V2Parameters: v2);
+    SparrowBacktestResult backtest = new SparrowHistoricalBacktestEngine().Run(loaded.Dataset, backtestRequest);
+    PortfolioSimulationRequest portfolioRequest = new(loaded.Dataset.DatasetId, loaded.Dataset.Fingerprint, strategy, version,
+        backtest.ParameterFingerprint, backtestRequest.StartDate, backtestRequest.EndDate, topN, horizon, initialCapital,
+        PortfolioPositionSizingMethod.EqualWeight, 0, 0);
+    SparrowPortfolioSimulationResult simulation = await new SparrowPortfolioSimulationEngine().SimulateAsync(backtest, portfolioRequest, loaded.Dataset);
+    SparrowPortfolioPerformanceResult performance = await new SparrowPortfolioPerformanceAnalyzer().AnalyzeAsync(simulation, loaded.Dataset);
+    SparrowPortfolioResearchArtifact artifact = await new SparrowPortfolioResearchExporter().ExportAsync(performance, Value("output"));
+    Console.WriteLine($"DATASET={loaded.Dataset.DatasetId}");
+    Console.WriteLine($"FINGERPRINT={artifact.DatasetFingerprint}");
+    Console.WriteLine($"STRATEGY={artifact.Strategy.Mode}:{artifact.Strategy.Version}");
+    Console.WriteLine($"PORTFOLIO={artifact.PortfolioConfigurationFingerprint}");
+    Console.WriteLine($"INITIAL_CAPITAL={artifact.PerformanceSummary.InitialCapital.ToString(CultureInfo.InvariantCulture)}");
+    Console.WriteLine($"FINAL_EQUITY={artifact.PerformanceSummary.FinalEquity.ToString(CultureInfo.InvariantCulture)}");
+    Console.WriteLine($"TOTAL_RETURN_PERCENT={artifact.PerformanceSummary.TotalReturnPercent.ToString("R", CultureInfo.InvariantCulture)}");
+    Console.WriteLine($"MAXIMUM_DRAWDOWN_PERCENT={artifact.PerformanceSummary.MaximumDrawdownPercent.ToString("R", CultureInfo.InvariantCulture)}");
+    Console.WriteLine($"TRADE_COUNT={artifact.PerformanceSummary.TradeCount}");
+    Console.WriteLine($"OUTPUT_FILE={Path.GetFullPath(Value("output"))}");
+    return 0;
 }
 
 static Dictionary<string, string> Parse(string[] args)
