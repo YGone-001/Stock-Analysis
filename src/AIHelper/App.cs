@@ -168,6 +168,7 @@ public class App : Application
 		services.AddSingleton<SparrowHistoricalReplayEngine>();
 		services.AddSingleton<SparrowHistoricalBacktestEngine>();
 		services.AddSingleton<ISparrowPortfolioSimulationEngine, SparrowPortfolioSimulationEngine>();
+		services.AddSingleton<ISparrowPortfolioPerformanceAnalyzer, SparrowPortfolioPerformanceAnalyzer>();
 		services.AddTransient<SparrowResearchViewModel>();
 		services.AddTransient<SparrowResearchWindow>();
 

@@ -195,16 +195,16 @@ public sealed class PortfolioSnapshot
     public decimal TotalEquity { get; }
 }
 
-/// <summary>Immutable future equity-curve point. Drawdown is intentionally not part of this domain foundation.</summary>
+/// <summary>Immutable daily equity-curve point. Drawdown is derived by the downstream performance analyzer.</summary>
 public sealed class PortfolioEquityPoint
 {
-    public PortfolioEquityPoint(DateOnly date, decimal cash, decimal marketValue, decimal totalEquity, double dailyReturn, double cumulativeReturn)
+    public PortfolioEquityPoint(DateOnly date, decimal cash, decimal marketValue, decimal totalEquity, double? dailyReturn, double cumulativeReturn)
     {
         if (cash < 0) throw new ArgumentOutOfRangeException(nameof(cash));
         if (marketValue < 0) throw new ArgumentOutOfRangeException(nameof(marketValue));
         if (totalEquity < 0) throw new ArgumentOutOfRangeException(nameof(totalEquity));
         if (totalEquity != cash + marketValue) throw new ArgumentException("TotalEquity must equal Cash plus MarketValue.");
-        if (!double.IsFinite(dailyReturn)) throw new ArgumentOutOfRangeException(nameof(dailyReturn));
+        if (dailyReturn.HasValue && !double.IsFinite(dailyReturn.Value)) throw new ArgumentOutOfRangeException(nameof(dailyReturn));
         if (!double.IsFinite(cumulativeReturn)) throw new ArgumentOutOfRangeException(nameof(cumulativeReturn));
         Date = date;
         Cash = cash;
@@ -218,21 +218,22 @@ public sealed class PortfolioEquityPoint
     public decimal Cash { get; }
     public decimal MarketValue { get; }
     public decimal TotalEquity { get; }
-    public double DailyReturn { get; }
+    /// <summary>Null for the first observed trading date; subsequent values are decimal return ratios, not percentages.</summary>
+    public double? DailyReturn { get; }
     public double CumulativeReturn { get; }
 }
 
 /// <summary>Immutable realized contribution of a closed portfolio position.</summary>
 public sealed class PortfolioAttribution
 {
-    public PortfolioAttribution(string symbol, DateOnly entryDate, DateOnly exitDate, int holdingPeriodTradingDays, long quantity, decimal realizedPnL, double returnPercent, double contribution, bool winning)
+    public PortfolioAttribution(string symbol, DateOnly entryDate, DateOnly exitDate, int holdingPeriodTradingDays, long quantity, decimal realizedPnL, double returnPercent, double contributionPercent, bool winning)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(symbol);
         if (exitDate < entryDate) throw new ArgumentException("ExitDate must not precede EntryDate.");
         if (holdingPeriodTradingDays < 0) throw new ArgumentOutOfRangeException(nameof(holdingPeriodTradingDays));
         if (quantity <= 0) throw new ArgumentOutOfRangeException(nameof(quantity));
         if (!double.IsFinite(returnPercent)) throw new ArgumentOutOfRangeException(nameof(returnPercent));
-        if (!double.IsFinite(contribution)) throw new ArgumentOutOfRangeException(nameof(contribution));
+        if (!double.IsFinite(contributionPercent)) throw new ArgumentOutOfRangeException(nameof(contributionPercent));
         Symbol = symbol;
         EntryDate = entryDate;
         ExitDate = exitDate;
@@ -240,7 +241,7 @@ public sealed class PortfolioAttribution
         Quantity = quantity;
         RealizedPnL = realizedPnL;
         ReturnPercent = returnPercent;
-        Contribution = contribution;
+        ContributionPercent = contributionPercent;
         Winning = winning;
     }
 
@@ -251,7 +252,9 @@ public sealed class PortfolioAttribution
     public long Quantity { get; }
     public decimal RealizedPnL { get; }
     public double ReturnPercent { get; }
-    public double Contribution { get; }
+    public double ContributionPercent { get; }
+    /// <summary>Compatibility alias for the Phase 3.4-A contribution field; values are percentage points.</summary>
+    public double Contribution => ContributionPercent;
     public bool Winning { get; }
 }
 
