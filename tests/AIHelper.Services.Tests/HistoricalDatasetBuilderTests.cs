@@ -1,5 +1,6 @@
 using System.IO;
 using AIHelper.Core.Sparrow;
+using AIHelper.Models;
 using AIHelper.Services.StockData.Sparrow;
 using Xunit;
 
@@ -145,7 +146,43 @@ public sealed class HistoricalDatasetBuilderTests
             BenchmarkIds: new[] { " " }).Validate());
     }
 
-    private sealed class FixtureSource(double factor = 100) : IHistoricalMarketDataSource
+    [Fact]
+    public async Task Builder_FullV2IndexContext_IsNotDowngradedByPartialBenchmarkEvidence()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"historical-index-isolation-{Guid.NewGuid():N}.json");
+        try
+        {
+            HistoricalDatasetBuildResult result = await new HistoricalDatasetBuilder(new FixtureSource(contextFull: true, benchmarkFull: false)).BuildAsync(
+                new("index-isolation", new DateOnly(2024, 1, 2), new DateOnly(2024, 1, 4), path,
+                    IncludeV2IndexContext: true, V2IndexCode: "000001.SH", BenchmarkIds: new[] { "000300.SH" }));
+
+            Assert.Equal(HistoricalFieldCoverage.Full, result.Dataset.QualitySummary.IndexCoverage);
+            HistoricalStrategyCapabilityExplanation v2 = result.Dataset.StrategyCapabilities[SparrowStrategyMode.V2];
+            Assert.DoesNotContain("INDEX_CONTEXT_PARTIAL", v2.ReasonCodes);
+            Assert.Equal(HistoricalFieldCoverage.Partial, result.Dataset.Benchmarks["000300.SH"].Coverage);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Builder_PartialV2IndexContext_IsNotUpgradedByFullBenchmarkEvidence()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"historical-index-isolation-inverse-{Guid.NewGuid():N}.json");
+        try
+        {
+            HistoricalDatasetBuildResult result = await new HistoricalDatasetBuilder(new FixtureSource(contextFull: false, benchmarkFull: true)).BuildAsync(
+                new("index-isolation-inverse", new DateOnly(2024, 1, 2), new DateOnly(2024, 1, 4), path,
+                    IncludeV2IndexContext: true, V2IndexCode: "000001.SH", BenchmarkIds: new[] { "000300.SH" }));
+
+            Assert.Equal(HistoricalFieldCoverage.Partial, result.Dataset.QualitySummary.IndexCoverage);
+            HistoricalStrategyCapabilityExplanation v2 = result.Dataset.StrategyCapabilities[SparrowStrategyMode.V2];
+            Assert.Contains("INDEX_CONTEXT_PARTIAL", v2.ReasonCodes);
+            Assert.Equal(HistoricalFieldCoverage.Full, result.Dataset.Benchmarks["000300.SH"].Coverage);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    private sealed class FixtureSource(double factor = 100, bool? contextFull = null, bool? benchmarkFull = null) : IHistoricalMarketDataSource
     {
         public List<string> IndexRequests { get; } = [];
         public Task<IReadOnlyList<HistoricalSourceCapability>> ProbeAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<HistoricalSourceCapability>>([
@@ -170,8 +207,23 @@ public sealed class HistoricalDatasetBuilderTests
         public Task<IReadOnlyList<HistoricalIndexDaily>> GetIndexDailyAsync(string indexCode, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default)
         {
             IndexRequests.Add(indexCode);
-            return Task.FromResult<IReadOnlyList<HistoricalIndexDaily>>([new(indexCode, new DateOnly(2024, 1, 2), 3000, 2963, 1.25, "tushare")]);
+            bool full = string.Equals(indexCode, "000001.SH", StringComparison.OrdinalIgnoreCase) ? contextFull == true : benchmarkFull == true;
+            DateOnly[] dates = full
+                ? [new DateOnly(2024, 1, 2), new DateOnly(2024, 1, 3), new DateOnly(2024, 1, 4)]
+                : [new DateOnly(2024, 1, 2)];
+            return Task.FromResult<IReadOnlyList<HistoricalIndexDaily>>(dates.Select((date, index) => new HistoricalIndexDaily(indexCode, date, 3000 + index, 2963 + index, 1.25, "tushare")).ToArray());
         }
+        public async Task<HistoricalAcquisitionResult<HistoricalIndexDaily>> AcquireIndexDailyAsync(string indexCode, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<HistoricalIndexDaily> data = await GetIndexDailyAsync(indexCode, startDate, endDate, cancellationToken);
+            bool full = string.Equals(indexCode, "000001.SH", StringComparison.OrdinalIgnoreCase) ? contextFull == true : benchmarkFull == true;
+            if (!contextFull.HasValue && !benchmarkFull.HasValue) return new HistoricalAcquisitionResult<HistoricalIndexDaily>(data);
+            return new HistoricalAcquisitionResult<HistoricalIndexDaily>(data, [IndexEvidence(indexCode, startDate, endDate, data.Count, full)]);
+        }
+        private static HistoricalCoverageEvidence IndexEvidence(string indexCode, DateOnly startDate, DateOnly endDate, int observed, bool full) => new(
+            "index_daily", "fixture", new HistoricalCoverageScope(startDate, endDate, IndexCode: indexCode), null, true, null, "fixture", 1,
+            [new HistoricalCoverageChunk(startDate, endDate, observed)], observed, false, 0, 0, 0, 0, 0, 3, observed, 3 - observed,
+            full ? HistoricalCoverageAcquisitionStatus.Full : HistoricalCoverageAcquisitionStatus.Partial, "fixture");
         public Task<IReadOnlyList<HistoricalSuspension>> GetSuspensionsAsync(DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<HistoricalSuspension>>([new("600000", "600000.SH", new DateOnly(2024, 1, 4), "S", null, "tushare")]);
         public Task<IReadOnlyList<HistoricalStStatus>> GetStStatusesAsync(DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<HistoricalStStatus>>([new("600000", "600000.SH", new DateOnly(2024, 1, 2), "ST", "tushare")]);
         public Task<IReadOnlyList<HistoricalSourceAdjustmentFactor>> GetAdjustmentFactorsAsync(string tsCode, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<HistoricalSourceAdjustmentFactor>>([new(tsCode[..6], tsCode, new DateOnly(2024, 1, 2), factor, "tushare")]);

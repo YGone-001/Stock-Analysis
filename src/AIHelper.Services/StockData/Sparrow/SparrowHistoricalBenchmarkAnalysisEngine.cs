@@ -58,12 +58,12 @@ public sealed class SparrowHistoricalBenchmarkAnalysisEngine
         string parameterFingerprint = SparrowHistoricalFingerprint.Parameters(request.BacktestRequest);
         string analysisFingerprint = SparrowHistoricalFingerprint.BenchmarkAnalysis(request, dataset.Fingerprint, parameterFingerprint);
         if (!dataset.Benchmarks.TryGetValue(request.BenchmarkId, out HistoricalBenchmarkSeries? benchmark))
-            return Unsupported(dataset, request, parameterFingerprint, analysisFingerprint, SparrowBenchmarkReasonCodes.BenchmarkSeriesNotFound, "Requested benchmark series is not present in the immutable dataset.");
+            return Unsupported(dataset, request, parameterFingerprint, analysisFingerprint, [SparrowBenchmarkReasonCodes.BenchmarkSeriesNotFound], "Requested benchmark series is not present in the immutable dataset.");
         if (benchmark.Coverage == HistoricalFieldCoverage.None)
-            return Unsupported(dataset, request, parameterFingerprint, analysisFingerprint, SparrowBenchmarkReasonCodes.BenchmarkCoverageNone, "Requested benchmark series has no usable close-level coverage.", benchmark.Provenance);
+            return Unsupported(dataset, request, parameterFingerprint, analysisFingerprint, [SparrowBenchmarkReasonCodes.BenchmarkCoverageNone], "Requested benchmark series has no usable close-level coverage.", benchmark.Provenance);
         if (dataset.StrategyCapabilities.TryGetValue(request.BacktestRequest.StrategyMode, out HistoricalStrategyCapabilityExplanation? capability)
             && capability.Status == HistoricalReplaySupport.Unsupported)
-            return Unsupported(dataset, request, parameterFingerprint, analysisFingerprint, string.Join(',', capability.ReasonCodes), "Requested strategy is unsupported by this dataset.", benchmark.Provenance);
+            return Unsupported(dataset, request, parameterFingerprint, analysisFingerprint, capability.ReasonCodes, "Requested strategy is unsupported by this dataset.", benchmark.Provenance);
 
         SparrowBacktestResult baseResult = _backtest.Run(dataset, request.BacktestRequest, cancellationToken);
         List<SparrowBenchmarkRelativeSelection> selections = [];
@@ -77,18 +77,17 @@ public sealed class SparrowHistoricalBenchmarkAnalysisEngine
         }
 
         SparrowBenchmarkHorizonMetrics[] metrics = request.BacktestRequest.Horizons.Distinct().Order().Select(horizon => Metrics(horizon, selections)).ToArray();
-        Dictionary<string, int> reasons = selections.SelectMany(item => item.RelativeOutcomes).Where(item => !item.ExcessAvailable && !string.IsNullOrWhiteSpace(item.UnavailableReasonCode))
+        Dictionary<string, int> attrition = selections.SelectMany(item => item.RelativeOutcomes).Where(item => !item.ExcessAvailable && !string.IsNullOrWhiteSpace(item.UnavailableReasonCode))
             .GroupBy(item => item.UnavailableReasonCode!, StringComparer.Ordinal).OrderBy(item => item.Key, StringComparer.Ordinal).ToDictionary(item => item.Key, item => item.Count(), StringComparer.Ordinal);
-        if (benchmark.Coverage != HistoricalFieldCoverage.Full)
-            reasons.TryAdd(SparrowBenchmarkReasonCodes.BenchmarkCoveragePartial, 1);
+        IReadOnlyList<string> supportReasons = CanonicalSupportReasons(benchmark.Coverage == HistoricalFieldCoverage.Partial ? [SparrowBenchmarkReasonCodes.BenchmarkCoveragePartial] : []);
         List<string> warnings = baseResult.Warnings.Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToList();
         if (benchmark.Coverage != HistoricalFieldCoverage.Full) warnings.Add("Benchmark coverage is partial.");
         warnings.Add(dataset.PriceAdjustmentMode == HistoricalPriceAdjustmentMode.Raw
             ? "Benchmark analysis compares raw stock close-to-close return with index close-to-close return."
             : $"Benchmark analysis preserves stock price adjustment declaration '{dataset.PriceAdjustmentMode}' and does not transform prices.");
-        HistoricalReplaySupport support = reasons.Count == 0 ? HistoricalReplaySupport.Supported : HistoricalReplaySupport.Partial;
+        HistoricalReplaySupport support = supportReasons.Count == 0 && attrition.Count == 0 ? HistoricalReplaySupport.Supported : HistoricalReplaySupport.Partial;
         return new SparrowBenchmarkAnalysisResult(request, baseResult, dataset.DatasetId, dataset.Fingerprint, parameterFingerprint, analysisFingerprint,
-            dataset.PriceAdjustmentMode, support, benchmark.Provenance, selections, metrics, new ReadOnlyDictionary<string, int>(reasons), warnings.Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToArray());
+            dataset.PriceAdjustmentMode, support, supportReasons, benchmark.Provenance, selections, metrics, new ReadOnlyDictionary<string, int>(attrition), warnings.Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToArray());
     }
 
     private static RelativeForwardReturn Relative(ForwardReturn? stock, BenchmarkForwardReturn benchmark)
@@ -109,9 +108,11 @@ public sealed class SparrowHistoricalBenchmarkAnalysisEngine
             excess.Length == 0 ? null : excess.Average(), median, excess.Length == 0 ? null : excess.Count(item => item > 0) / (double)excess.Length);
     }
 
+    private static IReadOnlyList<string> CanonicalSupportReasons(IEnumerable<string> reasons) => Array.AsReadOnly(reasons.Where(reason => !string.IsNullOrWhiteSpace(reason)).Distinct(StringComparer.Ordinal).OrderBy(reason => reason, StringComparer.Ordinal).ToArray());
+
     private static SparrowBenchmarkAnalysisResult Unsupported(HistoricalMarketDataset dataset, SparrowBenchmarkAnalysisRequest request, string parameterFingerprint,
-        string analysisFingerprint, string reason, string warning, HistoricalBenchmarkProvenance? provenance = null) => new(
-        request, null, dataset.DatasetId, dataset.Fingerprint, parameterFingerprint, analysisFingerprint, dataset.PriceAdjustmentMode, HistoricalReplaySupport.Unsupported, provenance,
+        string analysisFingerprint, IEnumerable<string> supportReasons, string warning, HistoricalBenchmarkProvenance? provenance = null) => new(
+        request, null, dataset.DatasetId, dataset.Fingerprint, parameterFingerprint, analysisFingerprint, dataset.PriceAdjustmentMode, HistoricalReplaySupport.Unsupported, CanonicalSupportReasons(supportReasons), provenance,
         Array.Empty<SparrowBenchmarkRelativeSelection>(), Array.Empty<SparrowBenchmarkHorizonMetrics>(),
-        new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(StringComparer.Ordinal) { [reason] = 1 }), new[] { warning });
+        new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(StringComparer.Ordinal)), new[] { warning });
 }

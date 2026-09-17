@@ -109,6 +109,7 @@ public sealed record SparrowBenchmarkAnalysisResult(
     string AnalysisFingerprint,
     HistoricalPriceAdjustmentMode StockPriceAdjustmentMode,
     HistoricalReplaySupport Support,
+    IReadOnlyList<string> SupportReasonCodes,
     HistoricalBenchmarkProvenance? BenchmarkProvenance,
     IReadOnlyList<SparrowBenchmarkRelativeSelection> RelativeSelections,
     IReadOnlyList<SparrowBenchmarkHorizonMetrics> HorizonMetrics,

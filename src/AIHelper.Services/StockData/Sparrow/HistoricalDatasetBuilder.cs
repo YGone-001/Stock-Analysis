@@ -236,10 +236,13 @@ public sealed class HistoricalDatasetBuilder
         return count == 0 ? HistoricalFieldCoverage.None : HistoricalFieldCoverage.Partial;
     }
 
-    private static HistoricalFieldCoverage IndexCoverage(IReadOnlyList<HistoricalIndexDaily> index, IReadOnlyList<DateOnly> dates, string code, IReadOnlyList<HistoricalCoverageEvidence> evidence) =>
-        index.Count > 0 && index.All(item => string.Equals(item.IndexCode, code, StringComparison.OrdinalIgnoreCase)) && index.Select(item => item.TradingDate).ToHashSet().SetEquals(dates)
-            && evidence.Where(item => item.Endpoint == "index_daily").Any() && evidence.Where(item => item.Endpoint == "index_daily").All(item => item.CoverageStatus == HistoricalCoverageAcquisitionStatus.Full)
+    private static HistoricalFieldCoverage IndexCoverage(IReadOnlyList<HistoricalIndexDaily> index, IReadOnlyList<DateOnly> dates, string code, IReadOnlyList<HistoricalCoverageEvidence> evidence)
+    {
+        HistoricalCoverageEvidence[] contextEvidence = evidence.Where(item => item.Endpoint == "index_daily" && string.Equals(item.Scope.IndexCode, code, StringComparison.OrdinalIgnoreCase)).ToArray();
+        return index.Count > 0 && index.All(item => string.Equals(item.IndexCode, code, StringComparison.OrdinalIgnoreCase)) && index.Select(item => item.TradingDate).ToHashSet().SetEquals(dates)
+            && contextEvidence.Length > 0 && contextEvidence.All(item => item.CoverageStatus == HistoricalCoverageAcquisitionStatus.Full)
             ? HistoricalFieldCoverage.Full : index.Count > 0 ? HistoricalFieldCoverage.Partial : HistoricalFieldCoverage.None;
+    }
 
     private static HistoricalFieldCoverage StCoverage(bool available, IReadOnlyList<DateOnly> dates, IReadOnlyList<HistoricalCoverageEvidence> evidence)
     {

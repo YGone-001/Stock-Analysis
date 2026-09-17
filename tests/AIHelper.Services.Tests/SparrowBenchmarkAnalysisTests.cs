@@ -78,7 +78,8 @@ public sealed class SparrowBenchmarkAnalysisTests
         Assert.Throws<ArgumentException>(() => new SparrowBenchmarkAnalysisRequest(cost, "000300.SH"));
         SparrowBenchmarkAnalysisResult absent = new SparrowHistoricalBenchmarkAnalysisEngine().Analyze(dataset, new SparrowBenchmarkAnalysisRequest(Request(dataset), "000300.SH"));
         Assert.Equal(HistoricalReplaySupport.Unsupported, absent.Support);
-        Assert.Equal(1, absent.UnavailableReasonCounts[SparrowBenchmarkReasonCodes.BenchmarkSeriesNotFound]);
+        Assert.Equal(new[] { SparrowBenchmarkReasonCodes.BenchmarkSeriesNotFound }, absent.SupportReasonCodes);
+        Assert.Empty(absent.UnavailableReasonCounts);
     }
 
     [Fact]
@@ -92,7 +93,62 @@ public sealed class SparrowBenchmarkAnalysisTests
         SparrowBenchmarkAnalysisResult result = new SparrowHistoricalBenchmarkAnalysisEngine().Analyze(dataset, new SparrowBenchmarkAnalysisRequest(Request(dataset), "000300.SH"));
 
         Assert.Equal(HistoricalReplaySupport.Partial, result.Support);
-        Assert.Equal(1, result.UnavailableReasonCounts[SparrowBenchmarkReasonCodes.BenchmarkCoveragePartial]);
+        Assert.Contains(SparrowBenchmarkReasonCodes.BenchmarkCoveragePartial, result.SupportReasonCodes);
+        Assert.Empty(result.UnavailableReasonCounts);
+    }
+
+    [Fact]
+    public void UnsupportedStrategy_PreservesIndividualSupportReasonsWithoutOutcomeAttrition()
+    {
+        HistoricalMarketDataset dataset = Dataset(
+            benchmarks: new[] { Series(Dates().Select((date, index) => new HistoricalBenchmarkObservation(date, 100 + index))) },
+            strategyCapabilities: new[] { new HistoricalStrategyCapabilityExplanation(SparrowStrategyMode.V2, HistoricalReplaySupport.Unsupported, ["SOME_REQUIRED_FIELD_UNAVAILABLE", "UNIVERSE_PARTIAL"]) });
+
+        SparrowBenchmarkAnalysisResult result = new SparrowHistoricalBenchmarkAnalysisEngine().Analyze(dataset, new SparrowBenchmarkAnalysisRequest(Request(dataset), "000300.SH"));
+
+        Assert.Equal(HistoricalReplaySupport.Unsupported, result.Support);
+        Assert.Equal(new[] { "SOME_REQUIRED_FIELD_UNAVAILABLE", "UNIVERSE_PARTIAL" }, result.SupportReasonCodes);
+        Assert.Empty(result.RelativeSelections);
+        Assert.Empty(result.HorizonMetrics);
+        Assert.Empty(result.UnavailableReasonCounts);
+    }
+
+    [Fact]
+    public void BenchmarkCoverageNone_IsUnsupportedWithoutSyntheticAttrition()
+    {
+        HistoricalMarketDataset dataset = Dataset(benchmarks: new[]
+        {
+            Series(Array.Empty<HistoricalBenchmarkObservation>(), HistoricalFieldCoverage.None)
+        });
+
+        SparrowBenchmarkAnalysisResult result = new SparrowHistoricalBenchmarkAnalysisEngine().Analyze(dataset, new SparrowBenchmarkAnalysisRequest(Request(dataset), "000300.SH"));
+
+        Assert.Equal(HistoricalReplaySupport.Unsupported, result.Support);
+        Assert.Equal(new[] { SparrowBenchmarkReasonCodes.BenchmarkCoverageNone }, result.SupportReasonCodes);
+        Assert.Empty(result.RelativeSelections);
+        Assert.Empty(result.HorizonMetrics);
+        Assert.Empty(result.UnavailableReasonCounts);
+    }
+
+    [Fact]
+    public void ActualBenchmarkOutcomeGaps_AreCountedAsAttritionOnly()
+    {
+        DateOnly[] dates = Dates();
+        HistoricalMarketDataset dataset = Dataset(benchmarks: new[]
+        {
+            Series(dates.Where((_, index) => index != 66).Select((date, index) => new HistoricalBenchmarkObservation(date, 100 + index)), HistoricalFieldCoverage.Partial)
+        });
+        SparrowBenchmarkAnalysisResult result = new SparrowHistoricalBenchmarkAnalysisEngine().Analyze(dataset,
+            new SparrowBenchmarkAnalysisRequest(Request(dataset) with { Horizons = new[] { 1 } }, "000300.SH"));
+
+        Assert.Equal(HistoricalReplaySupport.Partial, result.Support);
+        Assert.Equal(2, result.UnavailableReasonCounts[SparrowBenchmarkReasonCodes.BenchmarkExitMissing]);
+        Assert.DoesNotContain(SparrowBenchmarkReasonCodes.BenchmarkCoveragePartial, result.UnavailableReasonCounts.Keys);
+        SparrowBenchmarkHorizonMetrics metric = Assert.Single(result.HorizonMetrics);
+        Assert.Equal(2, metric.SelectionCount);
+        Assert.Equal(2, metric.StockAvailableCount);
+        Assert.Equal(0, metric.BenchmarkAvailableCount);
+        Assert.Equal(0, metric.ExcessAvailableCount);
     }
 
     [Fact]
@@ -140,6 +196,8 @@ public sealed class SparrowBenchmarkAnalysisTests
             using JsonDocument json = JsonDocument.Parse(await File.ReadAllTextAsync(path));
             Assert.Equal("V2", json.RootElement.GetProperty("Strategy").GetString());
             Assert.Equal("000300.SH", json.RootElement.GetProperty("BenchmarkId").GetString());
+            Assert.True(json.RootElement.TryGetProperty("SupportReasonCodes", out JsonElement supportReasons));
+            Assert.Equal(JsonValueKind.Array, supportReasons.ValueKind);
             Assert.Equal("SelectionWeighted", json.RootElement.GetProperty("WeightingMethod").GetString());
             Assert.Equal("GrossCloseToClose", json.RootElement.GetProperty("ReturnBasis").GetString());
             Assert.Equal("Raw", json.RootElement.GetProperty("StockPriceAdjustmentMode").GetString());
@@ -157,8 +215,8 @@ public sealed class SparrowBenchmarkAnalysisTests
     private static DateOnly[] Dates() => Enumerable.Range(0, 90).Select(index => new DateOnly(2026, 1, 1).AddDays(index)).ToArray();
     private static SparrowBacktestRequest Request(HistoricalMarketDataset dataset) => new(SparrowStrategyMode.V2, SparrowStrategyVersions.V2, dataset.TradingDates[65], dataset.TradingDates[65], 2, new[] { 1, 3, 5, 10, 20 }, V2Parameters: new SparrowV2ParameterSnapshot(false, 1, 5, 1.1, 1, true, 0, .15, 3, 30, 0, false));
 
-    private static HistoricalMarketDataset Dataset(IEnumerable<HistoricalBenchmarkSeries>? benchmarks = null) => Dataset(Dates(), benchmarks);
-    private static HistoricalMarketDataset Dataset(IReadOnlyList<DateOnly> dates, IEnumerable<HistoricalBenchmarkSeries>? benchmarks = null)
+    private static HistoricalMarketDataset Dataset(IEnumerable<HistoricalBenchmarkSeries>? benchmarks = null, IEnumerable<HistoricalStrategyCapabilityExplanation>? strategyCapabilities = null) => Dataset(Dates(), benchmarks, strategyCapabilities);
+    private static HistoricalMarketDataset Dataset(IReadOnlyList<DateOnly> dates, IEnumerable<HistoricalBenchmarkSeries>? benchmarks = null, IEnumerable<HistoricalStrategyCapabilityExplanation>? strategyCapabilities = null)
     {
         string[] symbols = ["600000", "600001"];
         HistoricalQuoteObservation[] quotes = dates.SelectMany(date => symbols.Select((symbol, index) => new HistoricalQuoteObservation(date,
@@ -174,6 +232,6 @@ public sealed class SparrowBenchmarkAnalysisTests
             metadata: new HistoricalDatasetMetadata("benchmark-fixture", "fixture", null, HistoricalUniverseQuality.Partial), securities: securities, universes: universes,
             fieldCapabilities: fields, priceSeriesProvenance: provenance, marketContextProvenance: contextProvenance,
             qualitySummary: new HistoricalDatasetQualitySummary(HistoricalUniverseQuality.Partial, HistoricalLifecycleQuality.Partial, HistoricalFieldCoverage.Full, HistoricalFieldCoverage.Full, HistoricalFieldCoverage.Full, HistoricalFieldCoverage.None, HistoricalFieldCoverage.Full, HistoricalFieldCoverage.None),
-            benchmarks: benchmarks);
+            benchmarks: benchmarks, strategyCapabilities: strategyCapabilities);
     }
 }
