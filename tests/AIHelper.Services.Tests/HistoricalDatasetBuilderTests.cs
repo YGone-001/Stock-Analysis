@@ -82,8 +82,72 @@ public sealed class HistoricalDatasetBuilderTests
         finally { if (File.Exists(one)) File.Delete(one); if (File.Exists(two)) File.Delete(two); }
     }
 
+    [Fact]
+    public async Task Builder_AcquiresOnlyExplicitBenchmarkIdsAndStoresCloseLevelSeries()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"historical-benchmark-{Guid.NewGuid():N}.json");
+        try
+        {
+            FixtureSource source = new();
+            HistoricalDatasetBuildResult result = await new HistoricalDatasetBuilder(source).BuildAsync(
+                new("benchmark", new DateOnly(2024, 1, 2), new DateOnly(2024, 1, 4), path,
+                    IncludeV2IndexContext: false, BenchmarkIds: new[] { "000300.SH" }));
+
+            HistoricalBenchmarkSeries series = Assert.Single(result.Dataset.Benchmarks).Value;
+            Assert.Equal("000300.SH", series.BenchmarkId);
+            Assert.Equal(HistoricalBenchmarkPriceBasis.IndexClose, series.PriceBasis);
+            Assert.Equal(new[] { "000300.SH" }, source.IndexRequests);
+            Assert.Equal(HistoricalFieldCoverage.Partial, series.Coverage); // fixture has one of three market dates
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Builder_WithNoBenchmarkIds_DoesNotAcquireBenchmarkSeries()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"historical-no-benchmark-{Guid.NewGuid():N}.json");
+        try
+        {
+            FixtureSource source = new();
+            HistoricalDatasetBuildResult result = await new HistoricalDatasetBuilder(source).BuildAsync(
+                new("no-benchmark", new DateOnly(2024, 1, 2), new DateOnly(2024, 1, 4), path, IncludeV2IndexContext: false));
+
+            Assert.Empty(result.Dataset.Benchmarks);
+            Assert.Empty(source.IndexRequests);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Builder_PersistsEveryExplicitBenchmarkId()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"historical-multiple-benchmarks-{Guid.NewGuid():N}.json");
+        try
+        {
+            FixtureSource source = new();
+            HistoricalDatasetBuildResult result = await new HistoricalDatasetBuilder(source).BuildAsync(
+                new("multiple-benchmarks", new DateOnly(2024, 1, 2), new DateOnly(2024, 1, 4), path,
+                    IncludeV2IndexContext: false, BenchmarkIds: new[] { "000852.SH", "000300.SH" }));
+
+            Assert.Equal(new[] { "000300.SH", "000852.SH" }, result.Dataset.Benchmarks.Keys);
+            Assert.Equal(new[] { "000300.SH", "000852.SH" }, source.IndexRequests);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public void BuildRequest_RejectsDuplicateOrBlankBenchmarkIdentifiers()
+    {
+        string output = Path.Combine(Path.GetTempPath(), "historical-benchmark-validation.json");
+        Assert.Throws<ArgumentException>(() => new HistoricalDatasetBuildRequest("fixture", new DateOnly(2024, 1, 2), new DateOnly(2024, 1, 4), output,
+            BenchmarkIds: new[] { "000300.SH", "000300.SH" }).Validate());
+        Assert.Throws<ArgumentException>(() => new HistoricalDatasetBuildRequest("fixture", new DateOnly(2024, 1, 2), new DateOnly(2024, 1, 4), output,
+            BenchmarkIds: new[] { " " }).Validate());
+    }
+
     private sealed class FixtureSource(double factor = 100) : IHistoricalMarketDataSource
     {
+        public List<string> IndexRequests { get; } = [];
         public Task<IReadOnlyList<HistoricalSourceCapability>> ProbeAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<HistoricalSourceCapability>>([
             new("stock_basic", HistoricalSourceCapabilityStatus.Available), new("daily", HistoricalSourceCapabilityStatus.Available), new("trade_cal", HistoricalSourceCapabilityStatus.Available),
             new("daily_basic", HistoricalSourceCapabilityStatus.Available), new("index_daily", HistoricalSourceCapabilityStatus.Available),
@@ -103,8 +167,11 @@ public sealed class HistoricalDatasetBuilderTests
         }
         public Task<IReadOnlyList<HistoricalTurnover>> GetTurnoverAsync(string tsCode, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<HistoricalTurnover>>([
             new(tsCode[..6], tsCode, new DateOnly(2024, 1, 2), 1.2, "tushare"), new(tsCode[..6], tsCode, new DateOnly(2024, 1, 3), 1.3, "tushare")]);
-        public Task<IReadOnlyList<HistoricalIndexDaily>> GetIndexDailyAsync(string indexCode, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<HistoricalIndexDaily>>([
-            new(indexCode, new DateOnly(2024, 1, 2), 3000, 2963, 1.25, "tushare")]);
+        public Task<IReadOnlyList<HistoricalIndexDaily>> GetIndexDailyAsync(string indexCode, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default)
+        {
+            IndexRequests.Add(indexCode);
+            return Task.FromResult<IReadOnlyList<HistoricalIndexDaily>>([new(indexCode, new DateOnly(2024, 1, 2), 3000, 2963, 1.25, "tushare")]);
+        }
         public Task<IReadOnlyList<HistoricalSuspension>> GetSuspensionsAsync(DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<HistoricalSuspension>>([new("600000", "600000.SH", new DateOnly(2024, 1, 4), "S", null, "tushare")]);
         public Task<IReadOnlyList<HistoricalStStatus>> GetStStatusesAsync(DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<HistoricalStStatus>>([new("600000", "600000.SH", new DateOnly(2024, 1, 2), "ST", "tushare")]);
         public Task<IReadOnlyList<HistoricalSourceAdjustmentFactor>> GetAdjustmentFactorsAsync(string tsCode, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<HistoricalSourceAdjustmentFactor>>([new(tsCode[..6], tsCode, new DateOnly(2024, 1, 2), factor, "tushare")]);

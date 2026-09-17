@@ -53,7 +53,18 @@ public sealed class HistoricalDatasetJsonWriter
         Klines = dataset.Klines.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => new HistoricalKlineSeriesFile { Symbol = item.Key,
             Bars = item.Value.Bars.Select(bar => new HistoricalKlineBarFile { Date = bar.Date, Open = bar.Open, High = bar.High, Low = bar.Low, Close = bar.Close,
                 Volume = bar.Volume, Amount = bar.Amount, ChangePercent = bar.ChangePercent, Change = bar.Change, TurnoverRate = bar.TurnoverRate }).ToList() }).ToList(),
-        MarketContexts = dataset.MarketContexts.OrderBy(item => item.Key).Select(item => new HistoricalMarketContextFile { TradingDate = item.Key, V2ShanghaiDailyPercent = item.Value.V2ShanghaiDailyPercent }).ToList(),
+        MarketContexts = dataset.MarketContexts.OrderBy(item => item.Key).Select(item => new HistoricalMarketContextFile
+        {
+            TradingDate = item.Key,
+            ClassicMarketRegime = item.Value.ClassicMarketRegime is null ? null : new HistoricalClassicMarketRegimeFile
+            {
+                Shanghai = item.Value.ClassicMarketRegime.Shanghai,
+                Csi1000 = item.Value.ClassicMarketRegime.Csi1000,
+                Defensive = item.Value.ClassicMarketRegime.Defensive,
+                Reason = item.Value.ClassicMarketRegime.Reason
+            },
+            V2ShanghaiDailyPercent = item.Value.V2ShanghaiDailyPercent
+        }).ToList(),
         Metadata = new HistoricalDatasetMetadataFile { DatasetId = dataset.Metadata.DatasetId, Source = dataset.Metadata.Source, CreatedAt = dataset.Metadata.CreatedAt,
             UniverseQuality = dataset.Metadata.UniverseQuality, Warnings = dataset.Metadata.Warnings.ToList() },
         Securities = dataset.Securities.Values.OrderBy(item => item.Symbol, StringComparer.Ordinal).Select(item => new HistoricalSecurityFile { Symbol = item.Symbol, Name = item.Name,
@@ -70,6 +81,20 @@ public sealed class HistoricalDatasetJsonWriter
         QualitySummary = dataset.QualitySummary,
         DatasetScope = dataset.HasExplicitDatasetScope ? dataset.DatasetScope : null,
         CoverageEvidence = dataset.CoverageEvidence.ToList(),
-        StrategyCapabilities = dataset.StrategyCapabilities.Values.OrderBy(item => item.Strategy).ToList()
+        StrategyCapabilities = dataset.StrategyCapabilities.Values.OrderBy(item => item.Strategy).ToList(),
+        Benchmarks = dataset.Benchmarks.Values.OrderBy(item => item.BenchmarkId, StringComparer.Ordinal).Select(item => new HistoricalBenchmarkSeriesFile
+        {
+            BenchmarkId = item.BenchmarkId,
+            DisplayName = item.DisplayName,
+            PriceBasis = item.PriceBasis,
+            Source = item.Source,
+            Coverage = item.Coverage,
+            Provenance = item.Provenance,
+            Observations = item.Observations.OrderBy(observation => observation.TradingDate).Select(observation => new HistoricalBenchmarkObservationFile
+            {
+                TradingDate = observation.TradingDate,
+                Close = observation.Close
+            }).ToList()
+        }).ToList()
     };
 }

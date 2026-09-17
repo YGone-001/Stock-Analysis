@@ -9,6 +9,20 @@ public static class SparrowHistoricalFingerprint
 {
     public static string Parameters(SparrowReplayRequest request) => Hash(CanonicalRequest(request));
     public static string Parameters(SparrowBacktestRequest request) => Hash(string.Join('|', request.StrategyMode, request.StrategyVersion, request.TopN, request.RoundTripCostRate.ToString("R"), request.SlippageRate.ToString("R"), string.Join(',', request.Horizons.Order()), request.ClassicParameters, request.V2Parameters));
+    public static string BenchmarkAnalysis(SparrowBenchmarkAnalysisRequest request, string datasetFingerprint, string strategyParameterFingerprint) => Hash(string.Join('|',
+        datasetFingerprint,
+        request.BacktestRequest.StrategyMode,
+        request.BacktestRequest.StrategyVersion,
+        strategyParameterFingerprint,
+        request.BacktestRequest.StartDate.ToString("O"),
+        request.BacktestRequest.EndDate.ToString("O"),
+        request.BacktestRequest.TopN,
+        string.Join(',', request.BacktestRequest.Horizons.Distinct().Order()),
+        request.BenchmarkId,
+        SparrowBenchmarkAnalysisResult.WeightingMethod,
+        SparrowBenchmarkAnalysisResult.StockReturnBasis,
+        SparrowBenchmarkAnalysisResult.BenchmarkReturnBasis,
+        SparrowBenchmarkAnalysisResult.ExcessReturnFormula));
     /// <summary>Uses the historical schema's own canonical algorithm. V1 stays byte-for-byte compatible.</summary>
     public static string Dataset(HistoricalMarketDataset dataset) => dataset.SchemaVersion <= 1 ? DatasetV1(dataset) : DatasetV2(dataset);
 
@@ -70,6 +84,18 @@ public static class SparrowHistoricalFingerprint
             HistoricalMarketContextProvenance p = pair.Value;
             return Row("MarketContextProvenance", p.TradingDate, p.ClassicMarketRegimeOrigin, p.ClassicMarketRegimeSource, p.V2ShanghaiDailyPercentOrigin, p.V2ShanghaiDailyPercentSource);
         }));
+        if (dataset.Benchmarks.Count > 0)
+        {
+            rows.AddRange(dataset.Benchmarks.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair =>
+            {
+                HistoricalBenchmarkSeries benchmark = pair.Value;
+                HistoricalBenchmarkProvenance provenance = benchmark.Provenance;
+                return Row("Benchmark", benchmark.BenchmarkId, benchmark.DisplayName, benchmark.PriceBasis, benchmark.Source, benchmark.Coverage,
+                    provenance.Source, provenance.RequestedStartDate, provenance.RequestedEndDate, provenance.CoverageProof);
+            }));
+            rows.AddRange(dataset.Benchmarks.OrderBy(pair => pair.Key, StringComparer.Ordinal).SelectMany(pair => pair.Value.Observations.OrderBy(item => item.TradingDate)
+                .Select(item => Row("BenchmarkObservation", pair.Key, item.TradingDate, item.Close))));
+        }
         rows.AddRange(dataset.ObservationDeclarations.OrderBy(pair => pair.Key.Date).ThenBy(pair => pair.Key.Symbol, StringComparer.Ordinal).Select(pair =>
         {
             HistoricalObservationDeclaration d = pair.Value;

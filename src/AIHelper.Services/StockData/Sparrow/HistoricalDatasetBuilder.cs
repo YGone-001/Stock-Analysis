@@ -114,9 +114,25 @@ public sealed class HistoricalDatasetBuilder
         }
         else if (request.IncludeV2IndexContext) warnings.Add("V2 Shanghai daily-percent context is unavailable because index_daily capability is not available.");
 
+        Dictionary<string, IReadOnlyList<HistoricalIndexDaily>> benchmarkRows = new(StringComparer.Ordinal);
+        if (request.BenchmarkIds.Count > 0)
+        {
+            if (!capabilities.TryGetValue("index_daily", out HistoricalSourceCapabilityStatus benchmarkStatus) || benchmarkStatus != HistoricalSourceCapabilityStatus.Available)
+                warnings.Add("Requested benchmark series are unavailable because index_daily capability is not available.");
+            else
+            {
+                foreach (string benchmarkId in request.BenchmarkIds.OrderBy(value => value, StringComparer.Ordinal))
+                {
+                    HistoricalAcquisitionResult<HistoricalIndexDaily> result = await _source.AcquireIndexDailyAsync(benchmarkId, request.StartDate, request.EndDate, cancellationToken).ConfigureAwait(false);
+                    benchmarkRows.Add(benchmarkId, result.Data);
+                    evidence.AddRange(result.CoverageEvidence);
+                }
+            }
+        }
+
         ValidateIndexDates(index, request.V2IndexCode, dates, evidence, warnings);
         HistoricalDatasetScope scope = request.Scope ?? (selectedSymbols is null ? new HistoricalDatasetScope() : new HistoricalDatasetScope(HistoricalDatasetScopeKind.ExplicitSymbolSet, Symbols: selectedSymbols.OrderBy(value => value, StringComparer.Ordinal).ToArray()));
-        HistoricalMarketDataset dataset = Construct(request, dates, eligible, prices, turnover, wantsTurnover, index, st, stAvailable, suspensions, suspensionAvailable, factors.Values, factorAvailable, warnings, scope, evidence);
+        HistoricalMarketDataset dataset = Construct(request, dates, eligible, prices, turnover, wantsTurnover, index, benchmarkRows, st, stAvailable, suspensions, suspensionAvailable, factors.Values, factorAvailable, warnings, scope, evidence);
         await _writer.WriteAsync(dataset, request.OutputPath, cancellationToken).ConfigureAwait(false);
         timer.Stop();
         HistoricalDatasetBuildStatistics statistics = new(master.Count, eligible.Length, eligible.Length, prices.Count, skipped, dates.Length,
@@ -129,8 +145,8 @@ public sealed class HistoricalDatasetBuilder
 
     private static HistoricalMarketDataset Construct(HistoricalDatasetBuildRequest request, IReadOnlyList<DateOnly> dates, IReadOnlyList<HistoricalSourceSecurity> master,
         IReadOnlyDictionary<string, IReadOnlyList<HistoricalDailyPrice>> prices, IReadOnlyDictionary<(DateOnly Date, string Symbol), HistoricalTurnover> turnover,
-        bool wantsTurnover, IReadOnlyList<HistoricalIndexDaily> index, IReadOnlyList<HistoricalStStatus> st, bool stAvailable,
-        IReadOnlyList<HistoricalSuspension> suspensions, bool suspensionAvailable, IEnumerable<HistoricalSourceAdjustmentFactor> factors, bool factorAvailable, IReadOnlyList<string> warnings, HistoricalDatasetScope scope, IReadOnlyList<HistoricalCoverageEvidence> evidence)
+        bool wantsTurnover, IReadOnlyList<HistoricalIndexDaily> index, IReadOnlyDictionary<string, IReadOnlyList<HistoricalIndexDaily>> benchmarkRows, IReadOnlyList<HistoricalStStatus> st, bool stAvailable,
+        IReadOnlyList<HistoricalSuspension> suspensions, bool suspensionAvailable, IEnumerable<HistoricalSourceAdjustmentFactor> factors, bool factorAvailable, List<string> warnings, HistoricalDatasetScope scope, IReadOnlyList<HistoricalCoverageEvidence> evidence)
     {
         HistoricalSecurity[] securities = master.Select(item => new HistoricalSecurity(item.Symbol, item.Name, HistoricalSecurityType.Stock, Market(item.Exchange),
             item.ListingDate, item.DelistingDate, HistoricalLifecycleQuality.Partial, prices.TryGetValue(item.Symbol, out IReadOnlyList<HistoricalDailyPrice>? rows) ? rows.Min(row => row.TradingDate) : null)).ToArray();
@@ -172,6 +188,8 @@ public sealed class HistoricalDatasetBuilder
                 factorAvailable ? CoverageFactors(factors) : HistoricalFieldCoverage.None,
                 IndexCoverage(index, dates, request.V2IndexCode, evidence),
                 HistoricalFieldCoverage.None, warnings);
+        HistoricalBenchmarkSeries[] benchmarks = benchmarkRows.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => Benchmark(
+            item.Key, item.Value, dates, request.StartDate, request.EndDate, evidence, warnings)).ToArray();
         return new HistoricalMarketDataset(request.DatasetId, dates, quotes, klines, contexts,
             priceAdjustmentMode: "Raw", source: "tushare", schemaVersion: HistoricalDatasetJsonLoader.CurrentSchemaVersion,
             metadata: new HistoricalDatasetMetadata(request.DatasetId, "tushare", DateTimeOffset.UtcNow, HistoricalUniverseQuality.Partial, warnings), securities: securities,
@@ -182,7 +200,25 @@ public sealed class HistoricalDatasetBuilder
             riskStatusObservations: st.Select(item => new HistoricalRiskStatusObservation(item.TradingDate, item.Symbol, true, item.Source)),
             adjustmentFactors: factors.Select(item => new HistoricalAdjustmentFactor(item.Symbol, item.TradingDate, item.Factor, item.Source, item.RetrievedAtUtc)),
             qualitySummary: quality, datasetScope: scope, coverageEvidence: evidence,
-            strategyCapabilities: Capabilities(quality));
+            strategyCapabilities: Capabilities(quality), benchmarks: benchmarks);
+    }
+
+    private static HistoricalBenchmarkSeries Benchmark(string benchmarkId, IReadOnlyList<HistoricalIndexDaily> rows, IReadOnlyList<DateOnly> dates,
+        DateOnly startDate, DateOnly endDate, IReadOnlyList<HistoricalCoverageEvidence> evidence, List<string> warnings)
+    {
+        if (rows.Any(row => !string.Equals(row.IndexCode, benchmarkId, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException($"Historical index response does not match requested benchmark '{benchmarkId}'.");
+        HistoricalIndexDaily[] validRows = rows.Where(row => row.Close is double value && value > 0 && double.IsFinite(value)).ToArray();
+        if (validRows.Length != rows.Count)
+            warnings.Add($"Benchmark '{benchmarkId}' contains missing or invalid close values and is partial.");
+        HistoricalBenchmarkObservation[] observations = validRows.Select(row => new HistoricalBenchmarkObservation(row.TradingDate, row.Close!.Value)).ToArray();
+        bool dateSetMatches = observations.Select(item => item.TradingDate).ToHashSet().SetEquals(dates);
+        HistoricalCoverageEvidence[] benchmarkEvidence = evidence.Where(item => item.Endpoint == "index_daily" && string.Equals(item.Scope.IndexCode, benchmarkId, StringComparison.OrdinalIgnoreCase)).ToArray();
+        bool sourceFull = benchmarkEvidence.Length > 0 && benchmarkEvidence.All(item => item.CoverageStatus == HistoricalCoverageAcquisitionStatus.Full);
+        HistoricalFieldCoverage coverage = dateSetMatches && sourceFull ? HistoricalFieldCoverage.Full : observations.Length > 0 ? HistoricalFieldCoverage.Partial : HistoricalFieldCoverage.None;
+        string source = rows.Select(row => row.Source).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "tushare";
+        return new HistoricalBenchmarkSeries(benchmarkId, HistoricalBenchmarkPriceBasis.IndexClose, source, observations, coverage,
+            new HistoricalBenchmarkProvenance(source, startDate, endDate, "dataset-trading-date-set equality"));
     }
 
     private static bool IsAshare(HistoricalSourceSecurity item) => item.Exchange is "SSE" or "SZSE" or "BSE" || item.TsCode.EndsWith(".SH", StringComparison.Ordinal) || item.TsCode.EndsWith(".SZ", StringComparison.Ordinal) || item.TsCode.EndsWith(".BJ", StringComparison.Ordinal);
@@ -219,7 +255,7 @@ public sealed class HistoricalDatasetBuilder
         if (!index.All(item => string.Equals(item.IndexCode, code, StringComparison.OrdinalIgnoreCase)) || !index.Select(item => item.TradingDate).ToHashSet().SetEquals(dates))
         {
             warnings.Add("Index context date set does not equal the trading-date set; index coverage is partial.");
-            for (int i = 0; i < evidence.Count; i++) if (evidence[i].Endpoint == "index_daily" && evidence[i].CoverageStatus == HistoricalCoverageAcquisitionStatus.Full)
+            for (int i = 0; i < evidence.Count; i++) if (evidence[i].Endpoint == "index_daily" && string.Equals(evidence[i].Scope.IndexCode, code, StringComparison.OrdinalIgnoreCase) && evidence[i].CoverageStatus == HistoricalCoverageAcquisitionStatus.Full)
                 evidence[i] = evidence[i] with { CoverageStatus = HistoricalCoverageAcquisitionStatus.Partial, FailureReason = "index_date_set_mismatch" };
         }
     }

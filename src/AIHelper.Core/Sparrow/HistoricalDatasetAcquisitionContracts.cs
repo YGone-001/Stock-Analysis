@@ -67,8 +67,11 @@ public sealed record HistoricalDatasetBuildRequest(
     string Exchange = "SSE",
     string V2IndexCode = "000001.SH",
     HistoricalDatasetScope? Scope = null,
-    IReadOnlyList<string>? ExplicitSymbols = null)
+    IReadOnlyList<string>? ExplicitSymbols = null,
+    IReadOnlyList<string>? BenchmarkIds = null)
 {
+    public IReadOnlyList<string> BenchmarkIds { get; init; } = Array.AsReadOnly(BenchmarkIds?.ToArray() ?? Array.Empty<string>());
+
     public void Validate()
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(DatasetId);
@@ -78,6 +81,8 @@ public sealed record HistoricalDatasetBuildRequest(
             throw new NotSupportedException("Phase 3.1B supports Raw prices only.");
         if (ExplicitSymbols is { Count: > 0 } && Scope?.Kind == HistoricalDatasetScopeKind.MarketUniverse)
             throw new ArgumentException("An explicit symbol filter must not claim MarketUniverse scope.");
+        if (BenchmarkIds.Any(string.IsNullOrWhiteSpace)) throw new ArgumentException("Benchmark identifiers must be non-empty.");
+        if (BenchmarkIds.Distinct(StringComparer.Ordinal).Count() != BenchmarkIds.Count) throw new ArgumentException("Benchmark identifiers must be unique.");
     }
 }
 

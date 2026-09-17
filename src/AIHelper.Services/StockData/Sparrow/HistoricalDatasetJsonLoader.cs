@@ -90,6 +90,7 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
         }
         foreach (HistoricalMarketContextFile context in file.MarketContexts ?? Enumerable.Empty<HistoricalMarketContextFile>())
             if (!dates.Contains(context.TradingDate)) errors.Add($"Market context has a date outside tradingDates: {context.TradingDate:yyyy-MM-dd}.");
+        ValidateBenchmarks(file.Benchmarks, dates, errors);
         if (file.SchemaVersion == CurrentSchemaVersion) ValidateV2(file, dates, errors);
         return errors.Distinct(StringComparer.Ordinal).ToList();
     }
@@ -192,6 +193,33 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
         }
     }
 
+    private static void ValidateBenchmarks(IEnumerable<HistoricalBenchmarkSeriesFile>? benchmarks, HashSet<DateOnly> dates, List<string> errors)
+    {
+        HashSet<string> identifiers = new(StringComparer.Ordinal);
+        foreach (HistoricalBenchmarkSeriesFile benchmark in benchmarks ?? Enumerable.Empty<HistoricalBenchmarkSeriesFile>())
+        {
+            if (string.IsNullOrWhiteSpace(benchmark.BenchmarkId)) { errors.Add("Benchmark requires a non-empty benchmarkId."); continue; }
+            if (!identifiers.Add(benchmark.BenchmarkId)) errors.Add($"Duplicate benchmark '{benchmark.BenchmarkId}'.");
+            if (!Enum.IsDefined(benchmark.PriceBasis) || !Enum.IsDefined(benchmark.Coverage)) errors.Add($"Benchmark '{benchmark.BenchmarkId}' has an invalid price basis or coverage.");
+            if (string.IsNullOrWhiteSpace(benchmark.Source)) errors.Add($"Benchmark '{benchmark.BenchmarkId}' requires source.");
+            if (benchmark.Provenance is null) errors.Add($"Benchmark '{benchmark.BenchmarkId}' requires provenance.");
+            else
+            {
+                try { benchmark.Provenance.Validate(); }
+                catch (ArgumentException exception) { errors.Add($"Benchmark '{benchmark.BenchmarkId}' has invalid provenance: {exception.Message}"); }
+            }
+            HashSet<DateOnly> observationDates = new();
+            foreach (HistoricalBenchmarkObservationFile observation in benchmark.Observations ?? Enumerable.Empty<HistoricalBenchmarkObservationFile>())
+            {
+                if (!dates.Contains(observation.TradingDate)) errors.Add($"Benchmark '{benchmark.BenchmarkId}' has a date outside tradingDates: {observation.TradingDate:yyyy-MM-dd}.");
+                if (!observationDates.Add(observation.TradingDate)) errors.Add($"Benchmark '{benchmark.BenchmarkId}' has duplicate date {observation.TradingDate:yyyy-MM-dd}.");
+                if (!double.IsFinite(observation.Close) || observation.Close <= 0) errors.Add($"Benchmark '{benchmark.BenchmarkId}' close must be finite and positive.");
+            }
+            if (benchmark.Coverage == HistoricalFieldCoverage.Full && !observationDates.SetEquals(dates))
+                errors.Add($"Benchmark '{benchmark.BenchmarkId}' declares Full coverage but does not cover exactly the dataset trading dates.");
+        }
+    }
+
     private static bool HasQuoteField(HistoricalQuoteFile quote, HistoricalField field) => field switch
     {
         HistoricalField.Price => quote.Price.HasValue,
@@ -240,6 +268,14 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
         HistoricalUniverseSnapshot[] universes = file.Universes!.Select(item => new HistoricalUniverseSnapshot(item.TradingDate, (IReadOnlyList<string>?)item.SecuritySymbols ?? Array.Empty<string>(), item.Quality, item.Source ?? string.Empty, (IReadOnlyList<string>?)item.Warnings ?? Array.Empty<string>())).ToArray();
         HistoricalDatasetMetadata runtimeMetadata = new(metadata.DatasetId!, metadata.Source ?? "Unknown", metadata.CreatedAt, metadata.UniverseQuality, metadata.Warnings);
         IReadOnlyList<HistoricalPriceSeriesProvenance> priceProvenance = file.PriceSeriesProvenance!;
+        HistoricalBenchmarkSeries[] benchmarks = (file.Benchmarks ?? []).Select(item => new HistoricalBenchmarkSeries(
+            item.BenchmarkId,
+            item.PriceBasis,
+            item.Source ?? string.Empty,
+            (item.Observations ?? []).Select(observation => new HistoricalBenchmarkObservation(observation.TradingDate, observation.Close)),
+            item.Coverage,
+            item.Provenance!,
+            item.DisplayName)).ToArray();
         return new HistoricalMarketDataset(
             file.DatasetId!, file.TradingDates!, quotes, klines, contexts,
             capabilities: CompatibilityCapabilities(file.FieldCapabilities!),
@@ -259,7 +295,8 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
             qualitySummary: file.QualitySummary,
             datasetScope: file.DatasetScope,
             coverageEvidence: file.CoverageEvidence,
-            strategyCapabilities: file.StrategyCapabilities);
+            strategyCapabilities: file.StrategyCapabilities,
+            benchmarks: benchmarks);
     }
 
     private static HistoricalDataCapabilities CompatibilityCapabilities(IEnumerable<HistoricalFieldCapability> capabilities)
@@ -298,6 +335,7 @@ public sealed class HistoricalDatasetFile
     public HistoricalDatasetScope? DatasetScope { get; set; }
     public List<HistoricalCoverageEvidence>? CoverageEvidence { get; set; }
     public List<HistoricalStrategyCapabilityExplanation>? StrategyCapabilities { get; set; }
+    public List<HistoricalBenchmarkSeriesFile>? Benchmarks { get; set; }
 }
 public sealed class HistoricalDatasetMetadataFile
 {
@@ -369,4 +407,19 @@ public sealed class HistoricalClassicMarketRegimeFile
     public SparrowMarketState Csi1000 { get; set; }
     public bool Defensive { get; set; }
     public string? Reason { get; set; }
+}
+public sealed class HistoricalBenchmarkSeriesFile
+{
+    public string BenchmarkId { get; set; } = string.Empty;
+    public string? DisplayName { get; set; }
+    public HistoricalBenchmarkPriceBasis PriceBasis { get; set; }
+    public string? Source { get; set; }
+    public HistoricalFieldCoverage Coverage { get; set; }
+    public HistoricalBenchmarkProvenance? Provenance { get; set; }
+    public List<HistoricalBenchmarkObservationFile>? Observations { get; set; }
+}
+public sealed class HistoricalBenchmarkObservationFile
+{
+    public DateOnly TradingDate { get; set; }
+    public double Close { get; set; }
 }

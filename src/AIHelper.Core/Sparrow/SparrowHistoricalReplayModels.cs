@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using AIHelper.Core.StockData;
 using AIHelper.Models;
 
@@ -47,7 +48,8 @@ public sealed class HistoricalMarketDataset
         HistoricalDatasetQualitySummary? qualitySummary = null,
         HistoricalDatasetScope? datasetScope = null,
         IEnumerable<HistoricalCoverageEvidence>? coverageEvidence = null,
-        IEnumerable<HistoricalStrategyCapabilityExplanation>? strategyCapabilities = null)
+        IEnumerable<HistoricalStrategyCapabilityExplanation>? strategyCapabilities = null,
+        IEnumerable<HistoricalBenchmarkSeries>? benchmarks = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(datasetId);
         DatasetId = datasetId;
@@ -99,6 +101,15 @@ public sealed class HistoricalMarketDataset
         ValidateCoverageEvidence(CoverageEvidence);
         StrategyCapabilities = (strategyCapabilities ?? Array.Empty<HistoricalStrategyCapabilityExplanation>())
             .GroupBy(item => item.Strategy).ToDictionary(group => group.Key, group => group.Single());
+        HistoricalBenchmarkSeries[] canonicalBenchmarks = (benchmarks ?? Array.Empty<HistoricalBenchmarkSeries>())
+            .OrderBy(item => item.BenchmarkId, StringComparer.Ordinal).ToArray();
+        if (canonicalBenchmarks.GroupBy(item => item.BenchmarkId, StringComparer.Ordinal).Any(group => group.Count() != 1))
+            throw new ArgumentException("Benchmark identifiers must be unique.", nameof(benchmarks));
+        if (canonicalBenchmarks.SelectMany(item => item.Observations).Any(item => !TradingDates.Contains(item.TradingDate)))
+            throw new ArgumentException("Benchmark observations must use dataset trading dates.", nameof(benchmarks));
+        if (canonicalBenchmarks.Any(item => item.Coverage == HistoricalFieldCoverage.Full && !item.Observations.Select(observation => observation.TradingDate).ToHashSet().SetEquals(TradingDates)))
+            throw new ArgumentException("A full benchmark series must cover exactly the dataset trading-date set.", nameof(benchmarks));
+        Benchmarks = new ReadOnlyDictionary<string, HistoricalBenchmarkSeries>(canonicalBenchmarks.ToDictionary(item => item.BenchmarkId, StringComparer.Ordinal));
         Fingerprint = SparrowHistoricalFingerprint.Dataset(this);
     }
 
@@ -129,6 +140,8 @@ public sealed class HistoricalMarketDataset
     public bool HasExplicitDatasetScope { get; }
     public IReadOnlyList<HistoricalCoverageEvidence> CoverageEvidence { get; }
     public IReadOnlyDictionary<SparrowStrategyMode, HistoricalStrategyCapabilityExplanation> StrategyCapabilities { get; }
+    /// <summary>Optional immutable benchmark close series. Empty preserves all pre-3.3 dataset semantics.</summary>
+    public IReadOnlyDictionary<string, HistoricalBenchmarkSeries> Benchmarks { get; }
     public bool TryGetQuote(DateOnly date, string symbol, out QuoteSnapshot quote) => Quotes.TryGetValue((date, symbol), out quote!);
 
     public HistoricalFieldCapability? GetFieldCapability(HistoricalField field) =>
