@@ -20,6 +20,7 @@ public static class SparrowHistoricalFingerprint
         string.Join(',', request.BacktestRequest.Horizons.Distinct().Order()),
         request.BenchmarkId,
         SparrowBenchmarkAnalysisResult.WeightingMethod,
+        SparrowBenchmarkAnalysisResult.ReturnBasis,
         SparrowBenchmarkAnalysisResult.StockReturnBasis,
         SparrowBenchmarkAnalysisResult.BenchmarkReturnBasis,
         SparrowBenchmarkAnalysisResult.ExcessReturnFormula));

@@ -116,6 +116,7 @@ public sealed record SparrowBenchmarkAnalysisResult(
     IReadOnlyList<string> Warnings)
 {
     public const string WeightingMethod = "SelectionWeighted";
+    public const string ReturnBasis = "GrossCloseToClose";
     public const string StockReturnBasis = "StockCloseToClose";
     public const string BenchmarkReturnBasis = "IndexCloseToClose";
     public const string ExcessReturnFormula = "StockReturnPercent - BenchmarkReturnPercent";

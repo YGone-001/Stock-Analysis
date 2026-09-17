@@ -141,6 +141,7 @@ public sealed class SparrowBenchmarkAnalysisTests
             Assert.Equal("V2", json.RootElement.GetProperty("Strategy").GetString());
             Assert.Equal("000300.SH", json.RootElement.GetProperty("BenchmarkId").GetString());
             Assert.Equal("SelectionWeighted", json.RootElement.GetProperty("WeightingMethod").GetString());
+            Assert.Equal("GrossCloseToClose", json.RootElement.GetProperty("ReturnBasis").GetString());
             Assert.Equal("Raw", json.RootElement.GetProperty("StockPriceAdjustmentMode").GetString());
             Assert.Equal("StockCloseToClose", json.RootElement.GetProperty("StockReturnBasis").GetString());
             Assert.Equal("IndexCloseToClose", json.RootElement.GetProperty("BenchmarkReturnBasis").GetString());
