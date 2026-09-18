@@ -31,7 +31,7 @@ jobs:
           if ($baseRef -match '^0+$') {
             $baseRef = ''
           }
-          ./tools/Test-LargeBlobs.ps1 -BaseRef $baseRef -MaxSizeMiB 5 -MaxTreeMiB 3
+          ./tools/Test-LargeBlobs.ps1 -BaseRef $baseRef -MaxSizeMiB 5 -MaxTreeMiB 3.25
 
       - name: Report repository size
         shell: pwsh

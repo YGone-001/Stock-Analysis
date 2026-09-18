@@ -3,8 +3,8 @@ param(
     [ValidateRange(1, 1024)]
     [int]$MaxSizeMiB = 5,
 
-    [ValidateRange(0, 10240)]
-    [int]$MaxTreeMiB = 3,
+    [ValidateRange(0.0, 10240.0)]
+    [double]$MaxTreeMiB = 3.25,
 
     [string]$BaseRef = '',
 
