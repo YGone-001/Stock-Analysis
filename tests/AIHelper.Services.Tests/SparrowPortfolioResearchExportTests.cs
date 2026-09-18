@@ -100,7 +100,7 @@ public sealed class SparrowPortfolioResearchExportTests
                 RedirectStandardError = true,
                 UseShellExecute = false
             };
-            start.ArgumentList.Add("run"); start.ArgumentList.Add("--no-build"); start.ArgumentList.Add("--project"); start.ArgumentList.Add("tools/AIHelper.HistoricalDataTool"); start.ArgumentList.Add("--");
+            start.ArgumentList.Add("run"); start.ArgumentList.Add("--no-build"); start.ArgumentList.Add("--configuration"); start.ArgumentList.Add("Release"); start.ArgumentList.Add("--project"); start.ArgumentList.Add("tools/AIHelper.HistoricalDataTool"); start.ArgumentList.Add("--");
             foreach (string argument in new[] { "--export-portfolio-research", "true", "--simulate-portfolio", "true", "--analyze-portfolio", "true", "--dataset", datasetPath,
                 "--strategy", "v2", "--start", dataset.TradingDates[65].ToString("yyyy-MM-dd"), "--end", dataset.TradingDates[66].ToString("yyyy-MM-dd"),
                 "--initial-capital", "1000000", "--top-n", "2", "--horizon", "1", "--output", outputPath }) start.ArgumentList.Add(argument);
