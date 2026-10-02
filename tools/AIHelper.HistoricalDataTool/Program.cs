@@ -14,6 +14,8 @@ try
         Console.WriteLine($"LEGACY_REASONS={string.Join(',', SparrowLegacyHistoricalReplayCapability.BlockerReasonCodes)}");
         return 0;
     }
+    if (options.ContainsKey("report-experiment") || options.ContainsKey("report-lineage") || options.ContainsKey("report-comparison"))
+        return await ExportResearchReportAsync();
     if (Bool("analyze-benchmark", false))
         return await AnalyzeBenchmarkAsync();
     if (Bool("export-portfolio-research", false))
@@ -62,6 +64,45 @@ catch (Exception exception) { Console.Error.WriteLine($"HISTORICAL_DATASET_BUILD
 string Value(string name, string? fallback = null) => options.TryGetValue(name, out string? value) ? value : fallback ?? throw new ArgumentException($"--{name} is required.");
 DateOnly Date(string name) => DateOnly.ParseExact(Value(name), "yyyy-MM-dd", CultureInfo.InvariantCulture);
 bool Bool(string name, bool fallback) => options.TryGetValue(name, out string? value) ? bool.Parse(value) : fallback;
+
+async Task<int> ExportResearchReportAsync()
+{
+    int selected = (options.ContainsKey("report-experiment") ? 1 : 0) + (options.ContainsKey("report-lineage") ? 1 : 0) + (options.ContainsKey("report-comparison") ? 1 : 0);
+    if (selected != 1) throw new ArgumentException("Specify exactly one of --report-experiment, --report-lineage, or --report-comparison.");
+    string format = Value("report-format", "markdown").Trim().ToLowerInvariant();
+    if (format is not ("markdown" or "json")) throw new ArgumentException("--report-format must be markdown or json.");
+    JsonResearchExperimentRepository repository = new(Value("experiment-store"));
+    ResearchExperimentReportBuilder builder = new();
+    MarkdownResearchExperimentReportRenderer renderer = new();
+    ResearchExperimentReportExporter exporter = new(renderer);
+    string output = Value("output");
+    if (options.TryGetValue("report-experiment", out string? experimentId))
+    {
+        PersistedResearchExperimentRecord record = await repository.GetAsync(experimentId);
+        ResearchExperimentReport report = builder.BuildExperimentReport(record);
+        if (format == "markdown") await exporter.ExportMarkdownAsync(report, output); else await exporter.ExportJsonAsync(report, output);
+        Console.WriteLine($"REPORT_TYPE={report.Identity.ReportType}"); Console.WriteLine($"REPORT_FINGERPRINT={report.Identity.ReportFingerprint}");
+    }
+    else if (options.TryGetValue("report-lineage", out experimentId))
+    {
+        PersistedResearchExperimentRecord record = await repository.GetAsync(experimentId);
+        ResearchExperimentLineageReport report = builder.BuildLineageReport(record);
+        if (format == "markdown") await exporter.ExportMarkdownAsync(report, output); else await exporter.ExportJsonAsync(report, output);
+        Console.WriteLine($"REPORT_TYPE={report.Identity.ReportType}"); Console.WriteLine($"REPORT_FINGERPRINT={report.Identity.ReportFingerprint}");
+    }
+    else
+    {
+        string[] identifiers = Value("report-comparison").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (identifiers.Length != 2 || string.Equals(identifiers[0], identifiers[1], StringComparison.Ordinal)) throw new ArgumentException("--report-comparison requires two distinct comma-separated experiment IDs.");
+        PersistedResearchExperimentRecord first = await repository.GetAsync(identifiers[0]);
+        PersistedResearchExperimentRecord second = await repository.GetAsync(identifiers[1]);
+        ResearchExperimentComparisonReport report = builder.BuildComparisonReport(new ResearchExperimentComparisonService().Compare(first, second));
+        if (format == "markdown") await exporter.ExportMarkdownAsync(report, output); else await exporter.ExportJsonAsync(report, output);
+        Console.WriteLine($"REPORT_TYPE={report.Identity.ReportType}"); Console.WriteLine($"REPORT_FINGERPRINT={report.Identity.ReportFingerprint}");
+    }
+    Console.WriteLine($"OUTPUT={Path.GetFullPath(output)}");
+    return 0;
+}
 
 async Task<int> AnalyzeBenchmarkAsync()
 {
