@@ -8,6 +8,7 @@ using Xunit;
 
 namespace AIHelper.Services.Tests;
 
+[Collection(ClassicScannerOutputCollection.Name)]
 public sealed class TypedMarketDataContractTests
 {
 	[Fact]

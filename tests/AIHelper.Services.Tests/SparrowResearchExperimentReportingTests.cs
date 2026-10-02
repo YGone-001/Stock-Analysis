@@ -115,7 +115,8 @@ public sealed class SparrowResearchExperimentReportingTests
             ProcessStartInfo start = new("dotnet") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = SolutionRoot() };
             start.Environment.Remove("HISTORICAL_GATEWAY_URL");
             start.ArgumentList.Add("run"); start.ArgumentList.Add("--project"); start.ArgumentList.Add(Path.Combine(SolutionRoot(), "tools", "AIHelper.HistoricalDataTool", "AIHelper.HistoricalDataTool.csproj"));
-            start.ArgumentList.Add("-c"); start.ArgumentList.Add("Debug"); start.ArgumentList.Add("--no-restore"); start.ArgumentList.Add("--");
+            start.ArgumentList.Add("--configuration"); start.ArgumentList.Add(TestExecutionConfiguration.Current());
+            start.ArgumentList.Add("--no-build"); start.ArgumentList.Add("--no-restore"); start.ArgumentList.Add("--");
             start.ArgumentList.Add("--report-experiment"); start.ArgumentList.Add("EXP-001"); start.ArgumentList.Add("--report-format"); start.ArgumentList.Add("markdown");
             start.ArgumentList.Add("--experiment-store"); start.ArgumentList.Add(directory); start.ArgumentList.Add("--output"); start.ArgumentList.Add(output);
             using Process process = Process.Start(start) ?? throw new InvalidOperationException("Could not start reporting CLI.");
