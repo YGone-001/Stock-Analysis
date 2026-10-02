@@ -86,8 +86,19 @@ public static class ResearchReproducibilityCheckCodes
 
     public const string AnalysisFingerprintValid = "ANALYSIS_FINGERPRINT_VALID";
 
+    public const string ExecutionProvenanceBindingPresent = "EXECUTION_PROVENANCE_BINDING_PRESENT";
+    public const string ExecutionProvenanceBindingValid = "EXECUTION_PROVENANCE_BINDING_VALID";
+    public const string ExecutionProvenanceExperimentMatch = "EXECUTION_PROVENANCE_EXPERIMENT_MATCH";
+    public const string ExecutionProvenanceParameterMatch = "EXECUTION_PROVENANCE_PARAMETER_MATCH";
+    public const string ExecutionProvenanceStrategyParameterMatch = "EXECUTION_PROVENANCE_STRATEGY_PARAMETER_MATCH";
+    public const string ExecutionProvenancePortfolioMatch = "EXECUTION_PROVENANCE_PORTFOLIO_MATCH";
+    public const string ExecutionProvenanceAnalysisMatch = "EXECUTION_PROVENANCE_ANALYSIS_MATCH";
+    public const string ExecutionProvenanceDatasetMatch = "EXECUTION_PROVENANCE_DATASET_MATCH";
+    public const string ExecutionProvenanceArtifactMatch = "EXECUTION_PROVENANCE_ARTIFACT_MATCH";
+
     public const string ArtifactIdentityUnavailableV1 = "ARTIFACT_IDENTITY_UNAVAILABLE_V1";
     public const string ArtifactVersionUnsupported = "ARTIFACT_VERSION_UNSUPPORTED";
+    public const string ExecutionProvenanceBindingUnavailableV1 = "EXECUTION_PROVENANCE_BINDING_UNAVAILABLE_V1";
 }
 
 public interface IResearchReproducibilityVerifier

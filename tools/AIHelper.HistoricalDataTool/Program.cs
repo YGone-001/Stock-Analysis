@@ -7,6 +7,21 @@ using AIHelper.Services.StockData.Sparrow;
 Dictionary<string, string> options = Parse(args);
 try
 {
+    List<string> detectedModes = new();
+    if (Bool("report-legacy-capability", false)) detectedModes.Add("legacy-capability");
+    if (options.ContainsKey("verify-reproducibility")) detectedModes.Add("reproducibility-verification");
+    if (options.ContainsKey("report-experiment") || options.ContainsKey("report-lineage") || options.ContainsKey("report-comparison")) detectedModes.Add("research-reporting");
+    if (Bool("analyze-benchmark", false)) detectedModes.Add("benchmark-analysis");
+    if (Bool("export-portfolio-research", false)) detectedModes.Add("portfolio-research-export");
+    if (options.ContainsKey("source") || options.ContainsKey("dataset-id") || options.ContainsKey("symbols") || options.ContainsKey("benchmarks"))
+        detectedModes.Add("dataset-build");
+
+    if (detectedModes.Count > 1)
+    {
+        Console.Error.WriteLine($"CONFLICTING_OPERATION_MODES: Multiple operational modes were specified: {string.Join(", ", detectedModes)}");
+        return 1;
+    }
+
     if (Bool("report-legacy-capability", false))
     {
         Console.WriteLine("LEGACY=Unsupported");

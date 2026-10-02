@@ -1,3 +1,7 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace AIHelper.Core.Sparrow;
 
 /// <summary>Optional factual performance values copied from a completed artifact; this type never recalculates performance.</summary>
@@ -58,14 +62,192 @@ public sealed class ResearchExperimentExecutionSummary
     }
 }
 
+/// <summary>Authoritative execution provenance binding between experiment definition and artifact execution identities.</summary>
+public sealed class ResearchExecutionProvenanceBinding
+{
+    public const string CurrentBindingVersion = "research-execution-provenance-binding-v1";
+
+    private static readonly JsonSerializerOptions CanonicalJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = false
+    };
+
+    [JsonConstructor]
+    public ResearchExecutionProvenanceBinding(
+        string bindingVersion,
+        string experimentFingerprint,
+        string parameterSnapshotFingerprint,
+        string experimentStrategyParameterFingerprint,
+        string artifactStrategyParameterFingerprint,
+        string experimentPortfolioConfigurationFingerprint,
+        string artifactPortfolioConfigurationFingerprint,
+        string experimentAnalysisConfigurationFingerprint,
+        string artifactAnalysisFingerprint,
+        string datasetFingerprint,
+        string artifactVersion,
+        string artifactFingerprint,
+        string bindingFingerprint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bindingVersion);
+        ArgumentException.ThrowIfNullOrWhiteSpace(experimentFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(parameterSnapshotFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(experimentStrategyParameterFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(artifactStrategyParameterFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(experimentPortfolioConfigurationFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(artifactPortfolioConfigurationFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(experimentAnalysisConfigurationFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(artifactAnalysisFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(datasetFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(artifactVersion);
+        ArgumentException.ThrowIfNullOrWhiteSpace(artifactFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(bindingFingerprint);
+
+        BindingVersion = bindingVersion;
+        ExperimentFingerprint = experimentFingerprint;
+        ParameterSnapshotFingerprint = parameterSnapshotFingerprint;
+        ExperimentStrategyParameterFingerprint = experimentStrategyParameterFingerprint;
+        ArtifactStrategyParameterFingerprint = artifactStrategyParameterFingerprint;
+        ExperimentPortfolioConfigurationFingerprint = experimentPortfolioConfigurationFingerprint;
+        ArtifactPortfolioConfigurationFingerprint = artifactPortfolioConfigurationFingerprint;
+        ExperimentAnalysisConfigurationFingerprint = experimentAnalysisConfigurationFingerprint;
+        ArtifactAnalysisFingerprint = artifactAnalysisFingerprint;
+        DatasetFingerprint = datasetFingerprint;
+        ArtifactVersion = artifactVersion;
+        ArtifactFingerprint = artifactFingerprint;
+        BindingFingerprint = bindingFingerprint;
+    }
+
+    public string BindingVersion { get; }
+    public string ExperimentFingerprint { get; }
+    public string ParameterSnapshotFingerprint { get; }
+    public string ExperimentStrategyParameterFingerprint { get; }
+    public string ArtifactStrategyParameterFingerprint { get; }
+    public string ExperimentPortfolioConfigurationFingerprint { get; }
+    public string ArtifactPortfolioConfigurationFingerprint { get; }
+    public string ExperimentAnalysisConfigurationFingerprint { get; }
+    public string ArtifactAnalysisFingerprint { get; }
+    public string DatasetFingerprint { get; }
+    public string ArtifactVersion { get; }
+    public string ArtifactFingerprint { get; }
+    public string BindingFingerprint { get; }
+
+    public string ComputeFingerprint() => ComputeFingerprint(
+        BindingVersion,
+        ExperimentFingerprint,
+        ParameterSnapshotFingerprint,
+        ExperimentStrategyParameterFingerprint,
+        ArtifactStrategyParameterFingerprint,
+        ExperimentPortfolioConfigurationFingerprint,
+        ArtifactPortfolioConfigurationFingerprint,
+        ExperimentAnalysisConfigurationFingerprint,
+        ArtifactAnalysisFingerprint,
+        DatasetFingerprint,
+        ArtifactVersion,
+        ArtifactFingerprint);
+
+    public static string ComputeFingerprint(
+        string bindingVersion,
+        string experimentFingerprint,
+        string parameterSnapshotFingerprint,
+        string experimentStrategyParameterFingerprint,
+        string artifactStrategyParameterFingerprint,
+        string experimentPortfolioConfigurationFingerprint,
+        string artifactPortfolioConfigurationFingerprint,
+        string experimentAnalysisConfigurationFingerprint,
+        string artifactAnalysisFingerprint,
+        string datasetFingerprint,
+        string artifactVersion,
+        string artifactFingerprint)
+    {
+        BindingFingerprintPayload payload = new(
+            bindingVersion,
+            experimentFingerprint,
+            parameterSnapshotFingerprint,
+            experimentStrategyParameterFingerprint,
+            artifactStrategyParameterFingerprint,
+            experimentPortfolioConfigurationFingerprint,
+            artifactPortfolioConfigurationFingerprint,
+            experimentAnalysisConfigurationFingerprint,
+            artifactAnalysisFingerprint,
+            datasetFingerprint,
+            artifactVersion,
+            artifactFingerprint);
+
+        return Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(payload, CanonicalJson)));
+    }
+
+    public static ResearchExecutionProvenanceBinding Create(
+        ResearchExperimentDefinition definition,
+        SparrowPortfolioResearchArtifact artifact)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(artifact);
+        ArgumentNullException.ThrowIfNull(artifact.PortfolioRequest);
+
+        if (!string.Equals(definition.DatasetFingerprint, artifact.DatasetFingerprint, StringComparison.Ordinal))
+            throw new ArgumentException("Dataset fingerprint mismatch between experiment definition and artifact.");
+        if (!string.Equals(definition.PortfolioConfigurationFingerprint, artifact.PortfolioConfigurationFingerprint, StringComparison.Ordinal))
+            throw new ArgumentException("Portfolio configuration fingerprint mismatch between experiment definition and artifact.");
+        if (artifact.Strategy is not null && (!string.Equals(definition.StrategyIdentity.Mode, artifact.Strategy.Mode, StringComparison.Ordinal)
+            || !string.Equals(definition.StrategyIdentity.Version, artifact.Strategy.Version, StringComparison.Ordinal)))
+            throw new ArgumentException("Strategy identity mode/version mismatch between experiment definition and artifact.");
+
+        string bindingFingerprint = ComputeFingerprint(
+            CurrentBindingVersion,
+            definition.SemanticFingerprint,
+            definition.Parameters.Fingerprint,
+            definition.StrategyParameterFingerprint,
+            artifact.PortfolioRequest.StrategyParameterFingerprint,
+            definition.PortfolioConfigurationFingerprint,
+            artifact.PortfolioConfigurationFingerprint,
+            definition.AnalysisConfigurationFingerprint,
+            artifact.AnalysisFingerprint,
+            definition.DatasetFingerprint,
+            artifact.ArtifactVersion,
+            artifact.ArtifactFingerprint);
+
+        return new ResearchExecutionProvenanceBinding(
+            CurrentBindingVersion,
+            definition.SemanticFingerprint,
+            definition.Parameters.Fingerprint,
+            definition.StrategyParameterFingerprint,
+            artifact.PortfolioRequest.StrategyParameterFingerprint,
+            definition.PortfolioConfigurationFingerprint,
+            artifact.PortfolioConfigurationFingerprint,
+            definition.AnalysisConfigurationFingerprint,
+            artifact.AnalysisFingerprint,
+            definition.DatasetFingerprint,
+            artifact.ArtifactVersion,
+            artifact.ArtifactFingerprint,
+            bindingFingerprint);
+    }
+
+    private sealed record BindingFingerprintPayload(
+        string BindingVersion,
+        string ExperimentFingerprint,
+        string ParameterSnapshotFingerprint,
+        string ExperimentStrategyParameterFingerprint,
+        string ArtifactStrategyParameterFingerprint,
+        string ExperimentPortfolioConfigurationFingerprint,
+        string ArtifactPortfolioConfigurationFingerprint,
+        string ExperimentAnalysisConfigurationFingerprint,
+        string ArtifactAnalysisFingerprint,
+        string DatasetFingerprint,
+        string ArtifactVersion,
+        string ArtifactFingerprint);
+}
+
 /// <summary>Versioned, immutable local record for one completed research experiment.</summary>
 public sealed class PersistedResearchExperimentRecord
 {
-    public const string CurrentSchemaVersion = "research-experiment-record-v1";
+    public const string LegacySchemaVersion = "research-experiment-record-v1";
+    public const string CurrentSchemaVersion = "research-experiment-record-v2";
 
+    [JsonConstructor]
     public PersistedResearchExperimentRecord(string experimentId, string experimentFingerprint, ResearchExperimentDefinition definition,
         ResearchExperimentExecutionSummary executionSummary, ResearchResultArtifactReference artifactReference, ResearchArtifactLineage lineage,
-        DateTimeOffset createdAt, string schemaVersion = CurrentSchemaVersion)
+        DateTimeOffset createdAt, string? schemaVersion = null, ResearchExecutionProvenanceBinding? executionProvenanceBinding = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(experimentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(experimentFingerprint);
@@ -73,7 +255,10 @@ public sealed class PersistedResearchExperimentRecord
         ArgumentNullException.ThrowIfNull(executionSummary);
         ArgumentNullException.ThrowIfNull(artifactReference);
         ArgumentNullException.ThrowIfNull(lineage);
+
+        schemaVersion ??= executionProvenanceBinding is not null ? CurrentSchemaVersion : LegacySchemaVersion;
         ArgumentException.ThrowIfNullOrWhiteSpace(schemaVersion);
+
         if (!string.Equals(experimentId, definition.Identity.ExperimentId, StringComparison.Ordinal)
             || !string.Equals(experimentFingerprint, definition.SemanticFingerprint, StringComparison.Ordinal)
             || !string.Equals(experimentFingerprint, lineage.ExperimentFingerprint, StringComparison.Ordinal)
@@ -83,6 +268,27 @@ public sealed class PersistedResearchExperimentRecord
             || !string.Equals(executionSummary.ArtifactFingerprint, artifactReference.ArtifactFingerprint, StringComparison.Ordinal))
             throw new ArgumentException("Persisted experiment record provenance is inconsistent.");
 
+        if (string.Equals(schemaVersion, CurrentSchemaVersion, StringComparison.Ordinal))
+        {
+            ArgumentNullException.ThrowIfNull(executionProvenanceBinding);
+            if (!string.Equals(executionProvenanceBinding.BindingVersion, ResearchExecutionProvenanceBinding.CurrentBindingVersion, StringComparison.Ordinal)
+                || !string.Equals(executionProvenanceBinding.ExperimentFingerprint, experimentFingerprint, StringComparison.Ordinal)
+                || !string.Equals(executionProvenanceBinding.ParameterSnapshotFingerprint, definition.Parameters.Fingerprint, StringComparison.Ordinal)
+                || !string.Equals(executionProvenanceBinding.ExperimentStrategyParameterFingerprint, definition.StrategyParameterFingerprint, StringComparison.Ordinal)
+                || !string.Equals(executionProvenanceBinding.ExperimentPortfolioConfigurationFingerprint, definition.PortfolioConfigurationFingerprint, StringComparison.Ordinal)
+                || !string.Equals(executionProvenanceBinding.ExperimentAnalysisConfigurationFingerprint, definition.AnalysisConfigurationFingerprint, StringComparison.Ordinal)
+                || !string.Equals(executionProvenanceBinding.DatasetFingerprint, definition.DatasetFingerprint, StringComparison.Ordinal)
+                || !string.Equals(executionProvenanceBinding.ArtifactVersion, artifactReference.ArtifactVersion, StringComparison.Ordinal)
+                || !string.Equals(executionProvenanceBinding.ArtifactFingerprint, artifactReference.ArtifactFingerprint, StringComparison.Ordinal)
+                || !string.Equals(executionProvenanceBinding.ArtifactFingerprint, executionSummary.ArtifactFingerprint, StringComparison.Ordinal)
+                || !string.Equals(executionProvenanceBinding.ArtifactFingerprint, lineage.ArtifactFingerprint, StringComparison.Ordinal))
+                throw new ArgumentException("Persisted experiment record execution provenance binding is inconsistent.");
+
+            string recomputedBindingFp = executionProvenanceBinding.ComputeFingerprint();
+            if (!string.Equals(executionProvenanceBinding.BindingFingerprint, recomputedBindingFp, StringComparison.Ordinal))
+                throw new ArgumentException("Execution provenance binding fingerprint mismatch.");
+        }
+
         ExperimentId = experimentId;
         ExperimentFingerprint = experimentFingerprint;
         Definition = definition;
@@ -91,6 +297,7 @@ public sealed class PersistedResearchExperimentRecord
         Lineage = lineage;
         CreatedAt = createdAt;
         SchemaVersion = schemaVersion;
+        ExecutionProvenanceBinding = executionProvenanceBinding;
     }
 
     public string ExperimentId { get; }
@@ -102,6 +309,7 @@ public sealed class PersistedResearchExperimentRecord
     /// <summary>Persistence metadata only; it does not change the experiment semantic fingerprint.</summary>
     public DateTimeOffset CreatedAt { get; }
     public string SchemaVersion { get; }
+    public ResearchExecutionProvenanceBinding? ExecutionProvenanceBinding { get; }
 }
 
 public interface IResearchExperimentRepository

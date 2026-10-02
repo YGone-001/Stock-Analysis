@@ -60,7 +60,8 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
                 reasonCodes);
         }
 
-        bool recordValid = string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.CurrentSchemaVersion, StringComparison.Ordinal)
+        bool recordValid = (string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.CurrentSchemaVersion, StringComparison.Ordinal)
+            || string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.LegacySchemaVersion, StringComparison.Ordinal))
             && experiment.ExecutionSummary.Status == ResearchExperimentExecutionStatus.Completed
             && string.Equals(experiment.ExperimentId, experiment.Definition.Identity.ExperimentId, StringComparison.Ordinal);
 
@@ -69,7 +70,7 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
             checks.Add(new ResearchReproducibilityCheck(
                 ResearchReproducibilityCheckCodes.ExperimentRecordValid,
                 ResearchReproducibilityCheckStatus.Pass,
-                PersistedResearchExperimentRecord.CurrentSchemaVersion,
+                $"{PersistedResearchExperimentRecord.CurrentSchemaVersion} or {PersistedResearchExperimentRecord.LegacySchemaVersion}",
                 experiment.SchemaVersion,
                 "Persisted experiment record schema and structure are valid."));
         }
@@ -616,6 +617,230 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
                     recomputedAnalysisFingerprint,
                     "Analysis fingerprint mismatch upon recomputation."));
                 reasonCodes.Add(ResearchReproducibilityCheckCodes.AnalysisFingerprintValid);
+            }
+
+            // 19. EXECUTION_PROVENANCE_BINDING_PRESENT
+            if (experiment.ExecutionProvenanceBinding is null)
+            {
+                if (string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.LegacySchemaVersion, StringComparison.Ordinal))
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingPresent,
+                        ResearchReproducibilityCheckStatus.Unsupported,
+                        ResearchExecutionProvenanceBinding.CurrentBindingVersion,
+                        "<null>",
+                        $"{ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingUnavailableV1}: Legacy experiment record version 'research-experiment-record-v1' has no authoritative execution provenance binding."));
+                    reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingUnavailableV1);
+                    reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingPresent);
+                }
+                else
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingPresent,
+                        ResearchReproducibilityCheckStatus.Fail,
+                        ResearchExecutionProvenanceBinding.CurrentBindingVersion,
+                        "<null>",
+                        "Execution provenance binding is missing in V2 experiment record."));
+                    reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingPresent);
+                }
+            }
+            else
+            {
+                ResearchExecutionProvenanceBinding binding = experiment.ExecutionProvenanceBinding;
+                checks.Add(new ResearchReproducibilityCheck(
+                    ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingPresent,
+                    ResearchReproducibilityCheckStatus.Pass,
+                    ResearchExecutionProvenanceBinding.CurrentBindingVersion,
+                    binding.BindingVersion,
+                    "Execution provenance binding is present in experiment record."));
+
+                // 20. EXECUTION_PROVENANCE_BINDING_VALID
+                string recomputedBindingFp = binding.ComputeFingerprint();
+                bool bindingValid = string.Equals(binding.BindingVersion, ResearchExecutionProvenanceBinding.CurrentBindingVersion, StringComparison.Ordinal)
+                    && string.Equals(binding.BindingFingerprint, recomputedBindingFp, StringComparison.Ordinal);
+
+                if (bindingValid)
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingValid,
+                        ResearchReproducibilityCheckStatus.Pass,
+                        binding.BindingFingerprint,
+                        recomputedBindingFp,
+                        "Authoritative execution provenance binding fingerprint recomputation verified."));
+                }
+                else
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingValid,
+                        ResearchReproducibilityCheckStatus.Fail,
+                        binding.BindingFingerprint,
+                        recomputedBindingFp,
+                        "Execution provenance binding fingerprint mismatch or unsupported version (tampering detected)."));
+                    reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingValid);
+                }
+
+                // 21. EXECUTION_PROVENANCE_EXPERIMENT_MATCH
+                bool expMatch = string.Equals(binding.ExperimentFingerprint, experiment.ExperimentFingerprint, StringComparison.Ordinal)
+                    && string.Equals(binding.ExperimentFingerprint, experiment.Definition.SemanticFingerprint, StringComparison.Ordinal);
+                if (expMatch)
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceExperimentMatch,
+                        ResearchReproducibilityCheckStatus.Pass,
+                        experiment.ExperimentFingerprint,
+                        binding.ExperimentFingerprint,
+                        "Binding experiment fingerprint matches experiment record."));
+                }
+                else
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceExperimentMatch,
+                        ResearchReproducibilityCheckStatus.Fail,
+                        experiment.ExperimentFingerprint,
+                        binding.ExperimentFingerprint,
+                        "Binding experiment fingerprint mismatch."));
+                    reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceExperimentMatch);
+                }
+
+                // 22. EXECUTION_PROVENANCE_PARAMETER_MATCH
+                bool paramMatch = string.Equals(binding.ParameterSnapshotFingerprint, experiment.Definition.Parameters.Fingerprint, StringComparison.Ordinal);
+                if (paramMatch)
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceParameterMatch,
+                        ResearchReproducibilityCheckStatus.Pass,
+                        experiment.Definition.Parameters.Fingerprint,
+                        binding.ParameterSnapshotFingerprint,
+                        "Binding parameter snapshot fingerprint matches experiment definition."));
+                }
+                else
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceParameterMatch,
+                        ResearchReproducibilityCheckStatus.Fail,
+                        experiment.Definition.Parameters.Fingerprint,
+                        binding.ParameterSnapshotFingerprint,
+                        "Binding parameter snapshot fingerprint mismatch."));
+                    reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceParameterMatch);
+                }
+
+                // 23. EXECUTION_PROVENANCE_STRATEGY_PARAMETER_MATCH
+                bool stratParamMatch = string.Equals(binding.ExperimentStrategyParameterFingerprint, experiment.Definition.StrategyParameterFingerprint, StringComparison.Ordinal)
+                    && artifact.PortfolioRequest is not null
+                    && string.Equals(binding.ArtifactStrategyParameterFingerprint, artifact.PortfolioRequest.StrategyParameterFingerprint, StringComparison.Ordinal);
+                if (stratParamMatch)
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceStrategyParameterMatch,
+                        ResearchReproducibilityCheckStatus.Pass,
+                        $"{experiment.Definition.StrategyParameterFingerprint}:{artifact.PortfolioRequest?.StrategyParameterFingerprint}",
+                        $"{binding.ExperimentStrategyParameterFingerprint}:{binding.ArtifactStrategyParameterFingerprint}",
+                        "Binding strategy parameter fingerprints match experiment definition and artifact request."));
+                }
+                else
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceStrategyParameterMatch,
+                        ResearchReproducibilityCheckStatus.Fail,
+                        $"{experiment.Definition.StrategyParameterFingerprint}:{artifact.PortfolioRequest?.StrategyParameterFingerprint ?? "<null>"}",
+                        $"{binding.ExperimentStrategyParameterFingerprint}:{binding.ArtifactStrategyParameterFingerprint}",
+                        "Binding strategy parameter fingerprint mismatch between experiment and artifact."));
+                    reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceStrategyParameterMatch);
+                }
+
+                // 24. EXECUTION_PROVENANCE_PORTFOLIO_MATCH
+                bool portMatch = string.Equals(binding.ExperimentPortfolioConfigurationFingerprint, experiment.Definition.PortfolioConfigurationFingerprint, StringComparison.Ordinal)
+                    && string.Equals(binding.ArtifactPortfolioConfigurationFingerprint, artifact.PortfolioConfigurationFingerprint, StringComparison.Ordinal);
+                if (portMatch)
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenancePortfolioMatch,
+                        ResearchReproducibilityCheckStatus.Pass,
+                        experiment.Definition.PortfolioConfigurationFingerprint,
+                        binding.ExperimentPortfolioConfigurationFingerprint,
+                        "Binding portfolio configuration fingerprints match experiment definition and artifact."));
+                }
+                else
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenancePortfolioMatch,
+                        ResearchReproducibilityCheckStatus.Fail,
+                        experiment.Definition.PortfolioConfigurationFingerprint,
+                        $"{binding.ExperimentPortfolioConfigurationFingerprint}:{binding.ArtifactPortfolioConfigurationFingerprint}",
+                        "Binding portfolio configuration fingerprint mismatch."));
+                    reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenancePortfolioMatch);
+                }
+
+                // 25. EXECUTION_PROVENANCE_ANALYSIS_MATCH
+                bool analysisMatch = string.Equals(binding.ExperimentAnalysisConfigurationFingerprint, experiment.Definition.AnalysisConfigurationFingerprint, StringComparison.Ordinal)
+                    && string.Equals(binding.ArtifactAnalysisFingerprint, artifact.AnalysisFingerprint, StringComparison.Ordinal);
+                if (analysisMatch)
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceAnalysisMatch,
+                        ResearchReproducibilityCheckStatus.Pass,
+                        $"{experiment.Definition.AnalysisConfigurationFingerprint}:{artifact.AnalysisFingerprint}",
+                        $"{binding.ExperimentAnalysisConfigurationFingerprint}:{binding.ArtifactAnalysisFingerprint}",
+                        "Binding analysis fingerprints match experiment definition and artifact analysis."));
+                }
+                else
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceAnalysisMatch,
+                        ResearchReproducibilityCheckStatus.Fail,
+                        $"{experiment.Definition.AnalysisConfigurationFingerprint}:{artifact.AnalysisFingerprint}",
+                        $"{binding.ExperimentAnalysisConfigurationFingerprint}:{binding.ArtifactAnalysisFingerprint}",
+                        "Binding analysis fingerprint mismatch between experiment definition and artifact."));
+                    reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceAnalysisMatch);
+                }
+
+                // 26. EXECUTION_PROVENANCE_DATASET_MATCH
+                bool dsMatch = string.Equals(binding.DatasetFingerprint, experiment.Definition.DatasetFingerprint, StringComparison.Ordinal)
+                    && string.Equals(binding.DatasetFingerprint, artifact.DatasetFingerprint, StringComparison.Ordinal);
+                if (dsMatch)
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceDatasetMatch,
+                        ResearchReproducibilityCheckStatus.Pass,
+                        experiment.Definition.DatasetFingerprint,
+                        binding.DatasetFingerprint,
+                        "Binding dataset fingerprint matches experiment definition and artifact."));
+                }
+                else
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceDatasetMatch,
+                        ResearchReproducibilityCheckStatus.Fail,
+                        experiment.Definition.DatasetFingerprint,
+                        binding.DatasetFingerprint,
+                        "Binding dataset fingerprint mismatch."));
+                    reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceDatasetMatch);
+                }
+
+                // 27. EXECUTION_PROVENANCE_ARTIFACT_MATCH
+                bool artMatch = string.Equals(binding.ArtifactVersion, artifact.ArtifactVersion, StringComparison.Ordinal)
+                    && string.Equals(binding.ArtifactFingerprint, artifact.ArtifactFingerprint, StringComparison.Ordinal)
+                    && string.Equals(binding.ArtifactFingerprint, experiment.ExecutionSummary.ArtifactFingerprint, StringComparison.Ordinal)
+                    && string.Equals(binding.ArtifactFingerprint, experiment.ArtifactReference.ArtifactFingerprint, StringComparison.Ordinal);
+                if (artMatch)
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceArtifactMatch,
+                        ResearchReproducibilityCheckStatus.Pass,
+                        artifact.ArtifactFingerprint,
+                        binding.ArtifactFingerprint,
+                        "Binding artifact identity and version match artifact and experiment record."));
+                }
+                else
+                {
+                    checks.Add(new ResearchReproducibilityCheck(
+                        ResearchReproducibilityCheckCodes.ExecutionProvenanceArtifactMatch,
+                        ResearchReproducibilityCheckStatus.Fail,
+                        artifact.ArtifactFingerprint,
+                        binding.ArtifactFingerprint,
+                        "Binding artifact fingerprint or version mismatch."));
+                    reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceArtifactMatch);
+                }
             }
 
             ResearchReproducibilityVerificationStatus status = checks.Any(c => c.Status == ResearchReproducibilityCheckStatus.Fail)

@@ -31,7 +31,16 @@ public sealed class SparrowResearchReproducibilityVerifierTests
         ResearchReproducibilityCheckCodes.StrategyFingerprintValid,
         ResearchReproducibilityCheckCodes.PortfolioConfigurationFingerprintValid,
         ResearchReproducibilityCheckCodes.PortfolioConfigurationFingerprintMatch,
-        ResearchReproducibilityCheckCodes.AnalysisFingerprintValid
+        ResearchReproducibilityCheckCodes.AnalysisFingerprintValid,
+        ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingPresent,
+        ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingValid,
+        ResearchReproducibilityCheckCodes.ExecutionProvenanceExperimentMatch,
+        ResearchReproducibilityCheckCodes.ExecutionProvenanceParameterMatch,
+        ResearchReproducibilityCheckCodes.ExecutionProvenanceStrategyParameterMatch,
+        ResearchReproducibilityCheckCodes.ExecutionProvenancePortfolioMatch,
+        ResearchReproducibilityCheckCodes.ExecutionProvenanceAnalysisMatch,
+        ResearchReproducibilityCheckCodes.ExecutionProvenanceDatasetMatch,
+        ResearchReproducibilityCheckCodes.ExecutionProvenanceArtifactMatch
     };
 
     [Fact]
@@ -43,10 +52,10 @@ public sealed class SparrowResearchReproducibilityVerifierTests
         ResearchReproducibilityVerificationResult result = verifier.VerifyContent(record, artifactJson);
 
         Assert.Equal(ResearchReproducibilityVerificationStatus.Verified, result.Status);
-        Assert.Equal(18, result.CheckCount);
+        Assert.Equal(27, result.CheckCount);
         Assert.Equal(0, result.FailedCheckCount);
         Assert.Equal(0, result.UnsupportedCheckCount);
-        Assert.Equal(18, result.PassedCheckCount);
+        Assert.Equal(27, result.PassedCheckCount);
         Assert.Empty(result.ReasonCodes);
         Assert.Equal(record.ExperimentId, result.ExperimentId);
         Assert.Equal(record.ExperimentFingerprint, result.ExperimentFingerprint);
@@ -473,10 +482,11 @@ public sealed class SparrowResearchReproducibilityVerifierTests
             Assert.Contains($"EXPERIMENT_FINGERPRINT={record.ExperimentFingerprint}", stdout);
             Assert.Contains($"DATASET_FINGERPRINT={record.Definition.DatasetFingerprint}", stdout);
             Assert.Contains($"ARTIFACT_FINGERPRINT={record.ExecutionSummary.ArtifactFingerprint}", stdout);
-            Assert.Contains("CHECK_COUNT=18", stdout);
+            Assert.Contains("CHECK_COUNT=27", stdout);
             Assert.Contains("FAILED_CHECK_COUNT=0", stdout);
             Assert.Contains("CHECK=ARTIFACT_FINGERPRINT_VALID:Pass", stdout);
             Assert.Contains("CHECK=DATASET_FINGERPRINT_MATCH:Pass", stdout);
+            Assert.Contains("CHECK=EXECUTION_PROVENANCE_BINDING_VALID:Pass", stdout);
         }
         finally
         {
@@ -628,6 +638,283 @@ public sealed class SparrowResearchReproducibilityVerifierTests
         }
     }
 
+    [Fact]
+    public async Task VerifyAsync_V1Record_ReturnsUnsupportedWithBindingUnavailableReason()
+    {
+        (PersistedResearchExperimentRecord boundRecord, _, string artifactJson) = await CreateMatchingPairAsync();
+        // Construct an unbound V1 record
+        PersistedResearchExperimentRecord v1Record = new(
+            boundRecord.ExperimentId,
+            boundRecord.ExperimentFingerprint,
+            boundRecord.Definition,
+            boundRecord.ExecutionSummary,
+            boundRecord.ArtifactReference,
+            boundRecord.Lineage,
+            boundRecord.CreatedAt,
+            PersistedResearchExperimentRecord.LegacySchemaVersion,
+            executionProvenanceBinding: null);
+
+        SparrowResearchReproducibilityVerifier verifier = new();
+        ResearchReproducibilityVerificationResult result = verifier.VerifyContent(v1Record, artifactJson);
+
+        Assert.Equal(ResearchReproducibilityVerificationStatus.Unsupported, result.Status);
+        Assert.Contains(ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingUnavailableV1, result.ReasonCodes);
+        ResearchReproducibilityCheck check = Assert.Single(result.Checks, c => c.Code == ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingPresent);
+        Assert.Equal(ResearchReproducibilityCheckStatus.Unsupported, check.Status);
+        Assert.Equal(18, result.PassedCheckCount);
+        Assert.Equal(1, result.UnsupportedCheckCount);
+        Assert.Equal(0, result.FailedCheckCount);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_ExecutionProvenanceBinding_TamperedStrategyParameter_Fails()
+    {
+        (PersistedResearchExperimentRecord record, _, string artifactJson) = await CreateMatchingPairAsync();
+        ResearchExecutionProvenanceBinding originalBinding = record.ExecutionProvenanceBinding!;
+
+        ResearchExecutionProvenanceBinding tamperedBinding = new(
+            originalBinding.BindingVersion,
+            originalBinding.ExperimentFingerprint,
+            originalBinding.ParameterSnapshotFingerprint,
+            originalBinding.ExperimentStrategyParameterFingerprint,
+            "tampered-artifact-strategy-param-fp",
+            originalBinding.ExperimentPortfolioConfigurationFingerprint,
+            originalBinding.ArtifactPortfolioConfigurationFingerprint,
+            originalBinding.ExperimentAnalysisConfigurationFingerprint,
+            originalBinding.ArtifactAnalysisFingerprint,
+            originalBinding.DatasetFingerprint,
+            originalBinding.ArtifactVersion,
+            originalBinding.ArtifactFingerprint,
+            ResearchExecutionProvenanceBinding.ComputeFingerprint(
+                originalBinding.BindingVersion,
+                originalBinding.ExperimentFingerprint,
+                originalBinding.ParameterSnapshotFingerprint,
+                originalBinding.ExperimentStrategyParameterFingerprint,
+                "tampered-artifact-strategy-param-fp",
+                originalBinding.ExperimentPortfolioConfigurationFingerprint,
+                originalBinding.ArtifactPortfolioConfigurationFingerprint,
+                originalBinding.ExperimentAnalysisConfigurationFingerprint,
+                originalBinding.ArtifactAnalysisFingerprint,
+                originalBinding.DatasetFingerprint,
+                originalBinding.ArtifactVersion,
+                originalBinding.ArtifactFingerprint));
+
+        PersistedResearchExperimentRecord tamperedRecord = new(
+            record.ExperimentId,
+            record.ExperimentFingerprint,
+            record.Definition,
+            record.ExecutionSummary,
+            record.ArtifactReference,
+            record.Lineage,
+            record.CreatedAt,
+            record.SchemaVersion,
+            tamperedBinding);
+
+        SparrowResearchReproducibilityVerifier verifier = new();
+        ResearchReproducibilityVerificationResult result = verifier.VerifyContent(tamperedRecord, artifactJson);
+
+        Assert.Equal(ResearchReproducibilityVerificationStatus.Failed, result.Status);
+        ResearchReproducibilityCheck check = Assert.Single(result.Checks, c => c.Code == ResearchReproducibilityCheckCodes.ExecutionProvenanceStrategyParameterMatch);
+        Assert.Equal(ResearchReproducibilityCheckStatus.Fail, check.Status);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_ExecutionProvenanceBinding_TamperedAnalysisFingerprint_Fails()
+    {
+        (PersistedResearchExperimentRecord record, _, string artifactJson) = await CreateMatchingPairAsync();
+        ResearchExecutionProvenanceBinding originalBinding = record.ExecutionProvenanceBinding!;
+
+        ResearchExecutionProvenanceBinding tamperedBinding = new(
+            originalBinding.BindingVersion,
+            originalBinding.ExperimentFingerprint,
+            originalBinding.ParameterSnapshotFingerprint,
+            originalBinding.ExperimentStrategyParameterFingerprint,
+            originalBinding.ArtifactStrategyParameterFingerprint,
+            originalBinding.ExperimentPortfolioConfigurationFingerprint,
+            originalBinding.ArtifactPortfolioConfigurationFingerprint,
+            originalBinding.ExperimentAnalysisConfigurationFingerprint,
+            "tampered-analysis-fp",
+            originalBinding.DatasetFingerprint,
+            originalBinding.ArtifactVersion,
+            originalBinding.ArtifactFingerprint,
+            ResearchExecutionProvenanceBinding.ComputeFingerprint(
+                originalBinding.BindingVersion,
+                originalBinding.ExperimentFingerprint,
+                originalBinding.ParameterSnapshotFingerprint,
+                originalBinding.ExperimentStrategyParameterFingerprint,
+                originalBinding.ArtifactStrategyParameterFingerprint,
+                originalBinding.ExperimentPortfolioConfigurationFingerprint,
+                originalBinding.ArtifactPortfolioConfigurationFingerprint,
+                originalBinding.ExperimentAnalysisConfigurationFingerprint,
+                "tampered-analysis-fp",
+                originalBinding.DatasetFingerprint,
+                originalBinding.ArtifactVersion,
+                originalBinding.ArtifactFingerprint));
+
+        PersistedResearchExperimentRecord tamperedRecord = new(
+            record.ExperimentId,
+            record.ExperimentFingerprint,
+            record.Definition,
+            record.ExecutionSummary,
+            record.ArtifactReference,
+            record.Lineage,
+            record.CreatedAt,
+            record.SchemaVersion,
+            tamperedBinding);
+
+        SparrowResearchReproducibilityVerifier verifier = new();
+        ResearchReproducibilityVerificationResult result = verifier.VerifyContent(tamperedRecord, artifactJson);
+
+        Assert.Equal(ResearchReproducibilityVerificationStatus.Failed, result.Status);
+        ResearchReproducibilityCheck check = Assert.Single(result.Checks, c => c.Code == ResearchReproducibilityCheckCodes.ExecutionProvenanceAnalysisMatch);
+        Assert.Equal(ResearchReproducibilityCheckStatus.Fail, check.Status);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_ExecutionProvenanceBinding_TamperedBindingFingerprint_Fails()
+    {
+        (PersistedResearchExperimentRecord record, _, string artifactJson) = await CreateMatchingPairAsync();
+        ResearchExecutionProvenanceBinding originalBinding = record.ExecutionProvenanceBinding!;
+
+        ResearchExecutionProvenanceBinding tamperedBinding = new(
+            originalBinding.BindingVersion,
+            originalBinding.ExperimentFingerprint,
+            originalBinding.ParameterSnapshotFingerprint,
+            originalBinding.ExperimentStrategyParameterFingerprint,
+            originalBinding.ArtifactStrategyParameterFingerprint,
+            originalBinding.ExperimentPortfolioConfigurationFingerprint,
+            originalBinding.ArtifactPortfolioConfigurationFingerprint,
+            originalBinding.ExperimentAnalysisConfigurationFingerprint,
+            originalBinding.ArtifactAnalysisFingerprint,
+            originalBinding.DatasetFingerprint,
+            originalBinding.ArtifactVersion,
+            originalBinding.ArtifactFingerprint,
+            "0000000000000000000000000000000000000000000000000000000000000000");
+
+        Assert.Throws<ArgumentException>(() => new PersistedResearchExperimentRecord(
+            record.ExperimentId,
+            record.ExperimentFingerprint,
+            record.Definition,
+            record.ExecutionSummary,
+            record.ArtifactReference,
+            record.Lineage,
+            record.CreatedAt,
+            PersistedResearchExperimentRecord.CurrentSchemaVersion,
+            tamperedBinding));
+
+        PersistedResearchExperimentRecord bypassRecord = new(
+            record.ExperimentId,
+            record.ExperimentFingerprint,
+            record.Definition,
+            record.ExecutionSummary,
+            record.ArtifactReference,
+            record.Lineage,
+            record.CreatedAt,
+            PersistedResearchExperimentRecord.LegacySchemaVersion,
+            tamperedBinding);
+
+        SparrowResearchReproducibilityVerifier verifier = new();
+        ResearchReproducibilityVerificationResult result = verifier.VerifyContent(bypassRecord, artifactJson);
+
+        Assert.Equal(ResearchReproducibilityVerificationStatus.Failed, result.Status);
+        ResearchReproducibilityCheck check = Assert.Single(result.Checks, c => c.Code == ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingValid);
+        Assert.Equal(ResearchReproducibilityCheckStatus.Fail, check.Status);
+    }
+
+    [Fact]
+    public async Task HistoricalTool_CliConflictingModes_ExitsNonZeroWithConflictingOperationModes()
+    {
+        ProcessStartInfo start = new("dotnet")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            WorkingDirectory = SolutionRoot()
+        };
+        start.Environment.Remove("HISTORICAL_GATEWAY_URL");
+        start.ArgumentList.Add("run");
+        start.ArgumentList.Add("--project");
+        start.ArgumentList.Add(Path.Combine(SolutionRoot(), "tools", "AIHelper.HistoricalDataTool", "AIHelper.HistoricalDataTool.csproj"));
+        start.ArgumentList.Add("--configuration");
+        start.ArgumentList.Add(TestExecutionConfiguration.Current());
+        start.ArgumentList.Add("--no-build");
+        start.ArgumentList.Add("--no-restore");
+        start.ArgumentList.Add("--");
+        start.ArgumentList.Add("--verify-reproducibility");
+        start.ArgumentList.Add("EXP-001");
+        start.ArgumentList.Add("--report-experiment");
+        start.ArgumentList.Add("EXP-001");
+
+        using Process process = Process.Start(start) ?? throw new InvalidOperationException("Could not start CLI.");
+        string stdout = await process.StandardOutput.ReadToEndAsync();
+        string stderr = await process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+
+        Assert.NotEqual(0, process.ExitCode);
+        Assert.Contains("CONFLICTING_OPERATION_MODES", stderr);
+    }
+
+    [Fact]
+    public async Task HistoricalTool_CliVerifyReproducibility_V1Record_ExitsNonZeroWithUnsupported()
+    {
+        (PersistedResearchExperimentRecord boundRecord, _, string artifactJson) = await CreateMatchingPairAsync();
+        PersistedResearchExperimentRecord v1Record = new(
+            boundRecord.ExperimentId,
+            boundRecord.ExperimentFingerprint,
+            boundRecord.Definition,
+            boundRecord.ExecutionSummary,
+            boundRecord.ArtifactReference,
+            boundRecord.Lineage,
+            boundRecord.CreatedAt,
+            PersistedResearchExperimentRecord.LegacySchemaVersion,
+            executionProvenanceBinding: null);
+
+        string directory = TemporaryDirectory();
+        string artifactPath = Path.Combine(directory, "EXP-001-artifact.json");
+        try
+        {
+            await new JsonResearchExperimentRepository(directory).SaveAsync(v1Record);
+            await File.WriteAllTextAsync(artifactPath, artifactJson);
+
+            ProcessStartInfo start = new("dotnet")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = SolutionRoot()
+            };
+            start.Environment.Remove("HISTORICAL_GATEWAY_URL");
+            start.ArgumentList.Add("run");
+            start.ArgumentList.Add("--project");
+            start.ArgumentList.Add(Path.Combine(SolutionRoot(), "tools", "AIHelper.HistoricalDataTool", "AIHelper.HistoricalDataTool.csproj"));
+            start.ArgumentList.Add("--configuration");
+            start.ArgumentList.Add(TestExecutionConfiguration.Current());
+            start.ArgumentList.Add("--no-build");
+            start.ArgumentList.Add("--no-restore");
+            start.ArgumentList.Add("--");
+            start.ArgumentList.Add("--verify-reproducibility");
+            start.ArgumentList.Add("EXP-001");
+            start.ArgumentList.Add("--experiment-store");
+            start.ArgumentList.Add(directory);
+            start.ArgumentList.Add("--artifact");
+            start.ArgumentList.Add(artifactPath);
+
+            using Process process = Process.Start(start) ?? throw new InvalidOperationException("Could not start CLI.");
+            string stdout = await process.StandardOutput.ReadToEndAsync();
+            string stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            Assert.NotEqual(0, process.ExitCode);
+            Assert.Contains("VERIFICATION_STATUS=Unsupported", stdout);
+            Assert.Contains("CHECK=EXECUTION_PROVENANCE_BINDING_PRESENT:Unsupported", stdout);
+            Assert.Contains("REASON=EXECUTION_PROVENANCE_BINDING_UNAVAILABLE_V1", stdout);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
     private static async Task<(PersistedResearchExperimentRecord Record, SparrowPortfolioResearchArtifact Artifact, string ArtifactJson)> CreateMatchingPairAsync(
         string experimentId = "EXP-001",
         string datasetFingerprint = "dataset-001",
@@ -710,6 +997,8 @@ public sealed class SparrowResearchReproducibilityVerifierTests
 
         ResearchResultArtifactReference artifactRef = new(artifact.ArtifactFingerprint, artifact.ArtifactVersion);
 
+        ResearchExecutionProvenanceBinding binding = ResearchExecutionProvenanceBinding.Create(definition, artifact);
+
         PersistedResearchExperimentRecord record = new(
             experimentId,
             definition.SemanticFingerprint,
@@ -717,7 +1006,9 @@ public sealed class SparrowResearchReproducibilityVerifierTests
             executionSummary,
             artifactRef,
             lineage,
-            new DateTimeOffset(2026, 1, 1, 11, 0, 0, TimeSpan.Zero));
+            new DateTimeOffset(2026, 1, 1, 11, 0, 0, TimeSpan.Zero),
+            PersistedResearchExperimentRecord.CurrentSchemaVersion,
+            binding);
 
         return (record, artifact, artifactJson);
     }

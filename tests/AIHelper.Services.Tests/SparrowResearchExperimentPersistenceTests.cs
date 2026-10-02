@@ -131,6 +131,62 @@ public sealed class SparrowResearchExperimentPersistenceTests
         Assert.DoesNotContain(typeof(ResearchExperimentComparisonResult).GetProperties(), property => prohibited.Any(value => property.Name.Contains(value, StringComparison.OrdinalIgnoreCase)));
     }
 
+    [Fact]
+    public async Task Repository_SavesAndLoadsV2RecordWithExecutionProvenanceBinding()
+    {
+        string root = TemporaryDirectory();
+        try
+        {
+            JsonResearchExperimentRepository repository = new(root);
+            PersistedResearchExperimentRecord record = RecordV2("EXP-V2-001");
+            await repository.SaveAsync(record);
+
+            PersistedResearchExperimentRecord loaded = await repository.GetAsync("EXP-V2-001");
+            Assert.Equal(PersistedResearchExperimentRecord.CurrentSchemaVersion, loaded.SchemaVersion);
+            Assert.NotNull(loaded.ExecutionProvenanceBinding);
+            Assert.Equal(record.ExecutionProvenanceBinding!.BindingFingerprint, loaded.ExecutionProvenanceBinding!.BindingFingerprint);
+            Assert.Equal(record.ExecutionProvenanceBinding.ArtifactStrategyParameterFingerprint, loaded.ExecutionProvenanceBinding.ArtifactStrategyParameterFingerprint);
+            Assert.Equal(record.ExecutionProvenanceBinding.ArtifactAnalysisFingerprint, loaded.ExecutionProvenanceBinding.ArtifactAnalysisFingerprint);
+        }
+        finally { DeleteDirectory(root); }
+    }
+
+    [Fact]
+    public async Task Repository_RejectsTamperedBindingFingerprintOnV2Record()
+    {
+        string root = TemporaryDirectory();
+        try
+        {
+            JsonResearchExperimentRepository repository = new(root);
+            PersistedResearchExperimentRecord record = RecordV2("EXP-V2-002");
+            await repository.SaveAsync(record);
+
+            string path = Path.Combine(root, "EXP-V2-002.json");
+            JsonObject rootJson = JsonNode.Parse(await File.ReadAllTextAsync(path))!.AsObject();
+            rootJson["executionProvenanceBinding"]!.AsObject()["bindingFingerprint"] = "0000000000000000000000000000000000000000000000000000000000000000";
+            await File.WriteAllTextAsync(path, rootJson.ToJsonString());
+
+            await Assert.ThrowsAnyAsync<Exception>(() => repository.GetAsync("EXP-V2-002"));
+        }
+        finally { DeleteDirectory(root); }
+    }
+
+    [Fact]
+    public void PersistedResearchExperimentRecord_RejectsV2WithoutBinding()
+    {
+        PersistedResearchExperimentRecord v1 = Record("EXP-001");
+        Assert.Throws<ArgumentNullException>(() => new PersistedResearchExperimentRecord(
+            v1.ExperimentId,
+            v1.ExperimentFingerprint,
+            v1.Definition,
+            v1.ExecutionSummary,
+            v1.ArtifactReference,
+            v1.Lineage,
+            v1.CreatedAt,
+            PersistedResearchExperimentRecord.CurrentSchemaVersion,
+            executionProvenanceBinding: null));
+    }
+
     private static PersistedResearchExperimentRecord Record(string experimentId, string datasetFingerprint = "dataset-a", DateTimeOffset? createdAt = null,
         ResearchExperimentPerformanceSummary? performance = null)
     {
@@ -146,6 +202,63 @@ public sealed class SparrowResearchExperimentPersistenceTests
         ResearchArtifactLineage lineage = new(definition.SemanticFingerprint, definition.DatasetFingerprint, definition.Parameters.Fingerprint, summary.ArtifactFingerprint);
         return new PersistedResearchExperimentRecord(experimentId, definition.SemanticFingerprint, definition, summary,
             new ResearchResultArtifactReference(summary.ArtifactFingerprint, "portfolio-research-v1"), lineage, createdAt ?? new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero));
+    }
+
+    private static PersistedResearchExperimentRecord RecordV2(string experimentId, string datasetFingerprint = "dataset-a", DateTimeOffset? createdAt = null,
+        ResearchExperimentPerformanceSummary? performance = null)
+    {
+        ResearchExperimentIdentity identity = new(experimentId, ResearchExperimentIdentity.CurrentExperimentVersion, "test", createdAt);
+        ExperimentParameterSnapshot parameters = new("v1", new Dictionary<string, string> { ["TopN"] = "2" },
+            new Dictionary<string, string> { ["InitialCapital"] = "1000000" }, new Dictionary<string, string> { ["ReturnBasis"] = "CloseToClose" });
+        ResearchExperimentDefinition definition = new(identity, datasetFingerprint, new ResearchExperimentStrategyIdentity("V2", "v2"), parameters,
+            "portfolio-a", "analysis-a", "benchmark:CSI300");
+        string artifactFp = "artifact-" + experimentId;
+        ResearchExperimentExecution execution = ResearchExperimentExecution.Create(identity)
+            .Start(new DateTimeOffset(2026, 1, 1, 9, 0, 0, TimeSpan.Zero))
+            .Complete(new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero), artifactFp);
+        ResearchExperimentExecutionSummary summary = ResearchExperimentExecutionSummary.FromCompletedExecution(execution, performance);
+        ResearchArtifactLineage lineage = new(definition.SemanticFingerprint, definition.DatasetFingerprint, definition.Parameters.Fingerprint, summary.ArtifactFingerprint);
+        ResearchResultArtifactReference artifactRef = new(summary.ArtifactFingerprint, SparrowPortfolioResearchArtifact.CurrentArtifactVersion);
+
+        string bindingFp = ResearchExecutionProvenanceBinding.ComputeFingerprint(
+            ResearchExecutionProvenanceBinding.CurrentBindingVersion,
+            definition.SemanticFingerprint,
+            definition.Parameters.Fingerprint,
+            definition.StrategyParameterFingerprint,
+            "artifact-strategy-param-fp",
+            definition.PortfolioConfigurationFingerprint,
+            "artifact-portfolio-config-fp",
+            definition.AnalysisConfigurationFingerprint,
+            "artifact-analysis-fp",
+            definition.DatasetFingerprint,
+            artifactRef.ArtifactVersion,
+            artifactRef.ArtifactFingerprint);
+
+        ResearchExecutionProvenanceBinding binding = new(
+            ResearchExecutionProvenanceBinding.CurrentBindingVersion,
+            definition.SemanticFingerprint,
+            definition.Parameters.Fingerprint,
+            definition.StrategyParameterFingerprint,
+            "artifact-strategy-param-fp",
+            definition.PortfolioConfigurationFingerprint,
+            "artifact-portfolio-config-fp",
+            definition.AnalysisConfigurationFingerprint,
+            "artifact-analysis-fp",
+            definition.DatasetFingerprint,
+            artifactRef.ArtifactVersion,
+            artifactRef.ArtifactFingerprint,
+            bindingFp);
+
+        return new PersistedResearchExperimentRecord(
+            experimentId,
+            definition.SemanticFingerprint,
+            definition,
+            summary,
+            artifactRef,
+            lineage,
+            createdAt ?? new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
+            PersistedResearchExperimentRecord.CurrentSchemaVersion,
+            binding);
     }
 
     private static string TemporaryDirectory()
