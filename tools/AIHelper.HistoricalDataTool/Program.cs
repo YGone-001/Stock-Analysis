@@ -14,6 +14,8 @@ try
         Console.WriteLine($"LEGACY_REASONS={string.Join(',', SparrowLegacyHistoricalReplayCapability.BlockerReasonCodes)}");
         return 0;
     }
+    if (options.TryGetValue("verify-reproducibility", out string? verifyExperimentId))
+        return await VerifyReproducibilityAsync(verifyExperimentId);
     if (options.ContainsKey("report-experiment") || options.ContainsKey("report-lineage") || options.ContainsKey("report-comparison"))
         return await ExportResearchReportAsync();
     if (Bool("analyze-benchmark", false))
@@ -64,6 +66,61 @@ catch (Exception exception) { Console.Error.WriteLine($"HISTORICAL_DATASET_BUILD
 string Value(string name, string? fallback = null) => options.TryGetValue(name, out string? value) ? value : fallback ?? throw new ArgumentException($"--{name} is required.");
 DateOnly Date(string name) => DateOnly.ParseExact(Value(name), "yyyy-MM-dd", CultureInfo.InvariantCulture);
 bool Bool(string name, bool fallback) => options.TryGetValue(name, out string? value) ? bool.Parse(value) : fallback;
+
+async Task<int> VerifyReproducibilityAsync(string experimentId)
+{
+    string experimentStore = Value("experiment-store");
+    string artifactPath = Value("artifact");
+
+    if (!File.Exists(artifactPath))
+    {
+        Console.Error.WriteLine($"ARTIFACT_NOT_FOUND: Artifact file '{artifactPath}' was not found.");
+        return 1;
+    }
+
+    JsonResearchExperimentRepository repository = new(experimentStore);
+    PersistedResearchExperimentRecord record;
+    try
+    {
+        record = await repository.GetAsync(experimentId);
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"EXPERIMENT_LOAD_FAILED: {exception.Message}");
+        return 1;
+    }
+
+    SparrowResearchReproducibilityVerifier verifier = new();
+    ResearchReproducibilityVerificationResult result;
+    try
+    {
+        result = await verifier.VerifyAsync(record, artifactPath);
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"VERIFICATION_FAILED: {exception.Message}");
+        return 1;
+    }
+
+    Console.WriteLine($"VERIFICATION_STATUS={result.Status}");
+    if (result.ExperimentId is not null) Console.WriteLine($"EXPERIMENT_ID={result.ExperimentId}");
+    if (result.ExperimentFingerprint is not null) Console.WriteLine($"EXPERIMENT_FINGERPRINT={result.ExperimentFingerprint}");
+    if (result.DatasetFingerprint is not null) Console.WriteLine($"DATASET_FINGERPRINT={result.DatasetFingerprint}");
+    if (result.ArtifactVersion is not null) Console.WriteLine($"ARTIFACT_VERSION={result.ArtifactVersion}");
+    if (result.ArtifactFingerprint is not null) Console.WriteLine($"ARTIFACT_FINGERPRINT={result.ArtifactFingerprint}");
+    Console.WriteLine($"CHECK_COUNT={result.CheckCount}");
+    Console.WriteLine($"FAILED_CHECK_COUNT={result.FailedCheckCount}");
+    foreach (ResearchReproducibilityCheck check in result.Checks)
+    {
+        Console.WriteLine($"CHECK={check.Code}:{check.Status}");
+    }
+    foreach (string reason in result.ReasonCodes)
+    {
+        Console.WriteLine($"REASON={reason}");
+    }
+
+    return result.Status == ResearchReproducibilityVerificationStatus.Verified ? 0 : 1;
+}
 
 async Task<int> ExportResearchReportAsync()
 {

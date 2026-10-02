@@ -53,6 +53,47 @@ public sealed class SparrowPortfolioResearchArtifact
             Attribution, Warnings, Limitations);
     }
 
+    [JsonConstructor]
+    public SparrowPortfolioResearchArtifact(
+        string artifactVersion,
+        string artifactFingerprint,
+        string createdBy,
+        string datasetFingerprint,
+        string strategyFingerprint,
+        string portfolioConfigurationFingerprint,
+        string analysisFingerprint,
+        SparrowPortfolioResearchStrategy strategy,
+        PortfolioSimulationRequest portfolioRequest,
+        SparrowPortfolioResearchSimulationSummary simulationSummary,
+        PortfolioPerformanceMetrics performanceSummary,
+        SparrowPortfolioResearchBenchmarkSummary benchmarkSummary,
+        IReadOnlyList<PortfolioTrade>? trades = null,
+        IReadOnlyList<PortfolioPosition>? positions = null,
+        IReadOnlyList<PortfolioEquityPoint>? equityCurve = null,
+        IReadOnlyList<PortfolioAttribution>? attribution = null,
+        IReadOnlyList<string>? warnings = null,
+        IReadOnlyList<string>? limitations = null)
+    {
+        ArtifactVersion = artifactVersion;
+        ArtifactFingerprint = artifactFingerprint;
+        CreatedBy = createdBy;
+        DatasetFingerprint = datasetFingerprint;
+        StrategyFingerprint = strategyFingerprint;
+        PortfolioConfigurationFingerprint = portfolioConfigurationFingerprint;
+        AnalysisFingerprint = analysisFingerprint;
+        Strategy = strategy;
+        PortfolioRequest = portfolioRequest;
+        SimulationSummary = simulationSummary;
+        PerformanceSummary = performanceSummary;
+        BenchmarkSummary = benchmarkSummary;
+        Trades = trades ?? Array.Empty<PortfolioTrade>();
+        Positions = positions ?? Array.Empty<PortfolioPosition>();
+        EquityCurve = equityCurve ?? Array.Empty<PortfolioEquityPoint>();
+        Attribution = attribution ?? Array.Empty<PortfolioAttribution>();
+        Warnings = warnings ?? Array.Empty<string>();
+        Limitations = limitations ?? Array.Empty<string>();
+    }
+
     public string ArtifactVersion { get; }
     /// <summary>Deterministic identity of this canonical payload; it is not an analysis or experiment fingerprint.</summary>
     public string ArtifactFingerprint { get; }
