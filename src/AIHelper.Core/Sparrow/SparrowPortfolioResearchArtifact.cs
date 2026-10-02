@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using AIHelper.Models;
 
@@ -12,7 +13,14 @@ public sealed record SparrowPortfolioResearchBenchmarkSummary(string Status, str
 /// <summary>Immutable, timestamp-free research evidence suitable for deterministic export and comparison.</summary>
 public sealed class SparrowPortfolioResearchArtifact
 {
-    public const string CurrentArtifactVersion = "portfolio-research-v1";
+    /// <summary>Legacy export schema. It has no authoritative artifact-payload identity.</summary>
+    public const string LegacyArtifactVersion = "portfolio-research-v1";
+    /// <summary>Current export schema with an explicit canonical artifact-payload identity.</summary>
+    public const string CurrentArtifactVersion = "portfolio-research-v2";
+    /// <summary>Stable token retained from the V1 analysis-identity preimage.</summary>
+    public const string AnalysisFingerprintContractVersion = LegacyArtifactVersion;
+    /// <summary>Versioned contract for canonical portfolio-research artifact payloads.</summary>
+    public const string ArtifactFingerprintContractVersion = "portfolio-research-artifact-fingerprint-v1";
     public SparrowPortfolioResearchArtifact(
         string createdBy,
         SparrowPortfolioPerformanceResult performanceResult,
@@ -39,9 +47,15 @@ public sealed class SparrowPortfolioResearchArtifact
         Attribution = Array.AsReadOnly(performanceResult.Attribution.OrderBy(item => item.Symbol, StringComparer.Ordinal).ThenBy(item => item.EntryDate).ToArray());
         Warnings = Array.AsReadOnly(performanceResult.Warnings.OrderBy(value => value, StringComparer.Ordinal).ToArray());
         Limitations = Array.AsReadOnly((limitations ?? DefaultLimitations).Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToArray());
+        ArtifactFingerprint = SparrowPortfolioResearchFingerprint.Artifact(
+            ArtifactVersion, CreatedBy, DatasetFingerprint, StrategyFingerprint, PortfolioConfigurationFingerprint, AnalysisFingerprint,
+            Strategy, PortfolioRequest, SimulationSummary, PerformanceSummary, BenchmarkSummary, Trades, Positions, EquityCurve,
+            Attribution, Warnings, Limitations);
     }
 
     public string ArtifactVersion { get; }
+    /// <summary>Deterministic identity of this canonical payload; it is not an analysis or experiment fingerprint.</summary>
+    public string ArtifactFingerprint { get; }
     public string CreatedBy { get; }
     public string DatasetFingerprint { get; }
     public string StrategyFingerprint { get; }
@@ -75,9 +89,64 @@ public sealed class SparrowPortfolioResearchArtifact
 
 public static class SparrowPortfolioResearchFingerprint
 {
+    private static readonly JsonSerializerOptions CanonicalJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = false
+    };
+
     public static string Strategy(PortfolioSimulationRequest request) => Hash($"{request.StrategyMode}|{request.StrategyVersion}|{request.StrategyParameterFingerprint}");
     public static string Portfolio(PortfolioSimulationRequest request) => Hash(string.Join('|', request.StartDate.ToString("O"), request.EndDate.ToString("O"), request.TopN, request.HorizonTradingDays,
         request.InitialCapital.ToString(System.Globalization.CultureInfo.InvariantCulture), request.PositionSizingMethod, request.CommissionRate.ToString(System.Globalization.CultureInfo.InvariantCulture), request.SlippageRate.ToString(System.Globalization.CultureInfo.InvariantCulture), request.ExecutionModel));
-    public static string Analysis(string datasetFingerprint, string strategyFingerprint, string portfolioConfigurationFingerprint) => Hash($"{SparrowPortfolioResearchArtifact.CurrentArtifactVersion}|PortfolioPerformanceAnalyzerV1|{datasetFingerprint}|{strategyFingerprint}|{portfolioConfigurationFingerprint}");
+    public static string Analysis(string datasetFingerprint, string strategyFingerprint, string portfolioConfigurationFingerprint) => Hash($"{SparrowPortfolioResearchArtifact.AnalysisFingerprintContractVersion}|PortfolioPerformanceAnalyzerV1|{datasetFingerprint}|{strategyFingerprint}|{portfolioConfigurationFingerprint}");
+
+    /// <summary>Hashes an explicit, self-excluding canonical payload rather than serialized output bytes.</summary>
+    public static string Artifact(
+        string artifactVersion,
+        string createdBy,
+        string datasetFingerprint,
+        string strategyFingerprint,
+        string portfolioConfigurationFingerprint,
+        string analysisFingerprint,
+        SparrowPortfolioResearchStrategy strategy,
+        PortfolioSimulationRequest portfolioRequest,
+        SparrowPortfolioResearchSimulationSummary simulationSummary,
+        PortfolioPerformanceMetrics performanceSummary,
+        SparrowPortfolioResearchBenchmarkSummary benchmarkSummary,
+        IReadOnlyList<PortfolioTrade> trades,
+        IReadOnlyList<PortfolioPosition> positions,
+        IReadOnlyList<PortfolioEquityPoint> equityCurve,
+        IReadOnlyList<PortfolioAttribution> attribution,
+        IReadOnlyList<string> warnings,
+        IReadOnlyList<string> limitations)
+    {
+        ArtifactFingerprintPayload payload = new(
+            SparrowPortfolioResearchArtifact.ArtifactFingerprintContractVersion, artifactVersion, createdBy, datasetFingerprint,
+            strategyFingerprint, portfolioConfigurationFingerprint, analysisFingerprint, strategy, portfolioRequest, simulationSummary,
+            performanceSummary, benchmarkSummary, trades, positions, equityCurve, attribution, warnings, limitations);
+        return Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(payload, CanonicalJson)));
+    }
+
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
+    /// <summary>Property declaration order is the canonical top-level payload order. ArtifactFingerprint is intentionally absent.</summary>
+    private sealed record ArtifactFingerprintPayload(
+        string ContractVersion,
+        string ArtifactVersion,
+        string CreatedBy,
+        string DatasetFingerprint,
+        string StrategyFingerprint,
+        string PortfolioConfigurationFingerprint,
+        string AnalysisFingerprint,
+        SparrowPortfolioResearchStrategy Strategy,
+        PortfolioSimulationRequest PortfolioRequest,
+        SparrowPortfolioResearchSimulationSummary SimulationSummary,
+        PortfolioPerformanceMetrics PerformanceSummary,
+        SparrowPortfolioResearchBenchmarkSummary BenchmarkSummary,
+        IReadOnlyList<PortfolioTrade> Trades,
+        IReadOnlyList<PortfolioPosition> Positions,
+        IReadOnlyList<PortfolioEquityPoint> EquityCurve,
+        IReadOnlyList<PortfolioAttribution> Attribution,
+        IReadOnlyList<string> Warnings,
+        IReadOnlyList<string> Limitations);
 }

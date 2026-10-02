@@ -193,6 +193,8 @@ async Task<int> ExportPortfolioResearchAsync()
     SparrowPortfolioResearchArtifact artifact = await new SparrowPortfolioResearchExporter().ExportAsync(performance, Value("output"));
     Console.WriteLine($"DATASET={loaded.Dataset.DatasetId}");
     Console.WriteLine($"FINGERPRINT={artifact.DatasetFingerprint}");
+    Console.WriteLine($"ANALYSIS_FINGERPRINT={artifact.AnalysisFingerprint}");
+    Console.WriteLine($"ARTIFACT_FINGERPRINT={artifact.ArtifactFingerprint}");
     Console.WriteLine($"STRATEGY={artifact.Strategy.Mode}:{artifact.Strategy.Version}");
     Console.WriteLine($"PORTFOLIO={artifact.PortfolioConfigurationFingerprint}");
     Console.WriteLine($"INITIAL_CAPITAL={artifact.PerformanceSummary.InitialCapital.ToString(CultureInfo.InvariantCulture)}");
