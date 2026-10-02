@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AIHelper.Core.Sparrow;
 using AIHelper.Models;
 using AIHelper.Services.StockData.Sparrow;
@@ -10,6 +11,7 @@ try
     List<string> detectedModes = new();
     if (Bool("report-legacy-capability", false)) detectedModes.Add("legacy-capability");
     if (options.ContainsKey("verify-reproducibility")) detectedModes.Add("reproducibility-verification");
+    if (options.ContainsKey("reproduce-experiment")) detectedModes.Add("research-reexecution");
     if (options.ContainsKey("report-experiment") || options.ContainsKey("report-lineage") || options.ContainsKey("report-comparison")) detectedModes.Add("research-reporting");
     if (Bool("analyze-benchmark", false)) detectedModes.Add("benchmark-analysis");
     if (Bool("export-portfolio-research", false)) detectedModes.Add("portfolio-research-export");
@@ -31,6 +33,8 @@ try
     }
     if (options.TryGetValue("verify-reproducibility", out string? verifyExperimentId))
         return await VerifyReproducibilityAsync(verifyExperimentId);
+    if (options.TryGetValue("reproduce-experiment", out string? reproduceExperimentId))
+        return await ReproduceExperimentAsync(reproduceExperimentId);
     if (options.ContainsKey("report-experiment") || options.ContainsKey("report-lineage") || options.ContainsKey("report-comparison"))
         return await ExportResearchReportAsync();
     if (Bool("analyze-benchmark", false))
@@ -135,6 +139,93 @@ async Task<int> VerifyReproducibilityAsync(string experimentId)
     }
 
     return result.Status == ResearchReproducibilityVerificationStatus.Verified ? 0 : 1;
+}
+
+async Task<int> ReproduceExperimentAsync(string experimentId)
+{
+    string experimentStore = Value("experiment-store");
+    string artifactPath = Value("artifact");
+    string datasetPath = Value("dataset");
+    string? parametersPath = options.TryGetValue("parameters", out string? p) ? p : null;
+    string? reproductionOutputPath = options.TryGetValue("reproduction-output", out string? ro) ? ro : null;
+
+    if (!File.Exists(artifactPath))
+    {
+        Console.Error.WriteLine($"ARTIFACT_NOT_FOUND: Artifact file '{artifactPath}' was not found.");
+        return 1;
+    }
+
+    if (!File.Exists(datasetPath))
+    {
+        Console.Error.WriteLine($"DATASET_NOT_FOUND: Dataset file '{datasetPath}' was not found.");
+        return 1;
+    }
+
+    JsonResearchExperimentRepository repository = new(experimentStore);
+    PersistedResearchExperimentRecord record;
+    try
+    {
+        record = await repository.GetAsync(experimentId);
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"EXPERIMENT_LOAD_FAILED: {exception.Message}");
+        return 1;
+    }
+
+    SparrowResearchReexecutionValidator validator = new();
+    ResearchReexecutionValidationResult result;
+    try
+    {
+        result = await validator.ValidateReexecutionAsync(record, artifactPath, datasetPath, parametersPath);
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"REEXECUTION_VALIDATION_FAILED: {exception.Message}");
+        return 1;
+    }
+
+    Console.WriteLine($"REEXECUTION_STATUS={result.Status}");
+    if (!string.IsNullOrWhiteSpace(result.ExperimentId))
+        Console.WriteLine($"EXPERIMENT_ID={result.ExperimentId}");
+    if (!string.IsNullOrWhiteSpace(result.ExperimentFingerprint))
+        Console.WriteLine($"EXPERIMENT_FINGERPRINT={result.ExperimentFingerprint}");
+    if (!string.IsNullOrWhiteSpace(result.DatasetFingerprint))
+        Console.WriteLine($"DATASET_FINGERPRINT={result.DatasetFingerprint}");
+    if (!string.IsNullOrWhiteSpace(result.StrategyParameterFingerprint))
+        Console.WriteLine($"PARAMETER_FINGERPRINT={result.StrategyParameterFingerprint}");
+    if (!string.IsNullOrWhiteSpace(result.OriginalArtifactFingerprint))
+        Console.WriteLine($"ORIGINAL_ARTIFACT_FINGERPRINT={result.OriginalArtifactFingerprint}");
+    if (!string.IsNullOrWhiteSpace(result.ReproducedArtifactFingerprint))
+        Console.WriteLine($"REPRODUCED_ARTIFACT_FINGERPRINT={result.ReproducedArtifactFingerprint}");
+
+    Console.WriteLine($"CHECK_COUNT={result.CheckCount}");
+    Console.WriteLine($"FAILED_CHECK_COUNT={result.FailedCheckCount}");
+
+    foreach (ResearchReexecutionCheck check in result.Checks)
+    {
+        Console.WriteLine($"CHECK={check.Code}:{check.Status}");
+    }
+
+    foreach (string reason in result.ReasonCodes)
+    {
+        Console.WriteLine($"REASON={reason}");
+    }
+
+    if (!string.IsNullOrWhiteSpace(reproductionOutputPath))
+    {
+        string? directory = Path.GetDirectoryName(reproductionOutputPath);
+        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+        JsonSerializerOptions outputOptions = new()
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        await File.WriteAllTextAsync(reproductionOutputPath, JsonSerializer.Serialize(result, outputOptions));
+    }
+
+    return result.Status == ResearchReexecutionStatus.Equivalent ? 0 : 1;
 }
 
 async Task<int> ExportResearchReportAsync()
