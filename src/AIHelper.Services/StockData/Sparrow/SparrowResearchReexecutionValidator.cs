@@ -3,23 +3,20 @@ using System.Text.Json.Serialization;
 using AIHelper.Core.Sparrow;
 using AIHelper.Core.StockData;
 using AIHelper.Models;
+using static AIHelper.Core.Sparrow.ResearchReexecutionCheckCodes;
+using static AIHelper.Core.Sparrow.ResearchReexecutionReasonCodes;
+using static AIHelper.Core.Sparrow.ResearchReexecutionStatus;
 
 namespace AIHelper.Services.StockData.Sparrow;
 
 /// <summary>Offline research re-execution engine and deterministic result equivalence validator.</summary>
 public sealed class SparrowResearchReexecutionValidator : ISparrowResearchReexecutionValidator
 {
-    private static readonly JsonSerializerOptions ArtifactJsonOptions = new()
+    private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter() }
-    };
-
-    private static readonly JsonSerializerOptions ParameterJsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
     public async Task<ResearchReexecutionValidationResult> ValidateReexecutionAsync(
@@ -36,219 +33,91 @@ public sealed class SparrowResearchReexecutionValidator : ISparrowResearchReexec
 
         List<ResearchReexecutionCheck> checks = new();
         List<string> reasonCodes = new();
+        SparrowPortfolioResearchArtifact? originalArtifact = null;
+        HistoricalMarketDataset? loadedDataset = null;
+
+        void Pass(string code, string? exp, string? act, string msg) =>
+            checks.Add(new(code, ResearchReexecutionCheckStatus.Pass, exp, act, msg));
+        void Fail(string code, string? exp, string? act, string msg, string reason)
+        {
+            checks.Add(new(code, ResearchReexecutionCheckStatus.Fail, exp, act, msg));
+            reasonCodes.Add(reason);
+        }
+        void Unsup(string code, string? exp, string? act, string msg, string reason)
+        {
+            checks.Add(new(code, ResearchReexecutionCheckStatus.Unsupported, exp, act, msg));
+            reasonCodes.Add(reason);
+        }
+
+        ResearchReexecutionValidationResult Result(ResearchReexecutionStatus status, SparrowPortfolioResearchArtifact? repro = null)
+        {
+            var p = originalArtifact?.PortfolioRequest;
+            return new(status, checks, experimentRecord.ExperimentId, experimentRecord.ExperimentFingerprint,
+                originalArtifact?.ArtifactFingerprint, repro?.ArtifactFingerprint,
+                loadedDataset?.Fingerprint ?? originalArtifact?.DatasetFingerprint,
+                p?.StrategyMode.ToString(), p?.StrategyVersion, p?.StrategyParameterFingerprint,
+                originalArtifact?.PortfolioConfigurationFingerprint, reasonCodes, repro);
+        }
 
         // 1. READINESS_VERIFIED
         if (!File.Exists(originalArtifactPath))
             throw new FileNotFoundException($"Portfolio research artifact file was not found: '{originalArtifactPath}'.", originalArtifactPath);
 
-        SparrowResearchReproducibilityVerifier readinessVerifier = new();
-        ResearchReproducibilityVerificationResult readinessResult = await readinessVerifier
-            .VerifyAsync(experimentRecord, originalArtifactPath, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (readinessResult.Status == ResearchReproducibilityVerificationStatus.Failed)
+        var readiness = await new SparrowResearchReproducibilityVerifier().VerifyAsync(experimentRecord, originalArtifactPath, cancellationToken).ConfigureAwait(false);
+        if (readiness.Status == ResearchReproducibilityVerificationStatus.Failed)
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.ReadinessVerified,
-                ResearchReexecutionCheckStatus.Fail,
-                ResearchReproducibilityVerificationStatus.Verified.ToString(),
-                readinessResult.Status.ToString(),
-                $"Reproducibility readiness verification failed with {readinessResult.FailedCheckCount} failed check(s)."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.ReadinessVerificationFailed);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                reasonCodes);
+            Fail(ReadinessVerified, "Verified", readiness.Status.ToString(), $"Readiness verification failed ({readiness.FailedCheckCount} failed).", ReadinessVerificationFailed);
+            return Result(Failed);
         }
-
-        if (readinessResult.Status == ResearchReproducibilityVerificationStatus.Unsupported)
+        if (readiness.Status == ResearchReproducibilityVerificationStatus.Unsupported)
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.ReadinessVerified,
-                ResearchReexecutionCheckStatus.Unsupported,
-                ResearchReproducibilityVerificationStatus.Verified.ToString(),
-                readinessResult.Status.ToString(),
-                "Reproducibility readiness verification returned unsupported."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.ReadinessVerificationUnsupported);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Unsupported,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                reasonCodes);
+            Unsup(ReadinessVerified, "Verified", readiness.Status.ToString(), "Readiness verification returned unsupported.", ReadinessVerificationUnsupported);
+            return Result(Unsupported);
         }
+        Pass(ReadinessVerified, "Verified", "Verified", "Reproducibility readiness verified.");
 
-        checks.Add(new ResearchReexecutionCheck(
-            ResearchReexecutionCheckCodes.ReadinessVerified,
-            ResearchReexecutionCheckStatus.Pass,
-            ResearchReproducibilityVerificationStatus.Verified.ToString(),
-            ResearchReproducibilityVerificationStatus.Verified.ToString(),
-            "Reproducibility readiness verified."));
-
-        // Load original artifact
         string originalArtifactJson = await File.ReadAllTextAsync(originalArtifactPath, cancellationToken).ConfigureAwait(false);
-        SparrowPortfolioResearchArtifact originalArtifact = JsonSerializer.Deserialize<SparrowPortfolioResearchArtifact>(originalArtifactJson, ArtifactJsonOptions)
+        originalArtifact = JsonSerializer.Deserialize<SparrowPortfolioResearchArtifact>(originalArtifactJson, JsonOpts)
             ?? throw new InvalidOperationException("Failed to deserialize portfolio research artifact.");
 
         if (originalArtifact.BenchmarkSummary is not null && !string.Equals(originalArtifact.BenchmarkSummary.Status, "Unavailable", StringComparison.OrdinalIgnoreCase))
         {
-            checks.Add(new ResearchReexecutionCheck(
-                "BENCHMARK_STATUS_SUPPORTED",
-                ResearchReexecutionCheckStatus.Unsupported,
-                "Unavailable",
-                originalArtifact.BenchmarkSummary.Status,
-                "Benchmark reproduction is not supported for close-based research re-execution."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.BenchmarkReproductionUnsupported);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Unsupported,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                originalArtifact.DatasetFingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Unsup("BENCHMARK_STATUS_SUPPORTED", "Unavailable", originalArtifact.BenchmarkSummary.Status, "Benchmark reproduction is not supported for close-based re-execution.", BenchmarkReproductionUnsupported);
+            return Result(Unsupported);
         }
 
         // 2. DATASET_LOADED
         if (!File.Exists(datasetPath))
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.DatasetLoaded,
-                ResearchReexecutionCheckStatus.Fail,
-                "FileExists",
-                "FileNotFound",
-                $"Dataset file '{datasetPath}' not found."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.DatasetLoadFailed);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                originalArtifact.DatasetFingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Fail(DatasetLoaded, "FileExists", "FileNotFound", $"Dataset file '{datasetPath}' not found.", DatasetLoadFailed);
+            return Result(Failed);
         }
 
-        HistoricalDatasetLoadResult datasetResult = await new HistoricalDatasetJsonLoader()
-            .LoadAsync(datasetPath, cancellationToken)
-            .ConfigureAwait(false);
-
+        var datasetResult = await new HistoricalDatasetJsonLoader().LoadAsync(datasetPath, cancellationToken).ConfigureAwait(false);
         if (!datasetResult.Success || datasetResult.Dataset is null)
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.DatasetLoaded,
-                ResearchReexecutionCheckStatus.Fail,
-                "Success",
-                "Failed",
-                string.Join("; ", datasetResult.Errors)));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.DatasetLoadFailed);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                originalArtifact.DatasetFingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Fail(DatasetLoaded, "Success", "Failed", string.Join("; ", datasetResult.Errors), DatasetLoadFailed);
+            return Result(Failed);
         }
 
-        checks.Add(new ResearchReexecutionCheck(
-            ResearchReexecutionCheckCodes.DatasetLoaded,
-            ResearchReexecutionCheckStatus.Pass,
-            "Success",
-            "Success",
-            "Historical dataset loaded successfully."));
+        loadedDataset = datasetResult.Dataset;
+        Pass(DatasetLoaded, "Success", "Success", "Historical dataset loaded successfully.");
 
         // 3. DATASET_FINGERPRINT_MATCH
-        HistoricalMarketDataset loadedDataset = datasetResult.Dataset;
-        bool datasetFingerprintMatches = string.Equals(loadedDataset.Fingerprint, originalArtifact.DatasetFingerprint, StringComparison.Ordinal)
+        bool datasetFpMatches = string.Equals(loadedDataset.Fingerprint, originalArtifact.DatasetFingerprint, StringComparison.Ordinal)
             && string.Equals(loadedDataset.Fingerprint, experimentRecord.Definition.DatasetFingerprint, StringComparison.Ordinal);
-
-        if (!datasetFingerprintMatches)
+        if (!datasetFpMatches)
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.DatasetFingerprintMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                originalArtifact.DatasetFingerprint,
-                loadedDataset.Fingerprint,
-                "Loaded dataset fingerprint does not match artifact and experiment record."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.DatasetFingerprintMismatch);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                loadedDataset.Fingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Fail(DatasetFingerprintMatch, originalArtifact.DatasetFingerprint, loadedDataset.Fingerprint, "Loaded dataset fingerprint does not match artifact and record.", DatasetFingerprintMismatch);
+            return Result(Failed);
         }
-
-        checks.Add(new ResearchReexecutionCheck(
-            ResearchReexecutionCheckCodes.DatasetFingerprintMatch,
-            ResearchReexecutionCheckStatus.Pass,
-            originalArtifact.DatasetFingerprint,
-            loadedDataset.Fingerprint,
-            "Loaded dataset fingerprint matches artifact and experiment record."));
+        Pass(DatasetFingerprintMatch, originalArtifact.DatasetFingerprint, loadedDataset.Fingerprint, "Loaded dataset fingerprint matches artifact and record.");
 
         // 4. EXECUTABLE_PARAMETERS_LOADED
         if (string.IsNullOrWhiteSpace(parametersPath) || !File.Exists(parametersPath))
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.ExecutableParametersLoaded,
-                ResearchReexecutionCheckStatus.Fail,
-                "FileExists",
-                parametersPath ?? "<null>",
-                "Executable strategy parameter snapshot file was not provided or not found. Fallback to current defaults is prohibited."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.ExecutableParametersMissing);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                loadedDataset.Fingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Fail(ExecutableParametersLoaded, "FileExists", parametersPath ?? "<null>", "Executable strategy parameter snapshot file was not provided or not found. Fallback to current defaults is prohibited.", ExecutableParametersMissing);
+            return Result(Failed);
         }
 
         string parametersJson = await File.ReadAllTextAsync(parametersPath, cancellationToken).ConfigureAwait(false);
@@ -258,329 +127,100 @@ public sealed class SparrowResearchReexecutionValidator : ISparrowResearchReexec
         try
         {
             if (originalArtifact.PortfolioRequest.StrategyMode == SparrowStrategyMode.Classic)
-            {
-                classicParameters = JsonSerializer.Deserialize<SparrowClassicParameterSnapshot>(parametersJson, ParameterJsonOptions);
-                if (classicParameters is null)
-                    throw new InvalidOperationException("Classic parameter snapshot deserialized to null.");
-            }
+                classicParameters = JsonSerializer.Deserialize<SparrowClassicParameterSnapshot>(parametersJson, JsonOpts) ?? throw new InvalidOperationException("Classic snapshot was null.");
             else if (originalArtifact.PortfolioRequest.StrategyMode == SparrowStrategyMode.V2)
-            {
-                v2Parameters = JsonSerializer.Deserialize<SparrowV2ParameterSnapshot>(parametersJson, ParameterJsonOptions);
-                if (v2Parameters is null)
-                    throw new InvalidOperationException("V2 parameter snapshot deserialized to null.");
-            }
+                v2Parameters = JsonSerializer.Deserialize<SparrowV2ParameterSnapshot>(parametersJson, JsonOpts) ?? throw new InvalidOperationException("V2 snapshot was null.");
             else
             {
-                checks.Add(new ResearchReexecutionCheck(
-                    ResearchReexecutionCheckCodes.ExecutableParametersLoaded,
-                    ResearchReexecutionCheckStatus.Unsupported,
-                    "Classic or V2",
-                    originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                    $"Unsupported strategy mode: {originalArtifact.PortfolioRequest.StrategyMode}"));
-                reasonCodes.Add(ResearchReexecutionReasonCodes.ExecutableParametersLoadFailed);
-                return new ResearchReexecutionValidationResult(
-                    ResearchReexecutionStatus.Unsupported,
-                    checks,
-                    experimentRecord.ExperimentId,
-                    experimentRecord.ExperimentFingerprint,
-                    originalArtifact.ArtifactFingerprint,
-                    null,
-                    loadedDataset.Fingerprint,
-                    originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                    originalArtifact.PortfolioRequest.StrategyVersion,
-                    originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                    originalArtifact.PortfolioConfigurationFingerprint,
-                    reasonCodes);
+                Unsup(ExecutableParametersLoaded, "Classic or V2", originalArtifact.PortfolioRequest.StrategyMode.ToString(), $"Unsupported strategy mode: {originalArtifact.PortfolioRequest.StrategyMode}", ExecutableParametersLoadFailed);
+                return Result(Unsupported);
             }
         }
         catch (Exception ex)
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.ExecutableParametersLoaded,
-                ResearchReexecutionCheckStatus.Fail,
-                "ValidParameterSnapshotJson",
-                "DeserializationFailed",
-                $"Failed to load parameter snapshot: {ex.Message}"));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.ExecutableParametersLoadFailed);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                loadedDataset.Fingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Fail(ExecutableParametersLoaded, "ValidParameterSnapshotJson", "DeserializationFailed", $"Failed to load parameter snapshot: {ex.Message}", ExecutableParametersLoadFailed);
+            return Result(Failed);
         }
-
-        checks.Add(new ResearchReexecutionCheck(
-            ResearchReexecutionCheckCodes.ExecutableParametersLoaded,
-            ResearchReexecutionCheckStatus.Pass,
-            "Loaded",
-            "Loaded",
-            "Executable strategy parameters loaded."));
+        Pass(ExecutableParametersLoaded, "Loaded", "Loaded", "Executable strategy parameters loaded.");
 
         // 5. EXECUTABLE_PARAMETER_FINGERPRINT_MATCH
+        var pr = originalArtifact.PortfolioRequest;
         SparrowBacktestRequest backtestRequest = new(
-            originalArtifact.PortfolioRequest.StrategyMode,
-            originalArtifact.PortfolioRequest.StrategyVersion,
-            originalArtifact.PortfolioRequest.StartDate,
-            originalArtifact.PortfolioRequest.EndDate,
-            originalArtifact.PortfolioRequest.TopN,
-            new[] { originalArtifact.PortfolioRequest.HorizonTradingDays },
-            RoundTripCostRate: 0,
-            SlippageRate: 0,
-            ClassicParameters: classicParameters,
-            V2Parameters: v2Parameters);
+            pr.StrategyMode, pr.StrategyVersion, pr.StartDate, pr.EndDate, pr.TopN,
+            new[] { pr.HorizonTradingDays }, RoundTripCostRate: 0, SlippageRate: 0,
+            ClassicParameters: classicParameters, V2Parameters: v2Parameters);
 
         string candidateParamFp = SparrowHistoricalFingerprint.Parameters(backtestRequest);
-        bool paramFpMatches = string.Equals(candidateParamFp, originalArtifact.PortfolioRequest.StrategyParameterFingerprint, StringComparison.Ordinal)
+        bool paramFpMatches = string.Equals(candidateParamFp, pr.StrategyParameterFingerprint, StringComparison.Ordinal)
             && string.Equals(candidateParamFp, experimentRecord.ExecutionProvenanceBinding!.ArtifactStrategyParameterFingerprint, StringComparison.Ordinal);
-
         if (!paramFpMatches)
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.ExecutableParameterFingerprintMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                candidateParamFp,
-                "Executable strategy parameter fingerprint does not match artifact and binding."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.ExecutableParameterFingerprintMismatch);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                loadedDataset.Fingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Fail(ExecutableParameterFingerprintMatch, pr.StrategyParameterFingerprint, candidateParamFp, "Executable parameter fingerprint does not match artifact and binding.", ExecutableParameterFingerprintMismatch);
+            return Result(Failed);
         }
-
-        checks.Add(new ResearchReexecutionCheck(
-            ResearchReexecutionCheckCodes.ExecutableParameterFingerprintMatch,
-            ResearchReexecutionCheckStatus.Pass,
-            originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-            candidateParamFp,
-            "Executable strategy parameter fingerprint matches artifact and binding."));
+        Pass(ExecutableParameterFingerprintMatch, pr.StrategyParameterFingerprint, candidateParamFp, "Executable parameter fingerprint matches artifact and binding.");
 
         // 6. BACKTEST_REQUEST_RECONSTRUCTED
-        checks.Add(new ResearchReexecutionCheck(
-            ResearchReexecutionCheckCodes.BacktestRequestReconstructed,
-            ResearchReexecutionCheckStatus.Pass,
-            "Reconstructed",
-            "Reconstructed",
-            "Historical backtest request reconstructed with authoritative inputs."));
+        Pass(BacktestRequestReconstructed, "Reconstructed", "Reconstructed", "Historical backtest request reconstructed with authoritative inputs.");
 
         // 7. BACKTEST_REEXECUTED
         SparrowBacktestResult backtestResult;
-        try
-        {
-            backtestResult = new SparrowHistoricalBacktestEngine().Run(loadedDataset, backtestRequest, cancellationToken);
-        }
+        try { backtestResult = new SparrowHistoricalBacktestEngine().Run(loadedDataset, backtestRequest, cancellationToken); }
         catch (Exception ex)
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.BacktestReexecuted,
-                ResearchReexecutionCheckStatus.Fail,
-                "Completed",
-                "ExecutionFailed",
-                $"Historical backtest execution failed: {ex.Message}"));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.BacktestExecutionFailed);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                loadedDataset.Fingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Fail(BacktestReexecuted, "Completed", "ExecutionFailed", $"Backtest execution failed: {ex.Message}", BacktestExecutionFailed);
+            return Result(Failed);
         }
 
         // 8. BACKTEST_PARAMETER_FINGERPRINT_MATCH
-        bool backtestFpMatches = string.Equals(backtestResult.ParameterFingerprint, originalArtifact.PortfolioRequest.StrategyParameterFingerprint, StringComparison.Ordinal);
+        bool backtestFpMatches = string.Equals(backtestResult.ParameterFingerprint, pr.StrategyParameterFingerprint, StringComparison.Ordinal);
         if (!backtestFpMatches)
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.BacktestParameterFingerprintMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                backtestResult.ParameterFingerprint,
-                "Re-executed backtest parameter fingerprint does not match artifact strategy parameter fingerprint."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.BacktestParameterFingerprintMismatch);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                loadedDataset.Fingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Fail(BacktestParameterFingerprintMatch, pr.StrategyParameterFingerprint, backtestResult.ParameterFingerprint, "Re-executed backtest parameter fingerprint does not match artifact strategy parameter fingerprint.", BacktestParameterFingerprintMismatch);
+            return Result(Failed);
         }
-
-        checks.Add(new ResearchReexecutionCheck(
-            ResearchReexecutionCheckCodes.BacktestParameterFingerprintMatch,
-            ResearchReexecutionCheckStatus.Pass,
-            originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-            backtestResult.ParameterFingerprint,
-            "Re-executed backtest parameter fingerprint matches expected artifact fingerprint."));
+        Pass(BacktestParameterFingerprintMatch, pr.StrategyParameterFingerprint, backtestResult.ParameterFingerprint, "Re-executed backtest parameter fingerprint matches artifact fingerprint.");
 
         // 9. PORTFOLIO_REQUEST_MATCH
-        bool portfolioReqMatches = string.Equals(originalArtifact.PortfolioRequest.DatasetId, loadedDataset.DatasetId, StringComparison.Ordinal)
-            && string.Equals(originalArtifact.PortfolioRequest.DatasetFingerprint, loadedDataset.Fingerprint, StringComparison.Ordinal)
-            && originalArtifact.PortfolioRequest.StrategyMode == backtestRequest.StrategyMode
-            && string.Equals(originalArtifact.PortfolioRequest.StrategyVersion, backtestRequest.StrategyVersion, StringComparison.Ordinal)
-            && string.Equals(originalArtifact.PortfolioRequest.StrategyParameterFingerprint, backtestResult.ParameterFingerprint, StringComparison.Ordinal)
-            && originalArtifact.PortfolioRequest.StartDate == backtestRequest.StartDate
-            && originalArtifact.PortfolioRequest.EndDate == backtestRequest.EndDate
-            && originalArtifact.PortfolioRequest.TopN == backtestRequest.TopN
-            && originalArtifact.PortfolioRequest.HorizonTradingDays == backtestRequest.Horizons[0]
-            && originalArtifact.PortfolioRequest.CommissionRate == 0m
-            && originalArtifact.PortfolioRequest.SlippageRate == 0m
-            && originalArtifact.PortfolioRequest.PositionSizingMethod == PortfolioPositionSizingMethod.EqualWeight
-            && originalArtifact.PortfolioRequest.ExecutionModel == PortfolioExecutionModel.CloseBased;
+        var br = backtestRequest;
+        bool reqMatch = pr.DatasetId == loadedDataset.DatasetId && pr.DatasetFingerprint == loadedDataset.Fingerprint
+            && pr.StrategyMode == br.StrategyMode && pr.StrategyVersion == br.StrategyVersion
+            && pr.StrategyParameterFingerprint == backtestResult.ParameterFingerprint
+            && pr.StartDate == br.StartDate && pr.EndDate == br.EndDate && pr.TopN == br.TopN
+            && pr.HorizonTradingDays == br.Horizons[0] && pr.CommissionRate == 0m && pr.SlippageRate == 0m
+            && pr.PositionSizingMethod == PortfolioPositionSizingMethod.EqualWeight
+            && pr.ExecutionModel == PortfolioExecutionModel.CloseBased;
 
-        if (!portfolioReqMatches)
+        if (!reqMatch)
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.PortfolioRequestMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                "MatchesExecution",
-                "Differs",
-                "Original portfolio request does not match re-execution inputs."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.PortfolioRequestMismatch);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                loadedDataset.Fingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Fail(PortfolioRequestMatch, "MatchesExecution", "Differs", "Original portfolio request does not match re-execution inputs.", PortfolioRequestMismatch);
+            return Result(Failed);
         }
-
-        checks.Add(new ResearchReexecutionCheck(
-            ResearchReexecutionCheckCodes.PortfolioRequestMatch,
-            ResearchReexecutionCheckStatus.Pass,
-            "MatchesExecution",
-            "MatchesExecution",
-            "Original portfolio request matches re-execution inputs."));
-
-        checks.Add(new ResearchReexecutionCheck(
-            ResearchReexecutionCheckCodes.BacktestReexecuted,
-            ResearchReexecutionCheckStatus.Pass,
-            "Completed",
-            "Completed",
-            "Historical backtest engine executed successfully."));
+        Pass(PortfolioRequestMatch, "MatchesExecution", "MatchesExecution", "Original portfolio request matches re-execution inputs.");
+        Pass(BacktestReexecuted, "Completed", "Completed", "Historical backtest engine executed successfully.");
 
         // 10. PORTFOLIO_REEXECUTED
         SparrowPortfolioSimulationResult simulationResult;
-        try
-        {
-            simulationResult = await new SparrowPortfolioSimulationEngine()
-                .SimulateAsync(backtestResult, originalArtifact.PortfolioRequest, loadedDataset, cancellationToken)
-                .ConfigureAwait(false);
-        }
+        try { simulationResult = await new SparrowPortfolioSimulationEngine().SimulateAsync(backtestResult, pr, loadedDataset, cancellationToken).ConfigureAwait(false); }
         catch (Exception ex)
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.PortfolioReexecuted,
-                ResearchReexecutionCheckStatus.Fail,
-                "Completed",
-                "SimulationFailed",
-                $"Portfolio simulation execution failed: {ex.Message}"));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.PortfolioSimulationFailed);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                loadedDataset.Fingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Fail(PortfolioReexecuted, "Completed", "SimulationFailed", $"Portfolio simulation failed: {ex.Message}", PortfolioSimulationFailed);
+            return Result(Failed);
         }
-
-        checks.Add(new ResearchReexecutionCheck(
-            ResearchReexecutionCheckCodes.PortfolioReexecuted,
-            ResearchReexecutionCheckStatus.Pass,
-            "Completed",
-            "Completed",
-            "Portfolio simulation engine executed successfully."));
+        Pass(PortfolioReexecuted, "Completed", "Completed", "Portfolio simulation engine executed successfully.");
 
         // 11. PERFORMANCE_REANALYZED
         SparrowPortfolioPerformanceResult performanceResult;
-        try
-        {
-            performanceResult = await new SparrowPortfolioPerformanceAnalyzer()
-                .AnalyzeAsync(simulationResult, loadedDataset, cancellationToken)
-                .ConfigureAwait(false);
-        }
+        try { performanceResult = await new SparrowPortfolioPerformanceAnalyzer().AnalyzeAsync(simulationResult, loadedDataset, cancellationToken).ConfigureAwait(false); }
         catch (Exception ex)
         {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.PerformanceReanalyzed,
-                ResearchReexecutionCheckStatus.Fail,
-                "Completed",
-                "AnalysisFailed",
-                $"Portfolio performance analysis failed: {ex.Message}"));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.PerformanceAnalysisFailed);
-            return new ResearchReexecutionValidationResult(
-                ResearchReexecutionStatus.Failed,
-                checks,
-                experimentRecord.ExperimentId,
-                experimentRecord.ExperimentFingerprint,
-                originalArtifact.ArtifactFingerprint,
-                null,
-                loadedDataset.Fingerprint,
-                originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-                originalArtifact.PortfolioRequest.StrategyVersion,
-                originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reasonCodes);
+            Fail(PerformanceReanalyzed, "Completed", "AnalysisFailed", $"Portfolio performance analysis failed: {ex.Message}", PerformanceAnalysisFailed);
+            return Result(Failed);
         }
+        Pass(PerformanceReanalyzed, "Completed", "Completed", "Portfolio performance analyzer executed successfully.");
 
-        checks.Add(new ResearchReexecutionCheck(
-            ResearchReexecutionCheckCodes.PerformanceReanalyzed,
-            ResearchReexecutionCheckStatus.Pass,
-            "Completed",
-            "Completed",
-            "Portfolio performance analyzer executed successfully."));
-
-        // 12. Create reproduced artifact
-        SparrowPortfolioResearchArtifact reproducedArtifact = new(
-            originalArtifact.CreatedBy,
-            performanceResult,
-            originalArtifact.Limitations);
-
-        // 13. Equivalence and structural diagnostics
+        // 12-20. Create reproduced artifact & validate equivalence
+        SparrowPortfolioResearchArtifact reproducedArtifact = new(originalArtifact.CreatedBy, performanceResult, originalArtifact.Limitations);
         return ValidateArtifactEquivalence(experimentRecord, originalArtifact, reproducedArtifact, checks);
     }
 
@@ -596,396 +236,66 @@ public sealed class SparrowResearchReexecutionValidator : ISparrowResearchReexec
         List<ResearchReexecutionCheck> checks = precedingChecks is not null ? new(precedingChecks) : new();
         List<string> reasonCodes = new();
 
+        void CheckEq(string code, bool match, string exp, string act, string passMsg, string failMsg, string reason)
+        {
+            if (match) checks.Add(new(code, ResearchReexecutionCheckStatus.Pass, exp, act, passMsg));
+            else { checks.Add(new(code, ResearchReexecutionCheckStatus.Fail, exp, act, failMsg)); reasonCodes.Add(reason); }
+        }
+
+        void CheckFp(string code, string orig, string repro, string name, string reason) =>
+            CheckEq(code, orig == repro, orig, repro, $"{name} fingerprints match.", $"{name} fingerprints differ.", reason);
+
         // 12. TRADE_SEQUENCE_MATCH
-        bool tradesMatch = CompareTrades(originalArtifact.Trades, reproducedArtifact.Trades, out string tradesMessage);
-        if (tradesMatch)
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.TradeSequenceMatch,
-                ResearchReexecutionCheckStatus.Pass,
-                $"{originalArtifact.Trades.Count} trades",
-                $"{reproducedArtifact.Trades.Count} trades",
-                "Trade sequences are identical."));
-        }
-        else
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.TradeSequenceMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                $"{originalArtifact.Trades.Count} trades",
-                $"{reproducedArtifact.Trades.Count} trades",
-                $"Trade sequences differ: {tradesMessage}"));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.TradeSequenceDiverged);
-        }
+        bool tradesMatch = SeqEq(originalArtifact.Trades, reproducedArtifact.Trades, out string tradesMsg);
+        CheckEq(TradeSequenceMatch, tradesMatch, $"{originalArtifact.Trades.Count} trades", $"{reproducedArtifact.Trades.Count} trades",
+            "Trade sequences are identical.", $"Trade sequences differ: {tradesMsg}", TradeSequenceDiverged);
 
         // 13. POSITION_SEQUENCE_MATCH
-        bool positionsMatch = ComparePositions(originalArtifact.Positions, reproducedArtifact.Positions, out string positionsMessage);
-        if (positionsMatch)
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.PositionSequenceMatch,
-                ResearchReexecutionCheckStatus.Pass,
-                $"{originalArtifact.Positions.Count} positions",
-                $"{reproducedArtifact.Positions.Count} positions",
-                "Position sequences are identical."));
-        }
-        else
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.PositionSequenceMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                $"{originalArtifact.Positions.Count} positions",
-                $"{reproducedArtifact.Positions.Count} positions",
-                $"Position sequences differ: {positionsMessage}"));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.PositionSequenceDiverged);
-        }
+        bool positionsMatch = SeqEq(originalArtifact.Positions, reproducedArtifact.Positions, out string posMsg);
+        CheckEq(PositionSequenceMatch, positionsMatch, $"{originalArtifact.Positions.Count} positions", $"{reproducedArtifact.Positions.Count} positions",
+            "Position sequences are identical.", $"Position sequences differ: {posMsg}", PositionSequenceDiverged);
 
         // 14. EQUITY_CURVE_MATCH
-        bool equityCurveMatch = CompareEquityCurves(originalArtifact.EquityCurve, reproducedArtifact.EquityCurve, out string equityMessage);
-        if (equityCurveMatch)
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.EquityCurveMatch,
-                ResearchReexecutionCheckStatus.Pass,
-                $"{originalArtifact.EquityCurve.Count} points",
-                $"{reproducedArtifact.EquityCurve.Count} points",
-                "Equity curves are identical."));
-        }
-        else
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.EquityCurveMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                $"{originalArtifact.EquityCurve.Count} points",
-                $"{reproducedArtifact.EquityCurve.Count} points",
-                $"Equity curves differ: {equityMessage}"));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.EquityCurveDiverged);
-        }
+        bool equityCurveMatch = SeqEq(originalArtifact.EquityCurve, reproducedArtifact.EquityCurve, out string eqMsg);
+        CheckEq(EquityCurveMatch, equityCurveMatch, $"{originalArtifact.EquityCurve.Count} points", $"{reproducedArtifact.EquityCurve.Count} points",
+            "Equity curves are identical.", $"Equity curves differ: {eqMsg}", EquityCurveDiverged);
 
         // 15. ATTRIBUTION_MATCH
-        bool attributionMatch = CompareAttributions(originalArtifact.Attribution, reproducedArtifact.Attribution, out string attributionMessage);
-        if (attributionMatch)
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.AttributionMatch,
-                ResearchReexecutionCheckStatus.Pass,
-                $"{originalArtifact.Attribution.Count} attributions",
-                $"{reproducedArtifact.Attribution.Count} attributions",
-                "Portfolio attributions are identical."));
-        }
-        else
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.AttributionMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                $"{originalArtifact.Attribution.Count} attributions",
-                $"{reproducedArtifact.Attribution.Count} attributions",
-                $"Portfolio attributions differ: {attributionMessage}"));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.AttributionDiverged);
-        }
+        bool attributionMatch = SeqEq(originalArtifact.Attribution, reproducedArtifact.Attribution, out string attrMsg);
+        CheckEq(AttributionMatch, attributionMatch, $"{originalArtifact.Attribution.Count} attributions", $"{reproducedArtifact.Attribution.Count} attributions",
+            "Portfolio attributions are identical.", $"Portfolio attributions differ: {attrMsg}", AttributionDiverged);
 
         // 16. PERFORMANCE_SUMMARY_MATCH
-        bool performanceMatch = ComparePerformanceMetrics(originalArtifact.PerformanceSummary, reproducedArtifact.PerformanceSummary, out string performanceMessage);
-        if (performanceMatch)
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.PerformanceSummaryMatch,
-                ResearchReexecutionCheckStatus.Pass,
-                "MetricsMatch",
-                "MetricsMatch",
-                "Performance summary metrics are identical."));
-        }
-        else
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.PerformanceSummaryMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                "MetricsMatch",
-                "MetricsDiverged",
-                $"Performance summary metrics differ: {performanceMessage}"));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.PerformanceSummaryDiverged);
-        }
+        bool perfMatch = SeqEq(originalArtifact.PerformanceSummary, reproducedArtifact.PerformanceSummary, out string perfMsg);
+        CheckEq(PerformanceSummaryMatch, perfMatch, "MetricsMatch", perfMatch ? "MetricsMatch" : "MetricsDiverged",
+            "Performance summary metrics are identical.", $"Performance summary metrics differ: {perfMsg}", PerformanceSummaryDiverged);
 
         // 17. STRATEGY_FINGERPRINT_MATCH
-        bool strategyFpMatch = string.Equals(originalArtifact.StrategyFingerprint, reproducedArtifact.StrategyFingerprint, StringComparison.Ordinal);
-        if (strategyFpMatch)
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.StrategyFingerprintMatch,
-                ResearchReexecutionCheckStatus.Pass,
-                originalArtifact.StrategyFingerprint,
-                reproducedArtifact.StrategyFingerprint,
-                "Strategy fingerprints match."));
-        }
-        else
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.StrategyFingerprintMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                originalArtifact.StrategyFingerprint,
-                reproducedArtifact.StrategyFingerprint,
-                "Strategy fingerprints differ."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.StrategyFingerprintDiverged);
-        }
+        CheckFp(StrategyFingerprintMatch, originalArtifact.StrategyFingerprint, reproducedArtifact.StrategyFingerprint, "Strategy", StrategyFingerprintDiverged);
 
         // 18. PORTFOLIO_CONFIGURATION_FINGERPRINT_MATCH
-        bool portfolioConfigFpMatch = string.Equals(originalArtifact.PortfolioConfigurationFingerprint, reproducedArtifact.PortfolioConfigurationFingerprint, StringComparison.Ordinal);
-        if (portfolioConfigFpMatch)
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.PortfolioConfigurationFingerprintMatch,
-                ResearchReexecutionCheckStatus.Pass,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reproducedArtifact.PortfolioConfigurationFingerprint,
-                "Portfolio configuration fingerprints match."));
-        }
-        else
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.PortfolioConfigurationFingerprintMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                originalArtifact.PortfolioConfigurationFingerprint,
-                reproducedArtifact.PortfolioConfigurationFingerprint,
-                "Portfolio configuration fingerprints differ."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.PortfolioConfigurationFingerprintDiverged);
-        }
+        CheckFp(PortfolioConfigurationFingerprintMatch, originalArtifact.PortfolioConfigurationFingerprint, reproducedArtifact.PortfolioConfigurationFingerprint, "Portfolio configuration", PortfolioConfigurationFingerprintDiverged);
 
         // 19. ANALYSIS_FINGERPRINT_MATCH
-        bool analysisFpMatch = string.Equals(originalArtifact.AnalysisFingerprint, reproducedArtifact.AnalysisFingerprint, StringComparison.Ordinal);
-        if (analysisFpMatch)
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.AnalysisFingerprintMatch,
-                ResearchReexecutionCheckStatus.Pass,
-                originalArtifact.AnalysisFingerprint,
-                reproducedArtifact.AnalysisFingerprint,
-                "Analysis fingerprints match."));
-        }
-        else
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.AnalysisFingerprintMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                originalArtifact.AnalysisFingerprint,
-                reproducedArtifact.AnalysisFingerprint,
-                "Analysis fingerprints differ."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.AnalysisFingerprintDiverged);
-        }
+        CheckFp(AnalysisFingerprintMatch, originalArtifact.AnalysisFingerprint, reproducedArtifact.AnalysisFingerprint, "Analysis", AnalysisFingerprintDiverged);
 
         // 20. ARTIFACT_FINGERPRINT_MATCH
-        bool artifactFpMatch = string.Equals(originalArtifact.ArtifactFingerprint, reproducedArtifact.ArtifactFingerprint, StringComparison.Ordinal);
-        if (artifactFpMatch)
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.ArtifactFingerprintMatch,
-                ResearchReexecutionCheckStatus.Pass,
-                originalArtifact.ArtifactFingerprint,
-                reproducedArtifact.ArtifactFingerprint,
-                "Artifact fingerprints match."));
-        }
-        else
-        {
-            checks.Add(new ResearchReexecutionCheck(
-                ResearchReexecutionCheckCodes.ArtifactFingerprintMatch,
-                ResearchReexecutionCheckStatus.Fail,
-                originalArtifact.ArtifactFingerprint,
-                reproducedArtifact.ArtifactFingerprint,
-                "Artifact fingerprints differ."));
-            reasonCodes.Add(ResearchReexecutionReasonCodes.ArtifactFingerprintDiverged);
-        }
+        CheckFp(ArtifactFingerprintMatch, originalArtifact.ArtifactFingerprint, reproducedArtifact.ArtifactFingerprint, "Artifact", ArtifactFingerprintDiverged);
 
-        ResearchReexecutionStatus status = reasonCodes.Count == 0
-            ? ResearchReexecutionStatus.Equivalent
-            : ResearchReexecutionStatus.Diverged;
-
-        return new ResearchReexecutionValidationResult(
-            status,
-            checks,
-            experimentRecord?.ExperimentId,
-            experimentRecord?.ExperimentFingerprint,
-            originalArtifact.ArtifactFingerprint,
-            reproducedArtifact.ArtifactFingerprint,
-            originalArtifact.DatasetFingerprint,
-            originalArtifact.PortfolioRequest.StrategyMode.ToString(),
-            originalArtifact.PortfolioRequest.StrategyVersion,
-            originalArtifact.PortfolioRequest.StrategyParameterFingerprint,
-            originalArtifact.PortfolioConfigurationFingerprint,
-            reasonCodes,
-            reproducedArtifact);
+        var p = originalArtifact.PortfolioRequest;
+        return new(
+            reasonCodes.Count == 0 ? Equivalent : Diverged,
+            checks, experimentRecord?.ExperimentId, experimentRecord?.ExperimentFingerprint,
+            originalArtifact.ArtifactFingerprint, reproducedArtifact.ArtifactFingerprint,
+            originalArtifact.DatasetFingerprint, p.StrategyMode.ToString(),
+            p.StrategyVersion, p.StrategyParameterFingerprint,
+            originalArtifact.PortfolioConfigurationFingerprint, reasonCodes, reproducedArtifact);
     }
 
-    private static bool CompareTrades(IReadOnlyList<PortfolioTrade> original, IReadOnlyList<PortfolioTrade> reproduced, out string message)
+    private static bool SeqEq<T>(T a, T b, out string msg)
     {
-        if (original.Count != reproduced.Count)
-        {
-            message = $"Count mismatch: original has {original.Count}, reproduced has {reproduced.Count}.";
-            return false;
-        }
-
-        for (int i = 0; i < original.Count; i++)
-        {
-            PortfolioTrade orig = original[i];
-            PortfolioTrade repro = reproduced[i];
-            if (!string.Equals(orig.Symbol, repro.Symbol, StringComparison.Ordinal)
-                || orig.TradeDate != repro.TradeDate
-                || orig.Side != repro.Side
-                || orig.Price != repro.Price
-                || orig.Quantity != repro.Quantity
-                || orig.Notional != repro.Notional
-                || orig.Fee != repro.Fee)
-            {
-                message = $"Difference at index {i}: original [{orig.TradeDate:yyyy-MM-dd} {orig.Symbol} {orig.Side} price={orig.Price} qty={orig.Quantity}], reproduced [{repro.TradeDate:yyyy-MM-dd} {repro.Symbol} {repro.Side} price={repro.Price} qty={repro.Quantity}].";
-                return false;
-            }
-        }
-
-        message = string.Empty;
-        return true;
-    }
-
-    private static bool ComparePositions(IReadOnlyList<PortfolioPosition> original, IReadOnlyList<PortfolioPosition> reproduced, out string message)
-    {
-        if (original.Count != reproduced.Count)
-        {
-            message = $"Count mismatch: original has {original.Count}, reproduced has {reproduced.Count}.";
-            return false;
-        }
-
-        for (int i = 0; i < original.Count; i++)
-        {
-            PortfolioPosition orig = original[i];
-            PortfolioPosition repro = reproduced[i];
-            if (!string.Equals(orig.Symbol, repro.Symbol, StringComparison.Ordinal)
-                || orig.EntryDate != repro.EntryDate
-                || orig.EntryPrice != repro.EntryPrice
-                || orig.Quantity != repro.Quantity
-                || orig.EntryNotional != repro.EntryNotional
-                || orig.EntryFee != repro.EntryFee
-                || orig.Status != repro.Status
-                || orig.ExitDate != repro.ExitDate
-                || orig.ExitPrice != repro.ExitPrice
-                || orig.ExitNotional != repro.ExitNotional
-                || orig.ExitFee != repro.ExitFee
-                || orig.RealizedPnL != repro.RealizedPnL
-                || orig.ReturnPercent != repro.ReturnPercent)
-            {
-                message = $"Difference at index {i}: original [{orig.Symbol} entry={orig.EntryDate:yyyy-MM-dd} status={orig.Status} pnl={orig.RealizedPnL}], reproduced [{repro.Symbol} entry={repro.EntryDate:yyyy-MM-dd} status={repro.Status} pnl={repro.RealizedPnL}].";
-                return false;
-            }
-        }
-
-        message = string.Empty;
-        return true;
-    }
-
-    private static bool CompareEquityCurves(IReadOnlyList<PortfolioEquityPoint> original, IReadOnlyList<PortfolioEquityPoint> reproduced, out string message)
-    {
-        if (original.Count != reproduced.Count)
-        {
-            message = $"Count mismatch: original has {original.Count}, reproduced has {reproduced.Count}.";
-            return false;
-        }
-
-        for (int i = 0; i < original.Count; i++)
-        {
-            PortfolioEquityPoint orig = original[i];
-            PortfolioEquityPoint repro = reproduced[i];
-            if (orig.Date != repro.Date
-                || orig.Cash != repro.Cash
-                || orig.MarketValue != repro.MarketValue
-                || orig.TotalEquity != repro.TotalEquity
-                || orig.DailyReturn != repro.DailyReturn
-                || orig.CumulativeReturn != repro.CumulativeReturn)
-            {
-                message = $"Difference at index {i}: original [{orig.Date:yyyy-MM-dd} equity={orig.TotalEquity} cum={orig.CumulativeReturn}], reproduced [{repro.Date:yyyy-MM-dd} equity={repro.TotalEquity} cum={repro.CumulativeReturn}].";
-                return false;
-            }
-        }
-
-        message = string.Empty;
-        return true;
-    }
-
-    private static bool CompareAttributions(IReadOnlyList<PortfolioAttribution> original, IReadOnlyList<PortfolioAttribution> reproduced, out string message)
-    {
-        if (original.Count != reproduced.Count)
-        {
-            message = $"Count mismatch: original has {original.Count}, reproduced has {reproduced.Count}.";
-            return false;
-        }
-
-        for (int i = 0; i < original.Count; i++)
-        {
-            PortfolioAttribution orig = original[i];
-            PortfolioAttribution repro = reproduced[i];
-            if (!string.Equals(orig.Symbol, repro.Symbol, StringComparison.Ordinal)
-                || orig.EntryDate != repro.EntryDate
-                || orig.ExitDate != repro.ExitDate
-                || orig.HoldingPeriodTradingDays != repro.HoldingPeriodTradingDays
-                || orig.Quantity != repro.Quantity
-                || orig.RealizedPnL != repro.RealizedPnL
-                || orig.ReturnPercent != repro.ReturnPercent
-                || orig.ContributionPercent != repro.ContributionPercent
-                || orig.Winning != repro.Winning)
-            {
-                message = $"Difference at index {i}: original [{orig.Symbol} pnl={orig.RealizedPnL} ret={orig.ReturnPercent}], reproduced [{repro.Symbol} pnl={repro.RealizedPnL} ret={repro.ReturnPercent}].";
-                return false;
-            }
-        }
-
-        message = string.Empty;
-        return true;
-    }
-
-    private static bool ComparePerformanceMetrics(PortfolioPerformanceMetrics original, PortfolioPerformanceMetrics reproduced, out string message)
-    {
-        if (original.InitialCapital != reproduced.InitialCapital)
-        {
-            message = $"InitialCapital differed: original={original.InitialCapital}, reproduced={reproduced.InitialCapital}.";
-            return false;
-        }
-        if (original.FinalEquity != reproduced.FinalEquity)
-        {
-            message = $"FinalEquity differed: original={original.FinalEquity}, reproduced={reproduced.FinalEquity}.";
-            return false;
-        }
-        if (original.TotalReturnPercent != reproduced.TotalReturnPercent)
-        {
-            message = $"TotalReturnPercent differed: original={original.TotalReturnPercent}, reproduced={reproduced.TotalReturnPercent}.";
-            return false;
-        }
-        if (original.MaximumDrawdownPercent != reproduced.MaximumDrawdownPercent)
-        {
-            message = $"MaximumDrawdownPercent differed: original={original.MaximumDrawdownPercent}, reproduced={reproduced.MaximumDrawdownPercent}.";
-            return false;
-        }
-        if (original.MaximumDrawdownDate != reproduced.MaximumDrawdownDate)
-        {
-            message = $"MaximumDrawdownDate differed: original={original.MaximumDrawdownDate:yyyy-MM-dd}, reproduced={reproduced.MaximumDrawdownDate:yyyy-MM-dd}.";
-            return false;
-        }
-        if (original.TradeCount != reproduced.TradeCount)
-        {
-            message = $"TradeCount differed: original={original.TradeCount}, reproduced={reproduced.TradeCount}.";
-            return false;
-        }
-        if (original.WinningTradeCount != reproduced.WinningTradeCount)
-        {
-            message = $"WinningTradeCount differed: original={original.WinningTradeCount}, reproduced={reproduced.WinningTradeCount}.";
-            return false;
-        }
-        if (original.LosingTradeCount != reproduced.LosingTradeCount)
-        {
-            message = $"LosingTradeCount differed: original={original.LosingTradeCount}, reproduced={reproduced.LosingTradeCount}.";
-            return false;
-        }
-        if (original.WinRate != reproduced.WinRate)
-        {
-            message = $"WinRate differed: original={original.WinRate}, reproduced={reproduced.WinRate}.";
-            return false;
-        }
-
-        message = string.Empty;
-        return true;
+        string sa = JsonSerializer.Serialize(a, JsonOpts), sb = JsonSerializer.Serialize(b, JsonOpts);
+        msg = sa == sb ? string.Empty : "Serialized payload diverged.";
+        return sa == sb;
     }
 }

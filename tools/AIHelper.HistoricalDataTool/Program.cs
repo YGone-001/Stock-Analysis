@@ -186,31 +186,17 @@ async Task<int> ReproduceExperimentAsync(string experimentId)
     }
 
     Console.WriteLine($"REEXECUTION_STATUS={result.Status}");
-    if (!string.IsNullOrWhiteSpace(result.ExperimentId))
-        Console.WriteLine($"EXPERIMENT_ID={result.ExperimentId}");
-    if (!string.IsNullOrWhiteSpace(result.ExperimentFingerprint))
-        Console.WriteLine($"EXPERIMENT_FINGERPRINT={result.ExperimentFingerprint}");
-    if (!string.IsNullOrWhiteSpace(result.DatasetFingerprint))
-        Console.WriteLine($"DATASET_FINGERPRINT={result.DatasetFingerprint}");
-    if (!string.IsNullOrWhiteSpace(result.StrategyParameterFingerprint))
-        Console.WriteLine($"PARAMETER_FINGERPRINT={result.StrategyParameterFingerprint}");
-    if (!string.IsNullOrWhiteSpace(result.OriginalArtifactFingerprint))
-        Console.WriteLine($"ORIGINAL_ARTIFACT_FINGERPRINT={result.OriginalArtifactFingerprint}");
-    if (!string.IsNullOrWhiteSpace(result.ReproducedArtifactFingerprint))
-        Console.WriteLine($"REPRODUCED_ARTIFACT_FINGERPRINT={result.ReproducedArtifactFingerprint}");
-
+    void WriteField(string key, string? val) { if (!string.IsNullOrWhiteSpace(val)) Console.WriteLine($"{key}={val}"); }
+    WriteField("EXPERIMENT_ID", result.ExperimentId);
+    WriteField("EXPERIMENT_FINGERPRINT", result.ExperimentFingerprint);
+    WriteField("DATASET_FINGERPRINT", result.DatasetFingerprint);
+    WriteField("PARAMETER_FINGERPRINT", result.StrategyParameterFingerprint);
+    WriteField("ORIGINAL_ARTIFACT_FINGERPRINT", result.OriginalArtifactFingerprint);
+    WriteField("REPRODUCED_ARTIFACT_FINGERPRINT", result.ReproducedArtifactFingerprint);
     Console.WriteLine($"CHECK_COUNT={result.CheckCount}");
     Console.WriteLine($"FAILED_CHECK_COUNT={result.FailedCheckCount}");
-
-    foreach (ResearchReexecutionCheck check in result.Checks)
-    {
-        Console.WriteLine($"CHECK={check.Code}:{check.Status}");
-    }
-
-    foreach (string reason in result.ReasonCodes)
-    {
-        Console.WriteLine($"REASON={reason}");
-    }
+    foreach (var check in result.Checks) Console.WriteLine($"CHECK={check.Code}:{check.Status}");
+    foreach (var reason in result.ReasonCodes) Console.WriteLine($"REASON={reason}");
 
     if (!string.IsNullOrWhiteSpace(reproductionOutputPath))
     {
