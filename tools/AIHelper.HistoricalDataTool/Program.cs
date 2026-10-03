@@ -85,6 +85,15 @@ catch (Exception exception) { Console.Error.WriteLine($"HISTORICAL_DATASET_BUILD
 string Value(string name, string? fallback = null) => options.TryGetValue(name, out string? value) ? value : fallback ?? throw new ArgumentException($"--{name} is required.");
 DateOnly Date(string name) => DateOnly.ParseExact(Value(name), "yyyy-MM-dd", CultureInfo.InvariantCulture);
 bool Bool(string name, bool fallback) => options.TryGetValue(name, out string? value) ? bool.Parse(value) : fallback;
+bool TryParseCost(string raw, string name, out double value)
+{
+    if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value) || !double.IsFinite(value) || value < 0)
+    {
+        Console.Error.WriteLine($"INVALID_BACKTEST_COST_INPUT: --{name} must be a finite, non-negative invariant-culture number.");
+        return false;
+    }
+    return true;
+}
 
 async Task<int> VerifyReproducibilityAsync(string experimentId)
 {
@@ -149,6 +158,15 @@ async Task<int> ReproduceExperimentAsync(string experimentId)
     string? parametersPath = options.TryGetValue("parameters", out string? p) ? p : null;
     string? reproductionOutputPath = options.TryGetValue("reproduction-output", out string? ro) ? ro : null;
 
+    if (!options.ContainsKey("backtest-round-trip-cost-rate") || !options.ContainsKey("backtest-slippage-rate"))
+    {
+        Console.Error.WriteLine("MISSING_BACKTEST_COST_INPUT: --backtest-round-trip-cost-rate and --backtest-slippage-rate are required; no zero default is applied.");
+        return 1;
+    }
+    if (!TryParseCost(options["backtest-round-trip-cost-rate"], "backtest-round-trip-cost-rate", out double backtestRoundTripCostRate)
+        || !TryParseCost(options["backtest-slippage-rate"], "backtest-slippage-rate", out double backtestSlippageRate))
+        return 1;
+
     if (!File.Exists(artifactPath))
     {
         Console.Error.WriteLine($"ARTIFACT_NOT_FOUND: Artifact file '{artifactPath}' was not found.");
@@ -177,7 +195,7 @@ async Task<int> ReproduceExperimentAsync(string experimentId)
     ResearchReexecutionValidationResult result;
     try
     {
-        result = await validator.ValidateReexecutionAsync(record, artifactPath, datasetPath, parametersPath);
+        result = await validator.ValidateReexecutionAsync(record, artifactPath, datasetPath, parametersPath, backtestRoundTripCostRate, backtestSlippageRate);
     }
     catch (Exception exception)
     {
@@ -186,6 +204,8 @@ async Task<int> ReproduceExperimentAsync(string experimentId)
     }
 
     Console.WriteLine($"REEXECUTION_STATUS={result.Status}");
+    Console.WriteLine($"BACKTEST_ROUND_TRIP_COST_RATE={backtestRoundTripCostRate.ToString("R", CultureInfo.InvariantCulture)}");
+    Console.WriteLine($"BACKTEST_SLIPPAGE_RATE={backtestSlippageRate.ToString("R", CultureInfo.InvariantCulture)}");
     void WriteField(string key, string? val) { if (!string.IsNullOrWhiteSpace(val)) Console.WriteLine($"{key}={val}"); }
     WriteField("EXPERIMENT_ID", result.ExperimentId);
     WriteField("EXPERIMENT_FINGERPRINT", result.ExperimentFingerprint);

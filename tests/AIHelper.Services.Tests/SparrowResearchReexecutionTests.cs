@@ -24,8 +24,12 @@ public sealed class SparrowResearchReexecutionTests
         AnalysisFingerprintMatch, ArtifactFingerprintMatch
     };
 
-    private static Task<ResearchReexecutionValidationResult> RunValAsync(Fixture f, string? art = null, string? dat = null, string? par = null, PersistedResearchExperimentRecord? rec = null) =>
-        new SparrowResearchReexecutionValidator().ValidateReexecutionAsync(rec ?? f.Record, art ?? f.ArtifactPath, dat ?? f.DatasetPath, par ?? f.ParametersPath);
+    // Backtest execution costs (SparrowBacktestRequest) are deliberately distinct from portfolio costs (PortfolioSimulationRequest).
+    private const double BtCost = 0.001, BtSlippage = 0.002;
+    private const decimal PortfolioCommission = 0.0003m, PortfolioSlippage = 0.0004m;
+
+    private static Task<ResearchReexecutionValidationResult> RunValAsync(Fixture f, string? art = null, string? dat = null, string? par = null, PersistedResearchExperimentRecord? rec = null, double btCost = BtCost, double btSlip = BtSlippage) =>
+        new SparrowResearchReexecutionValidator().ValidateReexecutionAsync(rec ?? f.Record, art ?? f.ArtifactPath, dat ?? f.DatasetPath, par ?? f.ParametersPath, btCost, btSlip);
 
     [Fact]
     public Task ValidateReexecutionAsync_ValidEvidence_ReturnsEquivalentAndAllChecksPass() =>
@@ -50,7 +54,7 @@ public sealed class SparrowResearchReexecutionTests
     public Task ValidateReexecutionAsync_MissingParameters_FailsWithoutUsingDefaults() =>
         WithFixtureAsync(async (f, _) =>
         {
-            var result = await new SparrowResearchReexecutionValidator().ValidateReexecutionAsync(f.Record, f.ArtifactPath, f.DatasetPath, parametersPath: null);
+            var result = await new SparrowResearchReexecutionValidator().ValidateReexecutionAsync(f.Record, f.ArtifactPath, f.DatasetPath, parametersPath: null, BtCost, BtSlippage);
             Assert.Equal(Failed, result.Status);
             Assert.Contains(result.ReasonCodes, r => r == ExecutableParametersMissing);
             var check = Assert.Single(result.Checks, c => c.Code == ExecutableParametersLoaded);
@@ -139,6 +143,74 @@ public sealed class SparrowResearchReexecutionTests
         });
 
     [Fact]
+    public Task ValidateReexecutionAsync_NonZeroBacktestCosts_ReproducesExactly() =>
+        WithFixtureAsync(async (f, _) =>
+        {
+            Assert.NotEqual(0, BtCost);
+            Assert.NotEqual(0, BtSlippage);
+            var result = await RunValAsync(f);
+            Assert.Equal(Equivalent, result.Status);
+            Assert.Equal(f.Artifact.ArtifactFingerprint, result.OriginalArtifactFingerprint);
+            Assert.Equal(f.Artifact.ArtifactFingerprint, result.ReproducedArtifactFingerprint);
+        });
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public Task ValidateReexecutionAsync_WrongBacktestCost_FailsBeforeExecution(bool wrongRoundTrip) =>
+        WithFixtureAsync(async (f, _) =>
+        {
+            var result = wrongRoundTrip ? await RunValAsync(f, btCost: BtCost + 0.005) : await RunValAsync(f, btSlip: BtSlippage + 0.005);
+            Assert.Equal(Failed, result.Status);
+            Assert.Contains(result.ReasonCodes, r => r == ExecutableParameterFingerprintMismatch);
+            Assert.DoesNotContain(result.Checks, c => c.Code == BacktestReexecuted);
+        });
+
+    [Fact]
+    public Task ValidateReexecutionAsync_NonZeroPortfolioCommission_IsNotRejected() =>
+        WithFixtureAsync(async (f, _) =>
+        {
+            Assert.True(f.Artifact.PortfolioRequest.CommissionRate > 0);
+            var result = await RunValAsync(f);
+            Assert.Equal(Equivalent, result.Status);
+            Assert.Equal(f.Artifact.PortfolioRequest.StrategyParameterFingerprint, result.StrategyParameterFingerprint);
+        });
+
+    [Fact]
+    public Task ValidateReexecutionAsync_NonZeroPortfolioSlippage_IsNotRejected() =>
+        WithFixtureAsync(async (f, _) =>
+        {
+            Assert.True(f.Artifact.PortfolioRequest.SlippageRate > 0);
+            var result = await RunValAsync(f);
+            Assert.Equal(Equivalent, result.Status);
+            Assert.Equal(f.Artifact.PortfolioConfigurationFingerprint, result.PortfolioConfigurationFingerprint);
+        });
+
+    [Fact]
+    public Task ValidateReexecutionAsync_BacktestAndPortfolioCostsDiffer_ReproducesExactly() =>
+        WithFixtureAsync(async (f, _) =>
+        {
+            Assert.NotEqual((decimal)BtCost, f.Artifact.PortfolioRequest.CommissionRate);
+            Assert.NotEqual((decimal)BtSlippage, f.Artifact.PortfolioRequest.SlippageRate);
+            var result = await RunValAsync(f);
+            Assert.Equal(Equivalent, result.Status);
+            Assert.Equal(f.Artifact.ArtifactFingerprint, result.ReproducedArtifactFingerprint);
+        });
+
+    [Theory]
+    [InlineData("--backtest-slippage-rate", "0.002")]
+    [InlineData("--backtest-round-trip-cost-rate", "0.001")]
+    public async Task Cli_MissingBacktestCost_ExitsNonZeroWithoutDefault(string present, string value)
+    {
+        var psi = CreateCliStartInfo("--reproduce-experiment", "EXP-001", "--experiment-store", "./experiments", "--artifact", "./a.json", "--dataset", "./d.json", "--parameters", "./p.json", present, value);
+        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Could not start CLI.");
+        string stderr = await proc.StandardError.ReadToEndAsync();
+        await proc.WaitForExitAsync();
+        Assert.NotEqual(0, proc.ExitCode);
+        Assert.Contains("MISSING_BACKTEST_COST_INPUT", stderr);
+    }
+
+    [Fact]
     public void ValidateArtifactEquivalence_DivergedTrades_ReturnsDivergedWithDiagnostic()
     {
         var original = CreateMockArtifact();
@@ -205,12 +277,15 @@ public sealed class SparrowResearchReexecutionTests
     public Task Cli_Subprocess_WithoutGateway_ReturnsZeroAndEquivalent() =>
         WithFixtureAsync(async (f, _) =>
         {
-            var psi = CreateCliStartInfo("--reproduce-experiment", f.Record.ExperimentId, "--experiment-store", f.StorePath, "--artifact", f.ArtifactPath, "--dataset", f.DatasetPath, "--parameters", f.ParametersPath);
+            var psi = CreateCliStartInfo("--reproduce-experiment", f.Record.ExperimentId, "--experiment-store", f.StorePath, "--artifact", f.ArtifactPath, "--dataset", f.DatasetPath, "--parameters", f.ParametersPath,
+                "--backtest-round-trip-cost-rate", "0.001", "--backtest-slippage-rate", "0.002");
             using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Could not start CLI.");
             string stdout = await proc.StandardOutput.ReadToEndAsync();
             await proc.WaitForExitAsync();
             Assert.Equal(0, proc.ExitCode);
             Assert.Contains("REEXECUTION_STATUS=Equivalent", stdout);
+            Assert.Contains("BACKTEST_ROUND_TRIP_COST_RATE=0.001", stdout);
+            Assert.Contains("BACKTEST_SLIPPAGE_RATE=0.002", stdout);
             Assert.Contains($"EXPERIMENT_ID={f.Record.ExperimentId}", stdout);
             Assert.Contains($"ORIGINAL_ARTIFACT_FINGERPRINT={f.Artifact.ArtifactFingerprint}", stdout);
             Assert.Contains($"REPRODUCED_ARTIFACT_FINGERPRINT={f.Artifact.ArtifactFingerprint}", stdout);
@@ -277,8 +352,8 @@ public sealed class SparrowResearchReexecutionTests
         SparrowClassicParameterSnapshot classicParams = new(false, 1, 5, 1.1, 1, true, 0, .15);
         await File.WriteAllTextAsync(parametersPath, JsonSerializer.Serialize(classicParams));
 
-        var backtest = new SparrowHistoricalBacktestEngine().Run(dataset, new(SparrowStrategyMode.Classic, SparrowStrategyVersions.Classic, s, e, 2, new[] { 1 }, ClassicParameters: classicParams));
-        var sim = await new SparrowPortfolioSimulationEngine().SimulateAsync(backtest, new(dataset.DatasetId, dataset.Fingerprint, SparrowStrategyMode.Classic, SparrowStrategyVersions.Classic, backtest.ParameterFingerprint, s, e, 2, 1, 1e6m, PortfolioPositionSizingMethod.EqualWeight, 0, 0), dataset);
+        var backtest = new SparrowHistoricalBacktestEngine().Run(dataset, new(SparrowStrategyMode.Classic, SparrowStrategyVersions.Classic, s, e, 2, new[] { 1 }, BtCost, BtSlippage, classicParams));
+        var sim = await new SparrowPortfolioSimulationEngine().SimulateAsync(backtest, new(dataset.DatasetId, dataset.Fingerprint, SparrowStrategyMode.Classic, SparrowStrategyVersions.Classic, backtest.ParameterFingerprint, s, e, 2, 1, 1e6m, PortfolioPositionSizingMethod.EqualWeight, PortfolioCommission, PortfolioSlippage), dataset);
         var perf = await new SparrowPortfolioPerformanceAnalyzer().AnalyzeAsync(sim, dataset);
         var art = await new SparrowPortfolioResearchExporter().ExportAsync(perf, artifactPath);
 

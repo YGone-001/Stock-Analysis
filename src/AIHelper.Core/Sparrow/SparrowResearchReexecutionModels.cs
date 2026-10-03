@@ -76,10 +76,15 @@ public static class ResearchReexecutionReasonCodes
 
 public interface ISparrowResearchReexecutionValidator
 {
+    /// <summary>Re-executes the original historical backtest and portfolio simulation from explicit evidence.
+    /// The two backtest cost values are mandatory historical execution inputs and are never inferred from the
+    /// distinct portfolio commission/slippage contract; no default fallback is applied.</summary>
     Task<ResearchReexecutionValidationResult> ValidateReexecutionAsync(
         PersistedResearchExperimentRecord experimentRecord,
         string originalArtifactPath,
         string datasetPath,
         string? parametersPath,
+        double backtestRoundTripCostRate,
+        double backtestSlippageRate,
         CancellationToken cancellationToken = default);
 }

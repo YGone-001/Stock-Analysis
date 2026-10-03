@@ -24,6 +24,8 @@ public sealed class SparrowResearchReexecutionValidator : ISparrowResearchReexec
         string originalArtifactPath,
         string datasetPath,
         string? parametersPath,
+        double backtestRoundTripCostRate,
+        double backtestSlippageRate,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(experimentRecord);
@@ -144,10 +146,11 @@ public sealed class SparrowResearchReexecutionValidator : ISparrowResearchReexec
         Pass(ExecutableParametersLoaded, "Loaded", "Loaded", "Executable strategy parameters loaded.");
 
         // 5. EXECUTABLE_PARAMETER_FINGERPRINT_MATCH
+        // Historical backtest identity preimage includes RoundTripCostRate and SlippageRate: supplied explicitly, never inferred.
         var pr = originalArtifact.PortfolioRequest;
         SparrowBacktestRequest backtestRequest = new(
             pr.StrategyMode, pr.StrategyVersion, pr.StartDate, pr.EndDate, pr.TopN,
-            new[] { pr.HorizonTradingDays }, RoundTripCostRate: 0, SlippageRate: 0,
+            new[] { pr.HorizonTradingDays }, backtestRoundTripCostRate, backtestSlippageRate,
             ClassicParameters: classicParameters, V2Parameters: v2Parameters);
 
         string candidateParamFp = SparrowHistoricalFingerprint.Parameters(backtestRequest);
@@ -182,26 +185,30 @@ public sealed class SparrowResearchReexecutionValidator : ISparrowResearchReexec
         Pass(BacktestParameterFingerprintMatch, pr.StrategyParameterFingerprint, backtestResult.ParameterFingerprint, "Re-executed backtest parameter fingerprint matches artifact fingerprint.");
 
         // 9. PORTFOLIO_REQUEST_MATCH
-        var br = backtestRequest;
-        bool reqMatch = pr.DatasetId == loadedDataset.DatasetId && pr.DatasetFingerprint == loadedDataset.Fingerprint
-            && pr.StrategyMode == br.StrategyMode && pr.StrategyVersion == br.StrategyVersion
-            && pr.StrategyParameterFingerprint == backtestResult.ParameterFingerprint
-            && pr.StartDate == br.StartDate && pr.EndDate == br.EndDate && pr.TopN == br.TopN
-            && pr.HorizonTradingDays == br.Horizons[0] && pr.CommissionRate == 0m && pr.SlippageRate == 0m
-            && pr.PositionSizingMethod == PortfolioPositionSizingMethod.EqualWeight
-            && pr.ExecutionModel == PortfolioExecutionModel.CloseBased;
+        // Reconstructed from persisted evidence: portfolio commission/slippage are read directly, never inferred from backtest costs.
+        PortfolioSimulationRequest rr = new(
+            loadedDataset.DatasetId, loadedDataset.Fingerprint, pr.StrategyMode, pr.StrategyVersion,
+            backtestResult.ParameterFingerprint, pr.StartDate, pr.EndDate, pr.TopN, pr.HorizonTradingDays,
+            pr.InitialCapital, pr.PositionSizingMethod, pr.CommissionRate, pr.SlippageRate, pr.ExecutionModel);
+
+        bool reqMatch = pr.DatasetId == rr.DatasetId && pr.DatasetFingerprint == rr.DatasetFingerprint
+            && pr.StrategyMode == rr.StrategyMode && pr.StrategyVersion == rr.StrategyVersion && pr.StrategyParameterFingerprint == rr.StrategyParameterFingerprint
+            && pr.StartDate == rr.StartDate && pr.EndDate == rr.EndDate && pr.TopN == rr.TopN && pr.HorizonTradingDays == rr.HorizonTradingDays
+            && pr.InitialCapital == rr.InitialCapital && pr.PositionSizingMethod == rr.PositionSizingMethod
+            && pr.CommissionRate == rr.CommissionRate && pr.SlippageRate == rr.SlippageRate && pr.ExecutionModel == rr.ExecutionModel
+            && string.Equals(SparrowPortfolioResearchFingerprint.Portfolio(rr), originalArtifact.PortfolioConfigurationFingerprint, StringComparison.Ordinal);
 
         if (!reqMatch)
         {
-            Fail(PortfolioRequestMatch, "MatchesExecution", "Differs", "Original portfolio request does not match re-execution inputs.", PortfolioRequestMismatch);
+            Fail(PortfolioRequestMatch, "MatchesPersisted", "Differs", "Reconstructed portfolio request does not match the persisted original request.", PortfolioRequestMismatch);
             return Result(Failed);
         }
-        Pass(PortfolioRequestMatch, "MatchesExecution", "MatchesExecution", "Original portfolio request matches re-execution inputs.");
+        Pass(PortfolioRequestMatch, "MatchesPersisted", "MatchesPersisted", "Reconstructed portfolio request matches the persisted original request.");
         Pass(BacktestReexecuted, "Completed", "Completed", "Historical backtest engine executed successfully.");
 
         // 10. PORTFOLIO_REEXECUTED
         SparrowPortfolioSimulationResult simulationResult;
-        try { simulationResult = await new SparrowPortfolioSimulationEngine().SimulateAsync(backtestResult, pr, loadedDataset, cancellationToken).ConfigureAwait(false); }
+        try { simulationResult = await new SparrowPortfolioSimulationEngine().SimulateAsync(backtestResult, rr, loadedDataset, cancellationToken).ConfigureAwait(false); }
         catch (Exception ex)
         {
             Fail(PortfolioReexecuted, "Completed", "SimulationFailed", $"Portfolio simulation failed: {ex.Message}", PortfolioSimulationFailed);
