@@ -9,13 +9,10 @@ public sealed record ResearchReexecutionCheck(string Code, ResearchReexecutionCh
 
 public sealed class ResearchReexecutionValidationResult
 {
-    public ResearchReexecutionValidationResult(
-        ResearchReexecutionStatus status, IEnumerable<ResearchReexecutionCheck> checks,
-        string? experimentId = null, string? experimentFingerprint = null,
-        string? originalArtifactFingerprint = null, string? reproducedArtifactFingerprint = null,
-        string? datasetFingerprint = null, string? strategyMode = null, string? strategyVersion = null,
-        string? strategyParameterFingerprint = null, string? portfolioConfigurationFingerprint = null,
-        IEnumerable<string>? reasonCodes = null, SparrowPortfolioResearchArtifact? reproducedArtifact = null)
+    public ResearchReexecutionValidationResult(ResearchReexecutionStatus status, IEnumerable<ResearchReexecutionCheck> checks,
+        string? experimentId = null, string? experimentFingerprint = null, string? originalArtifactFingerprint = null, string? reproducedArtifactFingerprint = null,
+        string? datasetFingerprint = null, string? strategyMode = null, string? strategyVersion = null, string? strategyParameterFingerprint = null,
+        string? portfolioConfigurationFingerprint = null, IEnumerable<string>? reasonCodes = null, SparrowPortfolioResearchArtifact? reproducedArtifact = null)
     {
         Status = status; Checks = Array.AsReadOnly(checks.ToArray());
         ExperimentId = experimentId; ExperimentFingerprint = experimentFingerprint;
@@ -76,15 +73,7 @@ public static class ResearchReexecutionReasonCodes
 
 public interface ISparrowResearchReexecutionValidator
 {
-    /// <summary>Re-executes the original historical backtest and portfolio simulation from explicit evidence.
-    /// The two backtest cost values are mandatory historical execution inputs and are never inferred from the
-    /// distinct portfolio commission/slippage contract; no default fallback is applied.</summary>
-    Task<ResearchReexecutionValidationResult> ValidateReexecutionAsync(
-        PersistedResearchExperimentRecord experimentRecord,
-        string originalArtifactPath,
-        string datasetPath,
-        string? parametersPath,
-        double backtestRoundTripCostRate,
-        double backtestSlippageRate,
-        CancellationToken cancellationToken = default);
+    /// <summary>Re-executes the original backtest and portfolio simulation from explicit evidence; the two backtest cost inputs are mandatory and never defaulted.</summary>
+    Task<ResearchReexecutionValidationResult> ValidateReexecutionAsync(PersistedResearchExperimentRecord experimentRecord, string originalArtifactPath, string datasetPath,
+        string? parametersPath, double backtestRoundTripCostRate, double backtestSlippageRate, CancellationToken cancellationToken = default);
 }

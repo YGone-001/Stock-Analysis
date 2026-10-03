@@ -138,14 +138,8 @@ async Task<int> VerifyReproducibilityAsync(string experimentId)
     if (result.ArtifactFingerprint is not null) Console.WriteLine($"ARTIFACT_FINGERPRINT={result.ArtifactFingerprint}");
     Console.WriteLine($"CHECK_COUNT={result.CheckCount}");
     Console.WriteLine($"FAILED_CHECK_COUNT={result.FailedCheckCount}");
-    foreach (ResearchReproducibilityCheck check in result.Checks)
-    {
-        Console.WriteLine($"CHECK={check.Code}:{check.Status}");
-    }
-    foreach (string reason in result.ReasonCodes)
-    {
-        Console.WriteLine($"REASON={reason}");
-    }
+    foreach (ResearchReproducibilityCheck check in result.Checks) Console.WriteLine($"CHECK={check.Code}:{check.Status}");
+    foreach (string reason in result.ReasonCodes) Console.WriteLine($"REASON={reason}");
 
     return result.Status == ResearchReproducibilityVerificationStatus.Verified ? 0 : 1;
 }
@@ -167,17 +161,8 @@ async Task<int> ReproduceExperimentAsync(string experimentId)
         || !TryParseCost(options["backtest-slippage-rate"], "backtest-slippage-rate", out double backtestSlippageRate))
         return 1;
 
-    if (!File.Exists(artifactPath))
-    {
-        Console.Error.WriteLine($"ARTIFACT_NOT_FOUND: Artifact file '{artifactPath}' was not found.");
-        return 1;
-    }
-
-    if (!File.Exists(datasetPath))
-    {
-        Console.Error.WriteLine($"DATASET_NOT_FOUND: Dataset file '{datasetPath}' was not found.");
-        return 1;
-    }
+    if (!File.Exists(artifactPath)) { Console.Error.WriteLine($"ARTIFACT_NOT_FOUND: Artifact file '{artifactPath}' was not found."); return 1; }
+    if (!File.Exists(datasetPath)) { Console.Error.WriteLine($"DATASET_NOT_FOUND: Dataset file '{datasetPath}' was not found."); return 1; }
 
     JsonResearchExperimentRepository repository = new(experimentStore);
     PersistedResearchExperimentRecord record;
@@ -222,12 +207,7 @@ async Task<int> ReproduceExperimentAsync(string experimentId)
     {
         string? directory = Path.GetDirectoryName(reproductionOutputPath);
         if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-        JsonSerializerOptions outputOptions = new()
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            Converters = { new JsonStringEnumConverter() }
-        };
+        JsonSerializerOptions outputOptions = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, Converters = { new JsonStringEnumConverter() } };
         await File.WriteAllTextAsync(reproductionOutputPath, JsonSerializer.Serialize(result, outputOptions));
     }
 

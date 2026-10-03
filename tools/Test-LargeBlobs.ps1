@@ -75,10 +75,11 @@ try {
             }
         } |
         Measure-Object -Sum).Sum
-    $treeMiB = [math]::Round($treeBytes / 1MB, 2)
+    $treeMiBDisplay = [math]::Round($treeBytes / 1MB, 2)
+    $maximumTreeBytes = [math]::Floor([double]$MaxTreeMiB * 1MB)
 
-    if ($MaxTreeMiB -gt 0 -and $treeMiB -gt $MaxTreeMiB) {
-        Write-Output "Current HEAD tree uses $treeMiB MiB; budget is $MaxTreeMiB MiB."
+    if ($MaxTreeMiB -gt 0 -and $treeBytes -gt $maximumTreeBytes) {
+        Write-Output "Current HEAD tree uses $treeBytes bytes ($treeMiBDisplay MiB displayed); budget is $maximumTreeBytes bytes ($MaxTreeMiB MiB)."
         exit 1
     }
 
@@ -88,7 +89,7 @@ try {
         exit 1
     }
 
-    Write-Output "Repository size guard passed: HEAD is $treeMiB MiB and no unapproved file exceeds $MaxSizeMiB MiB in $scanLabel."
+    Write-Output "Repository size guard passed: HEAD is $treeBytes bytes ($treeMiBDisplay MiB); budget is $maximumTreeBytes bytes ($MaxTreeMiB MiB) and no unapproved file exceeds $MaxSizeMiB MiB in $scanLabel."
 }
 finally {
     Pop-Location
