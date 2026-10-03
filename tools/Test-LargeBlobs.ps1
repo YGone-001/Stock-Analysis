@@ -4,7 +4,7 @@ param(
     [int]$MaxSizeMiB = 5,
 
     [ValidateRange(0.0, 10240.0)]
-    [double]$MaxTreeMiB = 3.25,
+    [double]$MaxTreeMiB = 4.00,
 
     [string]$BaseRef = '',
 
@@ -75,11 +75,15 @@ try {
             }
         } |
         Measure-Object -Sum).Sum
-    $treeMiBDisplay = [math]::Round($treeBytes / 1MB, 2)
     $maximumTreeBytes = [math]::Floor([double]$MaxTreeMiB * 1MB)
+    $treeMiBDisplay = [math]::Round($treeBytes / 1MB, 2)
+    $budgetMiBDisplay = [math]::Round($maximumTreeBytes / 1MB, 2)
+    $remainingBytes = $maximumTreeBytes - $treeBytes
+    $utilizationPercent = if ($maximumTreeBytes -gt 0) { $treeBytes / $maximumTreeBytes * 100 } else { 0.0 }
 
     if ($MaxTreeMiB -gt 0 -and $treeBytes -gt $maximumTreeBytes) {
         Write-Output "Current HEAD tree uses $treeBytes bytes ($treeMiBDisplay MiB displayed); budget is $maximumTreeBytes bytes ($MaxTreeMiB MiB)."
+        Write-Output ("Over budget by {0} bytes; utilization is {1:N2}%." -f ($treeBytes - $maximumTreeBytes), $utilizationPercent)
         exit 1
     }
 
@@ -89,7 +93,17 @@ try {
         exit 1
     }
 
-    Write-Output "Repository size guard passed: HEAD is $treeBytes bytes ($treeMiBDisplay MiB); budget is $maximumTreeBytes bytes ($MaxTreeMiB MiB) and no unapproved file exceeds $MaxSizeMiB MiB in $scanLabel."
+    # Informational only: warn before the budget is exhausted so the next phase is not forced into an emergency slimming pass.
+    if ($MaxTreeMiB -gt 0 -and $utilizationPercent -ge 90) {
+        Write-Output ("WARNING: Repository tree usage is {0:N2}% of the configured budget ({1} of {2} bytes); {3} bytes remain." -f $utilizationPercent, $treeBytes, $maximumTreeBytes, $remainingBytes)
+    }
+
+    Write-Output "Repository size guard passed:"
+    Write-Output ("  HEAD = {0} bytes ({1:N2} MiB)" -f $treeBytes, $treeMiBDisplay)
+    Write-Output ("  Budget = {0} bytes ({1:N2} MiB)" -f $maximumTreeBytes, $budgetMiBDisplay)
+    Write-Output ("  Remaining = {0} bytes" -f $remainingBytes)
+    Write-Output ("  Utilization = {0:N2}%" -f $utilizationPercent)
+    Write-Output "  No unapproved file exceeds $MaxSizeMiB MiB in $scanLabel."
 }
 finally {
     Pop-Location

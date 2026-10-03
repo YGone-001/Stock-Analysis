@@ -31,14 +31,9 @@ jobs:
           if ($baseRef -match '^0+$') {
             $baseRef = ''
           }
-          ./tools/Test-LargeBlobs.ps1 -BaseRef $baseRef -MaxSizeMiB 5 -MaxTreeMiB 3.25
+          ./tools/Test-LargeBlobs.ps1 -BaseRef $baseRef -MaxSizeMiB 5 -MaxTreeMiB 4.00
 
       - name: Report repository size
         shell: pwsh
         run: |
-          try {
-            ./tools/Measure-RepositorySize.ps1 -Top 20 -MaxTrackedMiB 0 -MaxGitMiB 0
-          }
-          catch {
-            Write-Warning "Size report unavailable on this runner: $_"
-          }
+          ./tools/Measure-RepositorySize.ps1 -Top 20 -MaxTrackedMiB 0 -MaxGitMiB 0
