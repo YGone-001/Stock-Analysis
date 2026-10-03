@@ -13,6 +13,8 @@ try
     if (options.ContainsKey("verify-reproducibility")) detectedModes.Add("reproducibility-verification");
     if (options.ContainsKey("reproduce-experiment")) detectedModes.Add("research-reexecution");
     if (options.ContainsKey("report-experiment") || options.ContainsKey("report-lineage") || options.ContainsKey("report-comparison")) detectedModes.Add("research-reporting");
+    if (Bool("show-source-build-provenance", false)) detectedModes.Add("source-build-provenance");
+    if (options.ContainsKey("verify-source-build-provenance")) detectedModes.Add("source-build-provenance-verification");
     if (Bool("analyze-benchmark", false)) detectedModes.Add("benchmark-analysis");
     if (Bool("export-portfolio-research", false)) detectedModes.Add("portfolio-research-export");
     if (options.ContainsKey("source") || options.ContainsKey("dataset-id") || options.ContainsKey("symbols") || options.ContainsKey("benchmarks"))
@@ -37,6 +39,10 @@ try
         return await ReproduceExperimentAsync(reproduceExperimentId);
     if (options.ContainsKey("report-experiment") || options.ContainsKey("report-lineage") || options.ContainsKey("report-comparison"))
         return await ExportResearchReportAsync();
+    if (Bool("show-source-build-provenance", false))
+        return ShowSourceBuildProvenance();
+    if (options.TryGetValue("verify-source-build-provenance", out string? provenanceExperimentId))
+        return await VerifySourceBuildProvenanceAsync(provenanceExperimentId);
     if (Bool("analyze-benchmark", false))
         return await AnalyzeBenchmarkAsync();
     if (Bool("export-portfolio-research", false))
@@ -142,6 +148,58 @@ async Task<int> VerifyReproducibilityAsync(string experimentId)
     foreach (string reason in result.ReasonCodes) Console.WriteLine($"REASON={reason}");
 
     return result.Status == ResearchReproducibilityVerificationStatus.Verified ? 0 : 1;
+}
+
+int ShowSourceBuildProvenance()
+{
+    try
+    {
+        ResearchSourceBuildProvenance provenance = new ResearchSourceBuildProvenanceProvider().Capture();
+        Console.WriteLine("SOURCE_BUILD_PROVENANCE_STATUS=Available");
+        Console.WriteLine($"SOURCE_COMMIT_SHA={provenance.SourceCommitSha}");
+        Console.WriteLine($"SOURCE_TREE_SHA={provenance.SourceTreeSha}");
+        Console.WriteLine($"SOURCE_STATE={provenance.SourceState}");
+        Console.WriteLine($"BUILD_CONFIGURATION={provenance.BuildConfiguration}");
+        Console.WriteLine($"TARGET_FRAMEWORK={provenance.TargetFramework}");
+        Console.WriteLine($"TOOL_MODULE_VERSION_ID={provenance.HistoricalDataToolModuleVersionId}");
+        Console.WriteLine($"SERVICES_MODULE_VERSION_ID={provenance.ServicesModuleVersionId}");
+        Console.WriteLine($"CORE_MODULE_VERSION_ID={provenance.CoreModuleVersionId}");
+        Console.WriteLine($"SOURCE_BUILD_PROVENANCE_FINGERPRINT={provenance.ProvenanceFingerprint}");
+        return 0;
+    }
+    catch (ResearchSourceBuildProvenanceException exception)
+    {
+        Console.WriteLine("SOURCE_BUILD_PROVENANCE_STATUS=Unavailable");
+        Console.WriteLine($"REASON={exception.ReasonCode}");
+        return 1;
+    }
+}
+
+async Task<int> VerifySourceBuildProvenanceAsync(string experimentId)
+{
+    JsonResearchExperimentRepository repository = new(Value("experiment-store"));
+    PersistedResearchExperimentRecord record;
+    try
+    {
+        record = await repository.GetAsync(experimentId);
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"EXPERIMENT_LOAD_FAILED: {exception.Message}");
+        return 1;
+    }
+
+    ResearchSourceBuildProvenanceVerificationResult result = new ResearchSourceBuildProvenanceVerifier().Verify(record);
+    Console.WriteLine($"SOURCE_BUILD_VERIFICATION_STATUS={result.Status}");
+    Console.WriteLine($"EXPERIMENT_ID={record.ExperimentId}");
+    void WriteProvenanceField(string key, string? value) { if (!string.IsNullOrWhiteSpace(value)) Console.WriteLine($"{key}={value}"); }
+    WriteProvenanceField("RECORDED_PROVENANCE_FINGERPRINT", result.RecordedProvenanceFingerprint);
+    WriteProvenanceField("CURRENT_PROVENANCE_FINGERPRINT", result.CurrentProvenanceFingerprint);
+    Console.WriteLine($"FAILED_CHECK_COUNT={result.FailedCheckCount}");
+    foreach (ResearchReproducibilityCheck check in result.Checks) Console.WriteLine($"CHECK={check.Code}:{check.Status}");
+    foreach (string reason in result.ReasonCodes) Console.WriteLine($"REASON={reason}");
+
+    return result.Status == ResearchSourceBuildProvenanceVerificationStatus.Match ? 0 : 1;
 }
 
 async Task<int> ReproduceExperimentAsync(string experimentId)
@@ -358,11 +416,13 @@ async Task<int> ExportPortfolioResearchAsync()
 static Dictionary<string, string> Parse(string[] args)
 {
     Dictionary<string, string> output = new(StringComparer.OrdinalIgnoreCase);
-    for (int index = 0; index < args.Length; index += 2)
+    for (int index = 0; index < args.Length; index++)
     {
-        if (!args[index].StartsWith("--", StringComparison.Ordinal) || index + 1 >= args.Length)
+        if (!args[index].StartsWith("--", StringComparison.Ordinal))
             throw new ArgumentException("Arguments must be --name value pairs.");
-        output.Add(args[index][2..], args[index + 1]);
+        // A trailing bare flag is treated as 'true' so read-only switches need no explicit value.
+        bool hasValue = index + 1 < args.Length && !args[index + 1].StartsWith("--", StringComparison.Ordinal);
+        output.Add(args[index][2..], hasValue ? args[++index] : "true");
     }
     return output;
 }

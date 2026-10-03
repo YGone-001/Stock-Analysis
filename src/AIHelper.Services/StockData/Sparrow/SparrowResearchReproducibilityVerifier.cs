@@ -61,6 +61,7 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
         }
 
         bool recordValid = (string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.CurrentSchemaVersion, StringComparison.Ordinal)
+            || string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion, StringComparison.Ordinal)
             || string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.LegacySchemaVersion, StringComparison.Ordinal))
             && experiment.ExecutionSummary.Status == ResearchExperimentExecutionStatus.Completed
             && string.Equals(experiment.ExperimentId, experiment.Definition.Identity.ExperimentId, StringComparison.Ordinal);
@@ -70,7 +71,7 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
             checks.Add(new ResearchReproducibilityCheck(
                 ResearchReproducibilityCheckCodes.ExperimentRecordValid,
                 ResearchReproducibilityCheckStatus.Pass,
-                $"{PersistedResearchExperimentRecord.CurrentSchemaVersion} or {PersistedResearchExperimentRecord.LegacySchemaVersion}",
+                $"{PersistedResearchExperimentRecord.CurrentSchemaVersion} or {PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion} or {PersistedResearchExperimentRecord.LegacySchemaVersion}",
                 experiment.SchemaVersion,
                 "Persisted experiment record schema and structure are valid."));
         }
@@ -620,6 +621,10 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
             }
 
             // 19. EXECUTION_PROVENANCE_BINDING_PRESENT
+            // V2 records carry binding v1; V3 records carry binding v2. Neither version is redefined.
+            string expectedBindingVersion = string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.CurrentSchemaVersion, StringComparison.Ordinal)
+                ? ResearchExecutionProvenanceBinding.CurrentBindingVersion
+                : ResearchExecutionProvenanceBinding.LegacyBindingVersion;
             if (experiment.ExecutionProvenanceBinding is null)
             {
                 if (string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.LegacySchemaVersion, StringComparison.Ordinal))
@@ -627,7 +632,7 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
                     checks.Add(new ResearchReproducibilityCheck(
                         ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingPresent,
                         ResearchReproducibilityCheckStatus.Unsupported,
-                        ResearchExecutionProvenanceBinding.CurrentBindingVersion,
+                        expectedBindingVersion,
                         "<null>",
                         $"{ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingUnavailableV1}: Legacy experiment record version 'research-experiment-record-v1' has no authoritative execution provenance binding."));
                     reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingUnavailableV1);
@@ -638,9 +643,9 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
                     checks.Add(new ResearchReproducibilityCheck(
                         ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingPresent,
                         ResearchReproducibilityCheckStatus.Fail,
-                        ResearchExecutionProvenanceBinding.CurrentBindingVersion,
+                        expectedBindingVersion,
                         "<null>",
-                        "Execution provenance binding is missing in V2 experiment record."));
+                        "Execution provenance binding is missing in the experiment record."));
                     reasonCodes.Add(ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingPresent);
                 }
             }
@@ -650,13 +655,13 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
                 checks.Add(new ResearchReproducibilityCheck(
                     ResearchReproducibilityCheckCodes.ExecutionProvenanceBindingPresent,
                     ResearchReproducibilityCheckStatus.Pass,
-                    ResearchExecutionProvenanceBinding.CurrentBindingVersion,
+                    expectedBindingVersion,
                     binding.BindingVersion,
                     "Execution provenance binding is present in experiment record."));
 
                 // 20. EXECUTION_PROVENANCE_BINDING_VALID
                 string recomputedBindingFp = binding.ComputeFingerprint();
-                bool bindingValid = string.Equals(binding.BindingVersion, ResearchExecutionProvenanceBinding.CurrentBindingVersion, StringComparison.Ordinal)
+                bool bindingValid = string.Equals(binding.BindingVersion, expectedBindingVersion, StringComparison.Ordinal)
                     && string.Equals(binding.BindingFingerprint, recomputedBindingFp, StringComparison.Ordinal);
 
                 if (bindingValid)

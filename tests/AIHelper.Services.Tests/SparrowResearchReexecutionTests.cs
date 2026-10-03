@@ -309,7 +309,7 @@ public sealed class SparrowResearchReexecutionTests
 
         PersistedResearchExperimentRecord record = new(id.ExperimentId, def.SemanticFingerprint, def, summary,
             new(art.ArtifactFingerprint, art.ArtifactVersion), new(def.SemanticFingerprint, def.DatasetFingerprint, fp.Fingerprint, art.ArtifactFingerprint),
-            ep, PersistedResearchExperimentRecord.CurrentSchemaVersion, ResearchExecutionProvenanceBinding.Create(def, art));
+            ep, PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion, ResearchExecutionProvenanceBinding.Create(def, art));
 
         await new JsonResearchExperimentRepository(storePath).SaveAsync(record);
         return new(record, art, dataset, storePath, artifactPath, datasetPath, parametersPath);

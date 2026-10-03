@@ -61,7 +61,7 @@ public sealed class SparrowResearchExperimentPersistenceTests
             await File.WriteAllTextAsync(path, schema.ToJsonString());
             await Assert.ThrowsAsync<NotSupportedException>(() => repository.GetAsync("EXP-001"));
 
-            await File.WriteAllTextAsync(path, JsonNode.Parse(await File.ReadAllTextAsync(path))!.ToJsonString().Replace("research-experiment-record-v999", PersistedResearchExperimentRecord.CurrentSchemaVersion, StringComparison.Ordinal));
+            await File.WriteAllTextAsync(path, JsonNode.Parse(await File.ReadAllTextAsync(path))!.ToJsonString().Replace("research-experiment-record-v999", PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion, StringComparison.Ordinal));
             JsonObject tampered = JsonNode.Parse(await File.ReadAllTextAsync(path))!.AsObject();
             tampered["experimentFingerprint"] = "tampered";
             await File.WriteAllTextAsync(path, tampered.ToJsonString());
@@ -142,7 +142,7 @@ public sealed class SparrowResearchExperimentPersistenceTests
             await repository.SaveAsync(record);
 
             PersistedResearchExperimentRecord loaded = await repository.GetAsync("EXP-V2-001");
-            Assert.Equal(PersistedResearchExperimentRecord.CurrentSchemaVersion, loaded.SchemaVersion);
+            Assert.Equal(PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion, loaded.SchemaVersion);
             Assert.NotNull(loaded.ExecutionProvenanceBinding);
             Assert.Equal(record.ExecutionProvenanceBinding!.BindingFingerprint, loaded.ExecutionProvenanceBinding!.BindingFingerprint);
             Assert.Equal(record.ExecutionProvenanceBinding.ArtifactStrategyParameterFingerprint, loaded.ExecutionProvenanceBinding.ArtifactStrategyParameterFingerprint);
@@ -183,7 +183,7 @@ public sealed class SparrowResearchExperimentPersistenceTests
             v1.ArtifactReference,
             v1.Lineage,
             v1.CreatedAt,
-            PersistedResearchExperimentRecord.CurrentSchemaVersion,
+            PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion,
             executionProvenanceBinding: null));
     }
 
@@ -221,7 +221,7 @@ public sealed class SparrowResearchExperimentPersistenceTests
         ResearchResultArtifactReference artifactRef = new(summary.ArtifactFingerprint, SparrowPortfolioResearchArtifact.CurrentArtifactVersion);
 
         string bindingFp = ResearchExecutionProvenanceBinding.ComputeFingerprint(
-            ResearchExecutionProvenanceBinding.CurrentBindingVersion,
+            ResearchExecutionProvenanceBinding.LegacyBindingVersion,
             definition.SemanticFingerprint,
             definition.Parameters.Fingerprint,
             definition.StrategyParameterFingerprint,
@@ -235,7 +235,7 @@ public sealed class SparrowResearchExperimentPersistenceTests
             artifactRef.ArtifactFingerprint);
 
         ResearchExecutionProvenanceBinding binding = new(
-            ResearchExecutionProvenanceBinding.CurrentBindingVersion,
+            ResearchExecutionProvenanceBinding.LegacyBindingVersion,
             definition.SemanticFingerprint,
             definition.Parameters.Fingerprint,
             definition.StrategyParameterFingerprint,
@@ -257,7 +257,7 @@ public sealed class SparrowResearchExperimentPersistenceTests
             artifactRef,
             lineage,
             createdAt ?? new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
-            PersistedResearchExperimentRecord.CurrentSchemaVersion,
+            PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion,
             binding);
     }
 

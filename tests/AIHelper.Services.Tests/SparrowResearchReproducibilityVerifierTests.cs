@@ -799,7 +799,7 @@ public sealed class SparrowResearchReproducibilityVerifierTests
             record.ArtifactReference,
             record.Lineage,
             record.CreatedAt,
-            PersistedResearchExperimentRecord.CurrentSchemaVersion,
+            PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion,
             tamperedBinding));
 
         PersistedResearchExperimentRecord bypassRecord = new(
@@ -1007,7 +1007,7 @@ public sealed class SparrowResearchReproducibilityVerifierTests
             artifactRef,
             lineage,
             new DateTimeOffset(2026, 1, 1, 11, 0, 0, TimeSpan.Zero),
-            PersistedResearchExperimentRecord.CurrentSchemaVersion,
+            PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion,
             binding);
 
         return (record, artifact, artifactJson);
