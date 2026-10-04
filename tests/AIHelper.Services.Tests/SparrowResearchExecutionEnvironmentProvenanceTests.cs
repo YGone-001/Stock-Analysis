@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AIHelper.Core.Sparrow;
 using AIHelper.Services.StockData.Sparrow;
 using Xunit;
@@ -92,7 +93,8 @@ public sealed class SparrowResearchExecutionEnvironmentProvenanceTests
             Assert.Equal("1.0.0", library.Version);
             Assert.Empty(library.Dependencies);
 
-            ResearchResolvedDependency app = Assert.Single(manifest.Dependencies, dependency => dependency.Name == "app");
+            // Project identities preserve manifest casing; only package identities are lowercased.
+            ResearchResolvedDependency app = Assert.Single(manifest.Dependencies, dependency => dependency.Name == "App");
             Assert.Equal("project", app.Type);
             Assert.Equal("lib.a", Assert.Single(app.Dependencies).Name);
         }
@@ -152,6 +154,221 @@ public sealed class SparrowResearchExecutionEnvironmentProvenanceTests
             Assert.Equal(DependencyManifestUnavailable, exception.ReasonCode);
         }
         finally { DeleteDirectory(root); }
+    }
+
+    // ---- type-aware identity canonicalization -----------------------------------------------------------
+
+    [Fact]
+    public void PackageIdentity_IsCaseInsensitive()
+    {
+        IReadOnlyList<ResearchResolvedDependency> canonical = new[]
+        {
+            new ResearchResolvedDependency("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("Newtonsoft.Json", "13.0.3") }),
+            new ResearchResolvedDependency("Newtonsoft.Json", "13.0.3", "package", null)
+        };
+        IReadOnlyList<ResearchResolvedDependency> upper = new[]
+        {
+            new ResearchResolvedDependency("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("NEWTONSOFT.JSON", "13.0.3") }),
+            new ResearchResolvedDependency("NEWTONSOFT.JSON", "13.0.3", "package", null)
+        };
+
+        ResearchResolvedDependency package = Assert.Single(Environment(dependencies: upper).Dependencies, dependency => dependency.Type == "package");
+        Assert.Equal("newtonsoft.json", package.Name);
+        Assert.Equal(Fingerprint(canonical), Fingerprint(upper));
+    }
+
+    [Fact]
+    public void ProjectIdentity_PreservesManifestCasing()
+    {
+        ResearchExecutionEnvironmentProvenance provenance = Environment(dependencies: new[]
+        {
+            new ResearchResolvedDependency("Research.Core", "1.0.0", "project", null)
+        });
+
+        Assert.Equal("Research.Core", Assert.Single(provenance.Dependencies).Name);
+    }
+
+    [Fact]
+    public void ProjectIdentity_IsCaseSensitive()
+    {
+        string upper = Fingerprint(new[] { new ResearchResolvedDependency("Research.Core", "1.0.0", "project", null) });
+        string lower = Fingerprint(new[] { new ResearchResolvedDependency("research.core", "1.0.0", "project", null) });
+        Assert.NotEqual(upper, lower);
+    }
+
+    [Fact]
+    public void PackageAndProjectIdentity_UseDifferentEquivalenceContracts()
+    {
+        ResearchExecutionEnvironmentProvenance package = Environment(dependencies: new[]
+        {
+            new ResearchResolvedDependency("Same.Name", "1.0.0", "package", null)
+        });
+        ResearchExecutionEnvironmentProvenance project = Environment(dependencies: new[]
+        {
+            new ResearchResolvedDependency("Same.Name", "1.0.0", "project", null)
+        });
+
+        Assert.Equal("same.name", Assert.Single(package.Dependencies).Name);
+        Assert.Equal("Same.Name", Assert.Single(project.Dependencies).Name);
+        Assert.NotEqual(package.DependencyManifestFingerprint, project.DependencyManifestFingerprint);
+    }
+
+    [Fact]
+    public void UnknownDependencyType_PreservesManifestCasing()
+    {
+        ResearchExecutionEnvironmentProvenance provenance = Environment(dependencies: new[]
+        {
+            new ResearchResolvedDependency("Future.Type", "1.0.0", "  Future.Kind  ", null)
+        });
+
+        ResearchResolvedDependency library = Assert.Single(provenance.Dependencies);
+        Assert.Equal("Future.Type", library.Name);
+        Assert.Equal("future.kind", library.Type);
+    }
+
+    [Fact]
+    public void ProjectEdgeTarget_PreservesTargetCasing()
+    {
+        ResearchExecutionEnvironmentProvenance provenance = Environment(dependencies: new[]
+        {
+            new ResearchResolvedDependency("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("Research.Core", "1.0.0") }),
+            new ResearchResolvedDependency("Research.Core", "1.0.0", "project", null)
+        });
+
+        ResearchResolvedDependency app = Assert.Single(provenance.Dependencies, dependency => dependency.Name == "App");
+        Assert.Equal("Research.Core", Assert.Single(app.Dependencies).Name);
+    }
+
+    [Fact]
+    public void PackageEdgeTarget_ResolvesCaseInsensitively()
+    {
+        ResearchExecutionEnvironmentProvenance first = Environment(dependencies: new[]
+        {
+            new ResearchResolvedDependency("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("NEWTONSOFT.JSON", "13.0.3") }),
+            new ResearchResolvedDependency("Newtonsoft.Json", "13.0.3", "package", null)
+        });
+        ResearchExecutionEnvironmentProvenance second = Environment(dependencies: new[]
+        {
+            new ResearchResolvedDependency("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("newtonsoft.json", "13.0.3") }),
+            new ResearchResolvedDependency("NEWTONSOFT.JSON", "13.0.3", "package", null)
+        });
+
+        ResearchResolvedDependency app = Assert.Single(first.Dependencies, dependency => dependency.Name == "App");
+        Assert.Equal("newtonsoft.json", Assert.Single(app.Dependencies).Name);
+        Assert.Equal(first.DependencyManifestFingerprint, second.DependencyManifestFingerprint);
+    }
+
+    [Fact]
+    public void UnresolvedProjectEdge_IsRejected()
+    {
+        ResearchExecutionEnvironmentProvenanceException exception = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(() => Environment(dependencies: new[]
+        {
+            new ResearchResolvedDependency("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("research.core", "1.0.0") }),
+            new ResearchResolvedDependency("Research.Core", "1.0.0", "project", null)
+        }));
+
+        Assert.Equal(DependencyManifestInvalid, exception.ReasonCode);
+    }
+
+    // ---- duplicate semantics ----------------------------------------------------------------------------
+
+    [Fact]
+    public void ExactDuplicateLibraries_CollapseRegardlessOfOrder()
+    {
+        ResearchResolvedDependency app = new("app", "1.0.0", "project", null);
+        ResearchResolvedDependency duplicate = new("lib.a", "1.0.0", "package", new[] { new ResearchResolvedDependencyReference("app", "1.0.0") });
+
+        ResearchExecutionEnvironmentProvenance first = Environment(dependencies: new[] { app, duplicate, duplicate });
+        ResearchExecutionEnvironmentProvenance second = Environment(dependencies: new[] { duplicate, duplicate, app });
+
+        Assert.Equal(2, first.Dependencies.Count);
+        Assert.Equal(first.DependencyManifestFingerprint, second.DependencyManifestFingerprint);
+    }
+
+    [Fact]
+    public void ConflictingDuplicateLibraryIdentity_IsRejectedInEitherOrder()
+    {
+        ResearchResolvedDependency app = new("app", "1.0.0", "project", null);
+        ResearchResolvedDependency bare = new("lib.a", "1.0.0", "package", null);
+        ResearchResolvedDependency linked = new("lib.a", "1.0.0", "package", new[] { new ResearchResolvedDependencyReference("app", "1.0.0") });
+
+        ResearchExecutionEnvironmentProvenanceException forward = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(
+            () => Environment(dependencies: new[] { app, bare, linked }));
+        Assert.Equal(DependencyManifestInvalid, forward.ReasonCode);
+
+        ResearchExecutionEnvironmentProvenanceException reversed = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(
+            () => Environment(dependencies: new[] { app, linked, bare }));
+        Assert.Equal(DependencyManifestInvalid, reversed.ReasonCode);
+    }
+
+    [Fact]
+    public void ConflictingDuplicatePackageIdentity_DiffersOnlyByCase_IsRejected()
+    {
+        // Two package identities that canonicalize to one identity must not silently collapse when their edges differ.
+        ResearchExecutionEnvironmentProvenanceException exception = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(() => Environment(dependencies: new[]
+        {
+            new ResearchResolvedDependency("app", "1.0.0", "project", null),
+            new ResearchResolvedDependency("Newtonsoft.Json", "13.0.3", "package", null),
+            new ResearchResolvedDependency("NEWTONSOFT.JSON", "13.0.3", "package", new[] { new ResearchResolvedDependencyReference("app", "1.0.0") })
+        }));
+
+        Assert.Equal(DependencyManifestInvalid, exception.ReasonCode);
+    }
+
+    [Fact]
+    public void DependencyGraph_IsIndependentOfCollectionOrder()
+    {
+        IReadOnlyList<ResearchResolvedDependency> forward = MixedGraph();
+        IReadOnlyList<ResearchResolvedDependency> reversed = MixedGraph().Reverse().ToArray();
+        IReadOnlyList<ResearchResolvedDependency> edgesReversed = MixedGraph()
+            .Select(library => new ResearchResolvedDependency(library.Name, library.Version, library.Type, library.Dependencies.Reverse().ToArray()))
+            .ToArray();
+        IReadOnlyList<ResearchResolvedDependency> withDuplicates = MixedGraph()
+            .SelectMany(library => new[] { library, new ResearchResolvedDependency(library.Name, library.Version, library.Type, library.Dependencies) })
+            .ToArray();
+
+        string baseline = Fingerprint(forward);
+        Assert.Equal(baseline, Fingerprint(reversed));
+        Assert.Equal(baseline, Fingerprint(edgesReversed));
+        Assert.Equal(baseline, Fingerprint(withDuplicates));
+    }
+
+    // ---- persisted self-validation ----------------------------------------------------------------------
+
+    [Fact]
+    public void EnvironmentProvenance_SerializesAndSelfValidates()
+    {
+        ResearchExecutionEnvironmentProvenance original = Environment(dependencies: MixedGraph());
+        ResearchExecutionEnvironmentProvenance reloaded = RoundTrip(original);
+
+        Assert.Equal(original.DependencyManifestFingerprint, reloaded.DependencyManifestFingerprint);
+        Assert.Equal(original.ProvenanceFingerprint, reloaded.ProvenanceFingerprint);
+        Assert.Equal(original.DependencyManifestFingerprint, reloaded.ComputeDependencyManifestFingerprint());
+        Assert.Equal(original.ProvenanceFingerprint, reloaded.ComputeProvenanceFingerprint());
+        Assert.Equal(
+            original.Dependencies.Select(library => $"{library.Name}/{library.Version}:{library.Type}"),
+            reloaded.Dependencies.Select(library => $"{library.Name}/{library.Version}:{library.Type}"));
+    }
+
+    [Fact]
+    public void PersistedProvenance_TamperBehaviour_IsSemanticallyCorrect()
+    {
+        ResearchExecutionEnvironmentProvenance original = Environment(dependencies: MixedGraph());
+        string json = JsonSerializer.Serialize(original, RoundTripOptions);
+
+        // Project casing is semantic: tampering it makes the stored dependency edge unresolvable.
+        string projectTampered = TamperLibraryName(json, "Research.Core", "research.core");
+        Assert.NotEqual(json, projectTampered);
+        ResearchExecutionEnvironmentProvenanceException unresolved = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(
+            () => JsonSerializer.Deserialize<ResearchExecutionEnvironmentProvenance>(projectTampered, RoundTripOptions));
+        Assert.Equal(DependencyManifestInvalid, unresolved.ReasonCode);
+
+        // Package casing is not semantic: the canonical identity is unchanged, so the payload stays valid.
+        string packageTampered = TamperLibraryName(json, "newtonsoft.json", "Newtonsoft.Json");
+        Assert.NotEqual(json, packageTampered);
+        ResearchExecutionEnvironmentProvenance reloaded = JsonSerializer.Deserialize<ResearchExecutionEnvironmentProvenance>(packageTampered, RoundTripOptions)!;
+        Assert.Equal(original.DependencyManifestFingerprint, reloaded.DependencyManifestFingerprint);
+        Assert.Equal(original.ProvenanceFingerprint, reloaded.ProvenanceFingerprint);
     }
 
     // ---- environment fingerprint ------------------------------------------------------------------------
@@ -244,19 +461,22 @@ public sealed class SparrowResearchExecutionEnvironmentProvenanceTests
     }
 
     [Fact]
-    public void EnvironmentProvenance_RejectsTamperedDependencyGraph()
+    public void EnvironmentProvenance_RejectsUnresolvableDependencyGraph()
     {
         ResearchExecutionEnvironmentProvenance valid = Environment();
+        // The edge targets a version that no declared library provides, so resolution must fail rather than guess.
         IReadOnlyList<ResearchResolvedDependency> tampered = new[]
         {
             new ResearchResolvedDependency("app", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("lib.a", "9.9.9") }),
             new ResearchResolvedDependency("lib.a", "1.0.0", "package", null)
         };
 
-        Assert.Throws<ArgumentException>(() => new ResearchExecutionEnvironmentProvenance(
-            valid.ProvenanceVersion, valid.FrameworkDescription, valid.RuntimeVersion, valid.RuntimeIdentifier, valid.OSPlatform,
-            valid.OSArchitecture, valid.ProcessArchitecture, valid.DependencyRuntimeTarget, tampered,
-            valid.DependencyManifestFingerprint, valid.ProvenanceFingerprint));
+        ResearchExecutionEnvironmentProvenanceException exception = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(() =>
+            new ResearchExecutionEnvironmentProvenance(
+                valid.ProvenanceVersion, valid.FrameworkDescription, valid.RuntimeVersion, valid.RuntimeIdentifier, valid.OSPlatform,
+                valid.OSArchitecture, valid.ProcessArchitecture, valid.DependencyRuntimeTarget, tampered,
+                valid.DependencyManifestFingerprint, valid.ProvenanceFingerprint));
+        Assert.Equal(DependencyManifestInvalid, exception.ReasonCode);
     }
 
     // ---- binding versioning -----------------------------------------------------------------------------
@@ -564,7 +784,7 @@ public sealed class SparrowResearchExecutionEnvironmentProvenanceTests
             targetEntries.Add($"\"{libraryName}/{libraryVersion}\": {{ \"runtime\": {{ \"{libraryName}.dll\": {{}} }} }}");
             libraryEntries.Add($"\"{libraryName}/{libraryVersion}\": {{ \"type\": \"package\" }}");
         }
-        if (extraLibrary)
+        if (extraLibrary || extraEdge)
         {
             targetEntries.Add("\"extra.lib/3.0.0\": { \"runtime\": { \"extra.lib.dll\": {} } }");
             libraryEntries.Add("\"extra.lib/3.0.0\": { \"type\": \"package\" }");
@@ -621,6 +841,43 @@ public sealed class SparrowResearchExecutionEnvironmentProvenanceTests
     }
 
     private static ResearchDependencyManifest ReadManifest(string path) => new DotNetDependencyManifestReader(() => path).Read();
+
+    private static readonly JsonSerializerOptions RoundTripOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
+
+    private static string Fingerprint(IReadOnlyList<ResearchResolvedDependency> dependencies) =>
+        ResearchExecutionEnvironmentProvenance.ComputeDependencyManifestFingerprint(RuntimeTarget, dependencies);
+
+    private static ResearchExecutionEnvironmentProvenance RoundTrip(ResearchExecutionEnvironmentProvenance provenance) =>
+        JsonSerializer.Deserialize<ResearchExecutionEnvironmentProvenance>(JsonSerializer.Serialize(provenance, RoundTripOptions), RoundTripOptions)!;
+
+    /// <summary>A graph with one project-to-project edge, one project-to-package edge and one package-to-project edge.</summary>
+    private static IReadOnlyList<ResearchResolvedDependency> MixedGraph() => new[]
+    {
+        new ResearchResolvedDependency("App", "1.0.0", "project", new[]
+        {
+            new ResearchResolvedDependencyReference("Research.Core", "1.0.0"),
+            new ResearchResolvedDependencyReference("Newtonsoft.Json", "13.0.3")
+        }),
+        new ResearchResolvedDependency("Research.Core", "1.0.0", "project", null),
+        new ResearchResolvedDependency("Newtonsoft.Json", "13.0.3", "package", new[] { new ResearchResolvedDependencyReference("App", "1.0.0") })
+    };
+
+    private static string TamperLibraryName(string json, string currentName, string newName)
+    {
+        JsonObject root = JsonNode.Parse(json)!.AsObject();
+        foreach (JsonNode? node in root["dependencies"]!.AsArray())
+        {
+            if (node is null || !string.Equals(node["name"]!.GetValue<string>(), currentName, StringComparison.Ordinal)) continue;
+            node["name"] = newName;
+            break;
+        }
+
+        return root.ToJsonString();
+    }
 
     private static string Line(string stdout, string key)
     {

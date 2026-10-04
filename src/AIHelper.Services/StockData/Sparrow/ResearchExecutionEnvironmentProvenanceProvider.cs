@@ -170,7 +170,8 @@ public sealed class DotNetDependencyManifestReader : IResearchDependencyManifest
                 dependencies.Add(new ResearchResolvedDependency(name, version, type, edges));
             }
 
-            return new ResearchDependencyManifest(runtimeTarget, dependencies);
+            // The parsed graph is canonicalized here so the reader always yields the type-aware normalized identity.
+            return new ResearchDependencyManifest(runtimeTarget, ResearchDependencyGraph.Canonicalize(dependencies));
         }
         catch (JsonException exception)
         {

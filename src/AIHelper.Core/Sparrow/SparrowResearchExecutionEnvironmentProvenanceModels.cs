@@ -29,11 +29,14 @@ public sealed class ResearchResolvedDependencyReference
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
-        Name = ResearchDependencyCanonical.Name(name);
-        Version = ResearchDependencyCanonical.Version(version);
+        Name = name.Trim();
+        Version = version.Trim();
     }
 
-    /// <summary>Canonical lowercase-invariant dependency name.</summary>
+    /// <summary>
+    /// Canonical dependency name. Its casing follows the resolved target library's factual type, so package
+    /// targets are lowercase while non-package targets keep their manifest casing.
+    /// </summary>
     public string Name { get; }
     public string Version { get; }
 
@@ -49,13 +52,16 @@ public sealed class ResearchResolvedDependency
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         ArgumentException.ThrowIfNullOrWhiteSpace(type);
-        Name = ResearchDependencyCanonical.Name(name);
-        Version = ResearchDependencyCanonical.Version(version);
-        Type = ResearchDependencyCanonical.Type(type);
-        Dependencies = ResearchDependencyCanonical.Edges(dependencies);
+        Name = name.Trim();
+        Version = version.Trim();
+        Type = ResearchDependencyGraph.CanonicalType(type);
+        Dependencies = ResearchDependencyGraph.OrderedEdges(dependencies);
     }
 
-    /// <summary>Canonical lowercase-invariant dependency name.</summary>
+    /// <summary>
+    /// Canonical dependency name. <see cref="ResearchDependencyGraph.Canonicalize"/> applies the type-aware rule;
+    /// this constructor only trims, because the type-aware form requires the whole graph for edge resolution.
+    /// </summary>
     public string Name { get; }
     public string Version { get; }
     /// <summary>Factual manifest dependency type, canonicalized to lowercase (for example 'package' or 'project').</summary>
@@ -99,7 +105,7 @@ public sealed class ResearchExecutionEnvironmentProvenance
         string dependencyRuntimeTarget,
         IReadOnlyList<ResearchResolvedDependency>? dependencies)
     {
-        IReadOnlyList<ResearchResolvedDependency> canonical = ResearchDependencyCanonical.Libraries(dependencies);
+        IReadOnlyList<ResearchResolvedDependency> canonical = ResearchDependencyGraph.Canonicalize(dependencies);
         string dependencyManifestFingerprint = ComputeDependencyManifestFingerprint(dependencyRuntimeTarget, canonical);
         string provenanceFingerprint = ComputeProvenanceFingerprint(provenanceVersion, frameworkDescription, runtimeVersion, runtimeIdentifier,
             osPlatform, osArchitecture, processArchitecture, dependencyRuntimeTarget, dependencyManifestFingerprint);
@@ -145,7 +151,7 @@ public sealed class ResearchExecutionEnvironmentProvenance
         OSArchitecture = osArchitecture;
         ProcessArchitecture = processArchitecture;
         DependencyRuntimeTarget = dependencyRuntimeTarget;
-        Dependencies = ResearchDependencyCanonical.Libraries(dependencies);
+        Dependencies = ResearchDependencyGraph.Canonicalize(dependencies);
         DependencyManifestFingerprint = dependencyManifestFingerprint;
         ProvenanceFingerprint = provenanceFingerprint;
 
@@ -186,7 +192,7 @@ public sealed class ResearchExecutionEnvironmentProvenance
     /// <summary>Hashes the normalized dependency graph. Raw manifest bytes, whitespace and manifest paths are excluded.</summary>
     public static string ComputeDependencyManifestFingerprint(string dependencyRuntimeTarget, IReadOnlyList<ResearchResolvedDependency>? dependencies)
     {
-        DependencyManifestPayload payload = new(DependencyManifestContractVersion, dependencyRuntimeTarget, ResearchDependencyCanonical.Libraries(dependencies));
+        DependencyManifestPayload payload = new(DependencyManifestContractVersion, dependencyRuntimeTarget, ResearchDependencyGraph.Canonicalize(dependencies));
         return Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(payload, CanonicalJson)));
     }
 
@@ -219,27 +225,126 @@ public sealed class ResearchExecutionEnvironmentProvenance
 
 }
 
-/// <summary>Canonicalization rules shared by the dependency model types. Names are case-insensitive by NuGet package ID semantics.</summary>
-internal static class ResearchDependencyCanonical
+/// <summary>
+/// Canonicalization of the normalized dependency graph.
+/// <para>
+/// Package identities are case-insensitive, matching NuGet package ID semantics. Every other factual manifest type
+/// keeps its manifest casing, because no type-specific equivalence contract is established for it and lowercasing
+/// would destroy information. Dependency edges follow the identity rule of their resolved target library.
+/// </para>
+/// </summary>
+public static class ResearchDependencyGraph
 {
-    public static string Name(string value) => value.Trim().ToLowerInvariant();
-    public static string Version(string value) => value.Trim();
-    public static string Type(string value) => value.Trim().ToLowerInvariant();
+    /// <summary>The only dependency type whose identity is case-insensitive.</summary>
+    public const string PackageType = "package";
 
-    public static IReadOnlyList<ResearchResolvedDependencyReference> Edges(IReadOnlyList<ResearchResolvedDependencyReference>? edges) =>
+    /// <summary>Canonical type label: trimmed, lowercase-invariant.</summary>
+    public static string CanonicalType(string type) => type.Trim().ToLowerInvariant();
+
+    /// <summary>Type-aware canonical dependency name.</summary>
+    public static string CanonicalName(string name, string type) =>
+        string.Equals(CanonicalType(type), PackageType, StringComparison.Ordinal)
+            ? name.Trim().ToLowerInvariant()
+            : name.Trim();
+
+    /// <summary>Deterministically ordered, exact-duplicate-free dependency edges.</summary>
+    public static IReadOnlyList<ResearchResolvedDependencyReference> OrderedEdges(IReadOnlyList<ResearchResolvedDependencyReference>? edges) =>
         Array.AsReadOnly((edges ?? Array.Empty<ResearchResolvedDependencyReference>())
             .DistinctBy(edge => edge.Name + "/" + edge.Version, StringComparer.Ordinal)
             .OrderBy(edge => edge.Name, StringComparer.Ordinal)
             .ThenBy(edge => edge.Version, StringComparer.Ordinal)
             .ToArray());
 
-    public static IReadOnlyList<ResearchResolvedDependency> Libraries(IReadOnlyList<ResearchResolvedDependency>? libraries) =>
-        Array.AsReadOnly((libraries ?? Array.Empty<ResearchResolvedDependency>())
-            .DistinctBy(library => library.Name + "/" + library.Version + ":" + library.Type, StringComparer.Ordinal)
+    /// <summary>
+    /// Canonicalizes a parsed or persisted dependency graph: type-aware library names, deterministic edge target
+    /// resolution, exact-duplicate collapse and conflicting-identity rejection. The result depends only on the
+    /// semantic graph, never on input, JSON property or enumeration order.
+    /// </summary>
+    public static IReadOnlyList<ResearchResolvedDependency> Canonicalize(IReadOnlyList<ResearchResolvedDependency>? libraries)
+    {
+        if (libraries is null || libraries.Count == 0) return Array.Empty<ResearchResolvedDependency>();
+
+        Dictionary<string, List<string>> exactTargets = new(StringComparer.Ordinal);
+        Dictionary<string, List<string>> packageTargets = new(StringComparer.Ordinal);
+        List<(string Name, string Version, string Type)> identities = new(libraries.Count);
+        foreach (ResearchResolvedDependency library in libraries)
+        {
+            string name = CanonicalName(library.Name, library.Type);
+            string type = CanonicalType(library.Type);
+            identities.Add((name, library.Version, type));
+            Add(exactTargets, library.Name + '\u001f' + library.Version, name);
+            if (string.Equals(type, PackageType, StringComparison.Ordinal)) Add(packageTargets, name + '\u001f' + library.Version, name);
+        }
+
+        List<ResearchResolvedDependency> canonical = new(libraries.Count);
+        for (int index = 0; index < libraries.Count; index++)
+        {
+            (string name, string version, string type) = identities[index];
+            List<ResearchResolvedDependencyReference> edges = new();
+            foreach (ResearchResolvedDependencyReference edge in libraries[index].Dependencies)
+                edges.Add(new ResearchResolvedDependencyReference(Resolve(edge, exactTargets, packageTargets), edge.Version));
+
+            canonical.Add(new ResearchResolvedDependency(name, version, type, edges));
+        }
+
+        // Exact semantic duplicates collapse; conflicting content for one identity is rejected rather than first-wins.
+        Dictionary<string, ResearchResolvedDependency> byIdentity = new(StringComparer.Ordinal);
+        foreach (ResearchResolvedDependency library in canonical)
+        {
+            string identity = library.Name + '\u001f' + library.Version + '\u001f' + library.Type;
+            if (!byIdentity.TryGetValue(identity, out ResearchResolvedDependency? existing))
+            {
+                byIdentity[identity] = library;
+                continue;
+            }
+
+            if (!SemanticallyEqual(existing, library))
+                throw new ResearchExecutionEnvironmentProvenanceException(
+                    ResearchExecutionEnvironmentProvenanceReasonCodes.DependencyManifestInvalid,
+                    $"Dependency manifest contains conflicting semantic content for '{library.Name}/{library.Version}:{library.Type}'.");
+        }
+
+        return Array.AsReadOnly(byIdentity.Values
             .OrderBy(library => library.Name, StringComparer.Ordinal)
             .ThenBy(library => library.Version, StringComparer.Ordinal)
             .ThenBy(library => library.Type, StringComparer.Ordinal)
             .ToArray());
+    }
+
+    /// <summary>
+    /// Resolves an edge to its target library identity. Exact factual matches win; case-insensitive matching is
+    /// permitted only for package targets. An unresolved or ambiguous edge is never guessed.
+    /// </summary>
+    private static string Resolve(ResearchResolvedDependencyReference edge, Dictionary<string, List<string>> exactTargets, Dictionary<string, List<string>> packageTargets)
+    {
+        if (exactTargets.TryGetValue(edge.Name + '\u001f' + edge.Version, out List<string>? direct))
+            return direct.Count == 1 ? direct[0] : throw Ambiguous(edge);
+
+        if (packageTargets.TryGetValue(edge.Name.ToLowerInvariant() + '\u001f' + edge.Version, out List<string>? packageMatch))
+            return packageMatch.Count == 1 ? packageMatch[0] : throw Ambiguous(edge);
+
+        throw new ResearchExecutionEnvironmentProvenanceException(
+            ResearchExecutionEnvironmentProvenanceReasonCodes.DependencyManifestInvalid,
+            $"Dependency edge '{edge.Name}/{edge.Version}' does not resolve to a declared dependency library.");
+    }
+
+    private static ResearchExecutionEnvironmentProvenanceException Ambiguous(ResearchResolvedDependencyReference edge) =>
+        new(ResearchExecutionEnvironmentProvenanceReasonCodes.DependencyManifestInvalid,
+            $"Dependency edge '{edge.Name}/{edge.Version}' resolves ambiguously.");
+
+    private static bool SemanticallyEqual(ResearchResolvedDependency left, ResearchResolvedDependency right) =>
+        string.Equals(left.Version, right.Version, StringComparison.Ordinal)
+        && string.Equals(left.Type, right.Type, StringComparison.Ordinal)
+        && left.Dependencies.Count == right.Dependencies.Count
+        && left.Dependencies.Zip(right.Dependencies).All(pair =>
+            string.Equals(pair.First.Name, pair.Second.Name, StringComparison.Ordinal)
+            && string.Equals(pair.First.Version, pair.Second.Version, StringComparison.Ordinal));
+
+    private static void Add(Dictionary<string, List<string>> index, string key, string value)
+    {
+        if (!index.TryGetValue(key, out List<string>? values)) index[key] = values = new List<string>();
+        if (!values.Contains(value, StringComparer.Ordinal)) values.Add(value);
+    }
 }
 
 /// <summary>Outcome of comparing recorded execution-environment provenance with the currently observed environment.</summary>
