@@ -10,20 +10,22 @@ namespace AIHelper.Core.Sparrow;
 /// </summary>
 public static class ResearchExperimentRecordFactory
 {
-    /// <summary>Creates a V3 record from completed experiment evidence, the artifact, and observed source/build provenance.</summary>
+    /// <summary>Creates a V4 record from completed experiment evidence, the artifact, and both observed provenance domains.</summary>
     public static PersistedResearchExperimentRecord CreateCurrent(
         ResearchExperimentDefinition definition,
         ResearchExperimentExecutionSummary executionSummary,
         SparrowPortfolioResearchArtifact artifact,
         DateTimeOffset createdAt,
-        ResearchSourceBuildProvenance sourceBuildProvenance)
+        ResearchSourceBuildProvenance sourceBuildProvenance,
+        ResearchExecutionEnvironmentProvenance executionEnvironmentProvenance)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(executionSummary);
         ArgumentNullException.ThrowIfNull(artifact);
         ArgumentNullException.ThrowIfNull(sourceBuildProvenance);
+        ArgumentNullException.ThrowIfNull(executionEnvironmentProvenance);
 
-        ResearchExecutionProvenanceBinding binding = ResearchExecutionProvenanceBinding.Create(definition, artifact, sourceBuildProvenance);
+        ResearchExecutionProvenanceBinding binding = ResearchExecutionProvenanceBinding.Create(definition, artifact, sourceBuildProvenance, executionEnvironmentProvenance);
         ResearchResultArtifactReference artifactReference = new(artifact.ArtifactFingerprint, artifact.ArtifactVersion);
         ResearchArtifactLineage lineage = new(definition.SemanticFingerprint, definition.DatasetFingerprint, definition.Parameters.Fingerprint, artifact.ArtifactFingerprint);
 
@@ -37,6 +39,7 @@ public static class ResearchExperimentRecordFactory
             createdAt,
             PersistedResearchExperimentRecord.CurrentSchemaVersion,
             binding,
-            sourceBuildProvenance);
+            sourceBuildProvenance,
+            executionEnvironmentProvenance);
     }
 }

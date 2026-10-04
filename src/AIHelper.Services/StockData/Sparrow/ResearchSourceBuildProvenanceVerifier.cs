@@ -32,14 +32,17 @@ public sealed class ResearchSourceBuildProvenanceVerifier : IResearchSourceBuild
             new(status, checks, experimentRecord.ExperimentId, recorded, current, reasons);
 
         ResearchSourceBuildProvenance? recorded = experimentRecord.SourceBuildProvenance;
-        bool isCurrentSchema = string.Equals(experimentRecord.SchemaVersion, PersistedResearchExperimentRecord.CurrentSchemaVersion, StringComparison.Ordinal);
+        // Record v3 and v4 both require source/build provenance; v1 and v2 predate it.
+        bool requiresSourceBuildProvenance =
+            string.Equals(experimentRecord.SchemaVersion, PersistedResearchExperimentRecord.SourceBuildProvenanceSchemaVersion, StringComparison.Ordinal)
+            || string.Equals(experimentRecord.SchemaVersion, PersistedResearchExperimentRecord.CurrentSchemaVersion, StringComparison.Ordinal);
 
         // 1. SOURCE_BUILD_PROVENANCE_PRESENT
         if (recorded is null)
         {
-            if (isCurrentSchema)
+            if (requiresSourceBuildProvenance)
             {
-                Add(SourceBuildProvenancePresent, CheckStatus.Fail, ResearchSourceBuildProvenance.CurrentProvenanceVersion, "<null>", "Record v3 requires source/build provenance.");
+                Add(SourceBuildProvenancePresent, CheckStatus.Fail, ResearchSourceBuildProvenance.CurrentProvenanceVersion, "<null>", "Record v3/v4 requires source/build provenance.");
                 reasons.Add(ProvenanceMissingInV3Record);
                 return Result(Failed, null, null);
             }
@@ -61,19 +64,22 @@ public sealed class ResearchSourceBuildProvenanceVerifier : IResearchSourceBuild
         Add(SourceBuildProvenanceFingerprintValid, CheckStatus.Pass, recomputed, recorded.ProvenanceFingerprint, "Source/build provenance fingerprint recomputation verified.");
 
         // 3. SOURCE_BUILD_BINDING_VALID
+        // Binding v2 (record v3) and binding v3 (record v4) both carry the source/build provenance fingerprint.
         ResearchExecutionProvenanceBinding? binding = experimentRecord.ExecutionProvenanceBinding;
-        bool bindingValid = binding is not null
-            && string.Equals(binding.BindingVersion, ResearchExecutionProvenanceBinding.CurrentBindingVersion, StringComparison.Ordinal)
-            && string.Equals(binding.SourceBuildProvenanceFingerprint, recorded.ProvenanceFingerprint, StringComparison.Ordinal)
+        bool bindingCarriesSourceBuild = binding is not null
+            && (string.Equals(binding.BindingVersion, ResearchExecutionProvenanceBinding.SourceBuildBindingVersion, StringComparison.Ordinal)
+                || string.Equals(binding.BindingVersion, ResearchExecutionProvenanceBinding.CurrentBindingVersion, StringComparison.Ordinal));
+        bool bindingValid = bindingCarriesSourceBuild
+            && string.Equals(binding!.SourceBuildProvenanceFingerprint, recorded.ProvenanceFingerprint, StringComparison.Ordinal)
             && string.Equals(binding.BindingFingerprint, binding.ComputeFingerprint(), StringComparison.Ordinal);
         if (!bindingValid)
         {
-            Add(SourceBuildBindingValid, CheckStatus.Fail, ResearchExecutionProvenanceBinding.CurrentBindingVersion, binding?.BindingVersion ?? "<null>",
+            Add(SourceBuildBindingValid, CheckStatus.Fail, ResearchExecutionProvenanceBinding.SourceBuildBindingVersion, binding?.BindingVersion ?? "<null>",
                 "Execution provenance binding does not bind this source/build provenance.");
             reasons.Add(BindingInvalid);
             return Result(Failed, recorded.ProvenanceFingerprint, null);
         }
-        Add(SourceBuildBindingValid, CheckStatus.Pass, binding!.BindingFingerprint, binding.ComputeFingerprint(), "Execution provenance binding v2 binds this source/build provenance.");
+        Add(SourceBuildBindingValid, CheckStatus.Pass, binding!.BindingFingerprint, binding.ComputeFingerprint(), "Execution provenance binding carries this source/build provenance.");
 
         ResearchSourceBuildProvenance current;
         try

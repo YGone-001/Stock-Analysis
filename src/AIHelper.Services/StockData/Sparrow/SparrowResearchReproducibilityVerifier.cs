@@ -61,6 +61,7 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
         }
 
         bool recordValid = (string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.CurrentSchemaVersion, StringComparison.Ordinal)
+            || string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.SourceBuildProvenanceSchemaVersion, StringComparison.Ordinal)
             || string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion, StringComparison.Ordinal)
             || string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.LegacySchemaVersion, StringComparison.Ordinal))
             && experiment.ExecutionSummary.Status == ResearchExperimentExecutionStatus.Completed
@@ -71,7 +72,7 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
             checks.Add(new ResearchReproducibilityCheck(
                 ResearchReproducibilityCheckCodes.ExperimentRecordValid,
                 ResearchReproducibilityCheckStatus.Pass,
-                $"{PersistedResearchExperimentRecord.CurrentSchemaVersion} or {PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion} or {PersistedResearchExperimentRecord.LegacySchemaVersion}",
+                $"{PersistedResearchExperimentRecord.CurrentSchemaVersion} or {PersistedResearchExperimentRecord.SourceBuildProvenanceSchemaVersion} or {PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion} or {PersistedResearchExperimentRecord.LegacySchemaVersion}",
                 experiment.SchemaVersion,
                 "Persisted experiment record schema and structure are valid."));
         }
@@ -621,10 +622,13 @@ public sealed class SparrowResearchReproducibilityVerifier : IResearchReproducib
             }
 
             // 19. EXECUTION_PROVENANCE_BINDING_PRESENT
-            // V2 records carry binding v1; V3 records carry binding v2. Neither version is redefined.
-            string expectedBindingVersion = string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.CurrentSchemaVersion, StringComparison.Ordinal)
-                ? ResearchExecutionProvenanceBinding.CurrentBindingVersion
-                : ResearchExecutionProvenanceBinding.LegacyBindingVersion;
+            // V2 records carry binding v1, V3 records carry binding v2 and V4 records carry binding v3. No version is redefined.
+            string expectedBindingVersion = experiment.SchemaVersion switch
+            {
+                PersistedResearchExperimentRecord.CurrentSchemaVersion => ResearchExecutionProvenanceBinding.CurrentBindingVersion,
+                PersistedResearchExperimentRecord.SourceBuildProvenanceSchemaVersion => ResearchExecutionProvenanceBinding.SourceBuildBindingVersion,
+                _ => ResearchExecutionProvenanceBinding.LegacyBindingVersion
+            };
             if (experiment.ExecutionProvenanceBinding is null)
             {
                 if (string.Equals(experiment.SchemaVersion, PersistedResearchExperimentRecord.LegacySchemaVersion, StringComparison.Ordinal))

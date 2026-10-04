@@ -173,7 +173,7 @@ public sealed class SparrowResearchSourceBuildProvenanceTests
     {
         ResearchSourceBuildProvenance provenance = Provenance();
         PersistedResearchExperimentRecord record = CreateV3Record(provenance);
-        Assert.Equal(ResearchExecutionProvenanceBinding.CurrentBindingVersion, record.ExecutionProvenanceBinding!.BindingVersion);
+        Assert.Equal(ResearchExecutionProvenanceBinding.SourceBuildBindingVersion, record.ExecutionProvenanceBinding!.BindingVersion);
         Assert.Equal(provenance.ProvenanceFingerprint, record.ExecutionProvenanceBinding.SourceBuildProvenanceFingerprint);
         Assert.Equal(record.ExecutionProvenanceBinding.BindingFingerprint, record.ExecutionProvenanceBinding.ComputeFingerprint());
     }
@@ -208,10 +208,10 @@ public sealed class SparrowResearchSourceBuildProvenanceTests
             await repository.SaveAsync(record);
 
             PersistedResearchExperimentRecord loaded = await repository.GetAsync(record.ExperimentId);
-            Assert.Equal(PersistedResearchExperimentRecord.CurrentSchemaVersion, loaded.SchemaVersion);
+            Assert.Equal(PersistedResearchExperimentRecord.SourceBuildProvenanceSchemaVersion, loaded.SchemaVersion);
             Assert.Equal(record.SourceBuildProvenance!.ProvenanceFingerprint, loaded.SourceBuildProvenance!.ProvenanceFingerprint);
             Assert.Equal(record.ExecutionProvenanceBinding!.BindingFingerprint, loaded.ExecutionProvenanceBinding!.BindingFingerprint);
-            Assert.Equal(ResearchExecutionProvenanceBinding.CurrentBindingVersion, loaded.ExecutionProvenanceBinding.BindingVersion);
+            Assert.Equal(ResearchExecutionProvenanceBinding.SourceBuildBindingVersion, loaded.ExecutionProvenanceBinding.BindingVersion);
         }
         finally { DeleteDirectory(root); }
     }
@@ -219,7 +219,7 @@ public sealed class SparrowResearchSourceBuildProvenanceTests
     [Fact]
     public void Record_V3_RequiresSourceBuildProvenance()
     {
-        Assert.Throws<ArgumentNullException>(() => CreateRecord(Provenance(), PersistedResearchExperimentRecord.CurrentSchemaVersion, withProvenance: false));
+        Assert.Throws<ArgumentNullException>(() => CreateRecord(Provenance(), PersistedResearchExperimentRecord.SourceBuildProvenanceSchemaVersion, withProvenance: false));
     }
 
     [Fact]
@@ -231,7 +231,7 @@ public sealed class SparrowResearchSourceBuildProvenanceTests
     [Fact]
     public void Record_V3_RejectsBindingV1()
     {
-        Assert.Throws<ArgumentException>(() => CreateRecord(Provenance(), PersistedResearchExperimentRecord.CurrentSchemaVersion, withProvenance: true, bindingVersion: ResearchExecutionProvenanceBinding.LegacyBindingVersion));
+        Assert.Throws<ArgumentException>(() => CreateRecord(Provenance(), PersistedResearchExperimentRecord.SourceBuildProvenanceSchemaVersion, withProvenance: true, bindingVersion: ResearchExecutionProvenanceBinding.LegacyBindingVersion));
     }
 
     [Fact]
@@ -252,7 +252,7 @@ public sealed class SparrowResearchSourceBuildProvenanceTests
             JsonResearchExperimentRepository repository = new(root);
             await repository.SaveAsync(record);
             string path = Path.Combine(root, record.ExperimentId + ".json");
-            await File.WriteAllTextAsync(path, (await File.ReadAllTextAsync(path)).Replace(PersistedResearchExperimentRecord.CurrentSchemaVersion, "research-experiment-record-v99"));
+            await File.WriteAllTextAsync(path, (await File.ReadAllTextAsync(path)).Replace(PersistedResearchExperimentRecord.SourceBuildProvenanceSchemaVersion, "research-experiment-record-v99"));
             await Assert.ThrowsAsync<NotSupportedException>(() => repository.GetAsync(record.ExperimentId));
         }
         finally { DeleteDirectory(root); }
@@ -383,7 +383,7 @@ public sealed class SparrowResearchSourceBuildProvenanceTests
         ResearchExecutionProvenanceBinding binding = record.ExecutionProvenanceBinding!;
         Assert.Throws<ArgumentException>(() => new PersistedResearchExperimentRecord(
             record.ExperimentId, record.ExperimentFingerprint, record.Definition, record.ExecutionSummary, record.ArtifactReference, record.Lineage,
-            record.CreatedAt, PersistedResearchExperimentRecord.CurrentSchemaVersion,
+            record.CreatedAt, PersistedResearchExperimentRecord.SourceBuildProvenanceSchemaVersion,
             new ResearchExecutionProvenanceBinding(binding.BindingVersion, binding.ExperimentFingerprint, binding.ParameterSnapshotFingerprint,
                 binding.ExperimentStrategyParameterFingerprint, binding.ArtifactStrategyParameterFingerprint, binding.ExperimentPortfolioConfigurationFingerprint,
                 binding.ArtifactPortfolioConfigurationFingerprint, binding.ExperimentAnalysisConfigurationFingerprint, binding.ArtifactAnalysisFingerprint,
@@ -500,7 +500,7 @@ public sealed class SparrowResearchSourceBuildProvenanceTests
     }
 
     private static PersistedResearchExperimentRecord CreateV3Record(ResearchSourceBuildProvenance provenance) =>
-        CreateRecord(provenance, PersistedResearchExperimentRecord.CurrentSchemaVersion, withProvenance: true);
+        CreateRecord(provenance, PersistedResearchExperimentRecord.SourceBuildProvenanceSchemaVersion, withProvenance: true);
 
     /// <summary>Builds an object graph that bypasses constructor validation, used only to exercise defensive checks.</summary>
     private static PersistedResearchExperimentRecord Forge(PersistedResearchExperimentRecord source, ResearchSourceBuildProvenance? provenance, ResearchExecutionProvenanceBinding? binding)
@@ -517,7 +517,7 @@ public sealed class SparrowResearchSourceBuildProvenanceTests
         target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(target, value);
 
     private static PersistedResearchExperimentRecord CreateRecord(ResearchSourceBuildProvenance provenance, string schemaVersion, bool withProvenance,
-        string bindingVersion = ResearchExecutionProvenanceBinding.CurrentBindingVersion)
+        string bindingVersion = ResearchExecutionProvenanceBinding.SourceBuildBindingVersion)
     {
         ResearchExperimentIdentity identity = new("EXP-PROV-001", ResearchExperimentIdentity.CurrentExperimentVersion, "test", DateTimeOffset.UnixEpoch);
         ExperimentParameterSnapshot parameters = new("v1", new Dictionary<string, string> { ["TopN"] = "2" },
@@ -529,7 +529,7 @@ public sealed class SparrowResearchSourceBuildProvenanceTests
         ResearchArtifactLineage lineage = new(definition.SemanticFingerprint, definition.DatasetFingerprint, definition.Parameters.Fingerprint, "artifact-fp");
         ResearchResultArtifactReference artifactReference = new("artifact-fp", SparrowPortfolioResearchArtifact.CurrentArtifactVersion);
 
-        bool v2Binding = string.Equals(bindingVersion, ResearchExecutionProvenanceBinding.CurrentBindingVersion, StringComparison.Ordinal);
+        bool v2Binding = string.Equals(bindingVersion, ResearchExecutionProvenanceBinding.SourceBuildBindingVersion, StringComparison.Ordinal);
         string bindingFingerprint = v2Binding
             ? ResearchExecutionProvenanceBinding.ComputeFingerprint(bindingVersion, definition.SemanticFingerprint, definition.Parameters.Fingerprint,
                 definition.StrategyParameterFingerprint, "artifact-strategy-fp", definition.PortfolioConfigurationFingerprint, "artifact-portfolio-fp",

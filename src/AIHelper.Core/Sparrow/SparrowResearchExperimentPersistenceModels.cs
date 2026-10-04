@@ -68,7 +68,9 @@ public sealed class ResearchExecutionProvenanceBinding
     /// <summary>Binding contract used by V2 experiment records. It has no source/build provenance.</summary>
     public const string LegacyBindingVersion = "research-execution-provenance-binding-v1";
     /// <summary>Binding contract used by V3 experiment records. It additionally binds source/build provenance.</summary>
-    public const string CurrentBindingVersion = "research-execution-provenance-binding-v2";
+    public const string SourceBuildBindingVersion = "research-execution-provenance-binding-v2";
+    /// <summary>Binding contract used by V4 experiment records. It additionally binds execution-environment provenance.</summary>
+    public const string CurrentBindingVersion = "research-execution-provenance-binding-v3";
 
     private static readonly JsonSerializerOptions CanonicalJson = new()
     {
@@ -91,7 +93,8 @@ public sealed class ResearchExecutionProvenanceBinding
         string artifactVersion,
         string artifactFingerprint,
         string bindingFingerprint,
-        string? sourceBuildProvenanceFingerprint = null)
+        string? sourceBuildProvenanceFingerprint = null,
+        string? executionEnvironmentProvenanceFingerprint = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(bindingVersion);
         ArgumentException.ThrowIfNullOrWhiteSpace(experimentFingerprint);
@@ -110,11 +113,20 @@ public sealed class ResearchExecutionProvenanceBinding
         if (string.Equals(bindingVersion, CurrentBindingVersion, StringComparison.Ordinal))
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(sourceBuildProvenanceFingerprint);
+            ArgumentException.ThrowIfNullOrWhiteSpace(executionEnvironmentProvenanceFingerprint);
+        }
+        else if (string.Equals(bindingVersion, SourceBuildBindingVersion, StringComparison.Ordinal))
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(sourceBuildProvenanceFingerprint);
+            if (executionEnvironmentProvenanceFingerprint is not null)
+                throw new ArgumentException("Binding v2 must not carry an execution environment provenance fingerprint.", nameof(executionEnvironmentProvenanceFingerprint));
         }
         else if (string.Equals(bindingVersion, LegacyBindingVersion, StringComparison.Ordinal))
         {
             if (sourceBuildProvenanceFingerprint is not null)
                 throw new ArgumentException("Binding v1 must not carry a source/build provenance fingerprint.", nameof(sourceBuildProvenanceFingerprint));
+            if (executionEnvironmentProvenanceFingerprint is not null)
+                throw new ArgumentException("Binding v1 must not carry an execution environment provenance fingerprint.", nameof(executionEnvironmentProvenanceFingerprint));
         }
         else
         {
@@ -135,6 +147,7 @@ public sealed class ResearchExecutionProvenanceBinding
         ArtifactFingerprint = artifactFingerprint;
         BindingFingerprint = bindingFingerprint;
         SourceBuildProvenanceFingerprint = sourceBuildProvenanceFingerprint;
+        ExecutionEnvironmentProvenanceFingerprint = executionEnvironmentProvenanceFingerprint;
     }
 
     public string BindingVersion { get; }
@@ -150,20 +163,34 @@ public sealed class ResearchExecutionProvenanceBinding
     public string ArtifactVersion { get; }
     public string ArtifactFingerprint { get; }
     public string BindingFingerprint { get; }
-    /// <summary>Only present for binding v2; it binds the V3 record's source/build provenance into this binding.</summary>
+    /// <summary>Only present for binding v2 and v3; it binds the record's source/build provenance into this binding.</summary>
     public string? SourceBuildProvenanceFingerprint { get; }
+    /// <summary>Only present for binding v3; it binds the record's execution-environment provenance into this binding.</summary>
+    public string? ExecutionEnvironmentProvenanceFingerprint { get; }
 
-    /// <summary>Dispatches to the preimage owned by this binding version.</summary>
-    public string ComputeFingerprint() => string.Equals(BindingVersion, LegacyBindingVersion, StringComparison.Ordinal)
-        ? ComputeFingerprint(
-            BindingVersion, ExperimentFingerprint, ParameterSnapshotFingerprint, ExperimentStrategyParameterFingerprint,
-            ArtifactStrategyParameterFingerprint, ExperimentPortfolioConfigurationFingerprint, ArtifactPortfolioConfigurationFingerprint,
-            ExperimentAnalysisConfigurationFingerprint, ArtifactAnalysisFingerprint, DatasetFingerprint, ArtifactVersion, ArtifactFingerprint)
-        : ComputeFingerprint(
+    /// <summary>Dispatches to the preimage owned by this binding version. Frozen v1/v2 preimages are never modified.</summary>
+    public string ComputeFingerprint()
+    {
+        if (string.Equals(BindingVersion, LegacyBindingVersion, StringComparison.Ordinal))
+            return ComputeFingerprint(
+                BindingVersion, ExperimentFingerprint, ParameterSnapshotFingerprint, ExperimentStrategyParameterFingerprint,
+                ArtifactStrategyParameterFingerprint, ExperimentPortfolioConfigurationFingerprint, ArtifactPortfolioConfigurationFingerprint,
+                ExperimentAnalysisConfigurationFingerprint, ArtifactAnalysisFingerprint, DatasetFingerprint, ArtifactVersion, ArtifactFingerprint);
+
+        if (string.Equals(BindingVersion, SourceBuildBindingVersion, StringComparison.Ordinal))
+            return ComputeFingerprint(
+                BindingVersion, ExperimentFingerprint, ParameterSnapshotFingerprint, ExperimentStrategyParameterFingerprint,
+                ArtifactStrategyParameterFingerprint, ExperimentPortfolioConfigurationFingerprint, ArtifactPortfolioConfigurationFingerprint,
+                ExperimentAnalysisConfigurationFingerprint, ArtifactAnalysisFingerprint, DatasetFingerprint, ArtifactVersion, ArtifactFingerprint,
+                SourceBuildProvenanceFingerprint ?? throw new InvalidOperationException("Binding v2 requires a source/build provenance fingerprint."));
+
+        return ComputeFingerprint(
             BindingVersion, ExperimentFingerprint, ParameterSnapshotFingerprint, ExperimentStrategyParameterFingerprint,
             ArtifactStrategyParameterFingerprint, ExperimentPortfolioConfigurationFingerprint, ArtifactPortfolioConfigurationFingerprint,
             ExperimentAnalysisConfigurationFingerprint, ArtifactAnalysisFingerprint, DatasetFingerprint, ArtifactVersion, ArtifactFingerprint,
-            SourceBuildProvenanceFingerprint ?? throw new InvalidOperationException("Binding v2 requires a source/build provenance fingerprint."));
+            SourceBuildProvenanceFingerprint ?? throw new InvalidOperationException("Binding v3 requires a source/build provenance fingerprint."),
+            ExecutionEnvironmentProvenanceFingerprint ?? throw new InvalidOperationException("Binding v3 requires an execution environment provenance fingerprint."));
+    }
 
     /// <summary>Frozen binding v1 preimage. It must never change.</summary>
     public static string ComputeFingerprint(
@@ -232,6 +259,44 @@ public sealed class ResearchExecutionProvenanceBinding
         return Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(payload, CanonicalJson)));
     }
 
+    /// <summary>Binding v3 preimage: the frozen binding-v2 semantic fields plus the execution-environment provenance fingerprint.</summary>
+    public static string ComputeFingerprint(
+        string bindingVersion,
+        string experimentFingerprint,
+        string parameterSnapshotFingerprint,
+        string experimentStrategyParameterFingerprint,
+        string artifactStrategyParameterFingerprint,
+        string experimentPortfolioConfigurationFingerprint,
+        string artifactPortfolioConfigurationFingerprint,
+        string experimentAnalysisConfigurationFingerprint,
+        string artifactAnalysisFingerprint,
+        string datasetFingerprint,
+        string artifactVersion,
+        string artifactFingerprint,
+        string sourceBuildProvenanceFingerprint,
+        string executionEnvironmentProvenanceFingerprint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceBuildProvenanceFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(executionEnvironmentProvenanceFingerprint);
+        BindingV3FingerprintPayload payload = new(
+            bindingVersion,
+            experimentFingerprint,
+            parameterSnapshotFingerprint,
+            experimentStrategyParameterFingerprint,
+            artifactStrategyParameterFingerprint,
+            experimentPortfolioConfigurationFingerprint,
+            artifactPortfolioConfigurationFingerprint,
+            experimentAnalysisConfigurationFingerprint,
+            artifactAnalysisFingerprint,
+            datasetFingerprint,
+            artifactVersion,
+            artifactFingerprint,
+            sourceBuildProvenanceFingerprint,
+            executionEnvironmentProvenanceFingerprint);
+
+        return Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(payload, CanonicalJson)));
+    }
+
     /// <summary>Legacy creation path producing a binding v1 (V2 experiment records). Preserved for existing contracts.</summary>
     public static ResearchExecutionProvenanceBinding Create(ResearchExperimentDefinition definition, SparrowPortfolioResearchArtifact artifact)
     {
@@ -277,7 +342,7 @@ public sealed class ResearchExecutionProvenanceBinding
         (definition, artifact) = ValidateCreateInputs(definition, artifact);
 
         string bindingFingerprint = ComputeFingerprint(
-            CurrentBindingVersion,
+            SourceBuildBindingVersion,
             definition.SemanticFingerprint,
             definition.Parameters.Fingerprint,
             definition.StrategyParameterFingerprint,
@@ -290,6 +355,53 @@ public sealed class ResearchExecutionProvenanceBinding
             artifact.ArtifactVersion,
             artifact.ArtifactFingerprint,
             sourceBuildProvenance.ProvenanceFingerprint);
+
+        return new ResearchExecutionProvenanceBinding(
+            SourceBuildBindingVersion,
+            definition.SemanticFingerprint,
+            definition.Parameters.Fingerprint,
+            definition.StrategyParameterFingerprint,
+            artifact.PortfolioRequest.StrategyParameterFingerprint,
+            definition.PortfolioConfigurationFingerprint,
+            artifact.PortfolioConfigurationFingerprint,
+            definition.AnalysisConfigurationFingerprint,
+            artifact.AnalysisFingerprint,
+            definition.DatasetFingerprint,
+            artifact.ArtifactVersion,
+            artifact.ArtifactFingerprint,
+            bindingFingerprint,
+            sourceBuildProvenance.ProvenanceFingerprint);
+    }
+
+    /// <summary>
+    /// Authoritative creation path producing a binding v3 that binds both source/build and execution-environment
+    /// provenance (V4 experiment records).
+    /// </summary>
+    public static ResearchExecutionProvenanceBinding Create(
+        ResearchExperimentDefinition definition,
+        SparrowPortfolioResearchArtifact artifact,
+        ResearchSourceBuildProvenance sourceBuildProvenance,
+        ResearchExecutionEnvironmentProvenance executionEnvironmentProvenance)
+    {
+        ArgumentNullException.ThrowIfNull(sourceBuildProvenance);
+        ArgumentNullException.ThrowIfNull(executionEnvironmentProvenance);
+        (definition, artifact) = ValidateCreateInputs(definition, artifact);
+
+        string bindingFingerprint = ComputeFingerprint(
+            CurrentBindingVersion,
+            definition.SemanticFingerprint,
+            definition.Parameters.Fingerprint,
+            definition.StrategyParameterFingerprint,
+            artifact.PortfolioRequest.StrategyParameterFingerprint,
+            definition.PortfolioConfigurationFingerprint,
+            artifact.PortfolioConfigurationFingerprint,
+            definition.AnalysisConfigurationFingerprint,
+            artifact.AnalysisFingerprint,
+            definition.DatasetFingerprint,
+            artifact.ArtifactVersion,
+            artifact.ArtifactFingerprint,
+            sourceBuildProvenance.ProvenanceFingerprint,
+            executionEnvironmentProvenance.ProvenanceFingerprint);
 
         return new ResearchExecutionProvenanceBinding(
             CurrentBindingVersion,
@@ -305,7 +417,8 @@ public sealed class ResearchExecutionProvenanceBinding
             artifact.ArtifactVersion,
             artifact.ArtifactFingerprint,
             bindingFingerprint,
-            sourceBuildProvenance.ProvenanceFingerprint);
+            sourceBuildProvenance.ProvenanceFingerprint,
+            executionEnvironmentProvenance.ProvenanceFingerprint);
     }
 
     private static (ResearchExperimentDefinition Definition, SparrowPortfolioResearchArtifact Artifact) ValidateCreateInputs(
@@ -354,23 +467,41 @@ public sealed class ResearchExecutionProvenanceBinding
         string ArtifactVersion,
         string ArtifactFingerprint,
         string SourceBuildProvenanceFingerprint);
+
+    private sealed record BindingV3FingerprintPayload(
+        string BindingVersion,
+        string ExperimentFingerprint,
+        string ParameterSnapshotFingerprint,
+        string ExperimentStrategyParameterFingerprint,
+        string ArtifactStrategyParameterFingerprint,
+        string ExperimentPortfolioConfigurationFingerprint,
+        string ArtifactPortfolioConfigurationFingerprint,
+        string ExperimentAnalysisConfigurationFingerprint,
+        string ArtifactAnalysisFingerprint,
+        string DatasetFingerprint,
+        string ArtifactVersion,
+        string ArtifactFingerprint,
+        string SourceBuildProvenanceFingerprint,
+        string ExecutionEnvironmentProvenanceFingerprint);
 }
 
 /// <summary>Versioned, immutable local record for one completed research experiment.</summary>
 public sealed class PersistedResearchExperimentRecord
 {
-    /// <summary>Legacy schema: no execution provenance binding and no source/build provenance.</summary>
+    /// <summary>Legacy schema: no execution provenance binding and no provenance domains.</summary>
     public const string LegacySchemaVersion = "research-experiment-record-v1";
-    /// <summary>Schema with an execution provenance binding v1 and no source/build provenance.</summary>
+    /// <summary>Schema with an execution provenance binding v1 and no provenance domains.</summary>
     public const string ExecutionBindingSchemaVersion = "research-experiment-record-v2";
-    /// <summary>Current schema: execution provenance binding v2 plus authoritative source/build provenance.</summary>
-    public const string CurrentSchemaVersion = "research-experiment-record-v3";
+    /// <summary>Schema with execution provenance binding v2 and authoritative source/build provenance.</summary>
+    public const string SourceBuildProvenanceSchemaVersion = "research-experiment-record-v3";
+    /// <summary>Current schema: binding v3 plus source/build and execution-environment provenance.</summary>
+    public const string CurrentSchemaVersion = "research-experiment-record-v4";
 
     [JsonConstructor]
     public PersistedResearchExperimentRecord(string experimentId, string experimentFingerprint, ResearchExperimentDefinition definition,
         ResearchExperimentExecutionSummary executionSummary, ResearchResultArtifactReference artifactReference, ResearchArtifactLineage lineage,
         DateTimeOffset createdAt, string? schemaVersion = null, ResearchExecutionProvenanceBinding? executionProvenanceBinding = null,
-        ResearchSourceBuildProvenance? sourceBuildProvenance = null)
+        ResearchSourceBuildProvenance? sourceBuildProvenance = null, ResearchExecutionEnvironmentProvenance? executionEnvironmentProvenance = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(experimentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(experimentFingerprint);
@@ -379,7 +510,8 @@ public sealed class PersistedResearchExperimentRecord
         ArgumentNullException.ThrowIfNull(artifactReference);
         ArgumentNullException.ThrowIfNull(lineage);
 
-        schemaVersion ??= sourceBuildProvenance is not null ? CurrentSchemaVersion
+        schemaVersion ??= executionEnvironmentProvenance is not null ? CurrentSchemaVersion
+            : sourceBuildProvenance is not null ? SourceBuildProvenanceSchemaVersion
             : executionProvenanceBinding is not null ? ExecutionBindingSchemaVersion
             : LegacySchemaVersion;
         ArgumentException.ThrowIfNullOrWhiteSpace(schemaVersion);
@@ -399,24 +531,48 @@ public sealed class PersistedResearchExperimentRecord
             // provenance binding, and any binding supplied with the legacy schema is not validated.
             if (sourceBuildProvenance is not null)
                 throw new ArgumentException("Legacy record v1 must not carry source/build provenance.", nameof(sourceBuildProvenance));
+            if (executionEnvironmentProvenance is not null)
+                throw new ArgumentException("Legacy record v1 must not carry execution environment provenance.", nameof(executionEnvironmentProvenance));
         }
         else if (string.Equals(schemaVersion, ExecutionBindingSchemaVersion, StringComparison.Ordinal))
         {
             ArgumentNullException.ThrowIfNull(executionProvenanceBinding);
             if (sourceBuildProvenance is not null)
                 throw new ArgumentException("Record v2 must not carry source/build provenance.", nameof(sourceBuildProvenance));
+            if (executionEnvironmentProvenance is not null)
+                throw new ArgumentException("Record v2 must not carry execution environment provenance.", nameof(executionEnvironmentProvenance));
             RequireBinding(executionProvenanceBinding, ResearchExecutionProvenanceBinding.LegacyBindingVersion, definition, executionSummary, artifactReference, lineage, experimentFingerprint);
         }
-        else if (string.Equals(schemaVersion, CurrentSchemaVersion, StringComparison.Ordinal))
+        else if (string.Equals(schemaVersion, SourceBuildProvenanceSchemaVersion, StringComparison.Ordinal))
         {
             ArgumentNullException.ThrowIfNull(executionProvenanceBinding);
             ArgumentNullException.ThrowIfNull(sourceBuildProvenance);
-            RequireBinding(executionProvenanceBinding, ResearchExecutionProvenanceBinding.CurrentBindingVersion, definition, executionSummary, artifactReference, lineage, experimentFingerprint);
+            if (executionEnvironmentProvenance is not null)
+                throw new ArgumentException("Record v3 must not carry execution environment provenance.", nameof(executionEnvironmentProvenance));
+            RequireBinding(executionProvenanceBinding, ResearchExecutionProvenanceBinding.SourceBuildBindingVersion, definition, executionSummary, artifactReference, lineage, experimentFingerprint);
 
             if (!string.Equals(executionProvenanceBinding.SourceBuildProvenanceFingerprint, sourceBuildProvenance.ProvenanceFingerprint, StringComparison.Ordinal))
                 throw new ArgumentException("Binding source/build provenance fingerprint does not match the record's source/build provenance.");
             if (!string.Equals(sourceBuildProvenance.ProvenanceFingerprint, sourceBuildProvenance.ComputeFingerprint(), StringComparison.Ordinal))
                 throw new ArgumentException("Source/build provenance fingerprint mismatch.");
+        }
+        else if (string.Equals(schemaVersion, CurrentSchemaVersion, StringComparison.Ordinal))
+        {
+            ArgumentNullException.ThrowIfNull(executionProvenanceBinding);
+            ArgumentNullException.ThrowIfNull(sourceBuildProvenance);
+            ArgumentNullException.ThrowIfNull(executionEnvironmentProvenance);
+            RequireBinding(executionProvenanceBinding, ResearchExecutionProvenanceBinding.CurrentBindingVersion, definition, executionSummary, artifactReference, lineage, experimentFingerprint);
+
+            if (!string.Equals(executionProvenanceBinding.SourceBuildProvenanceFingerprint, sourceBuildProvenance.ProvenanceFingerprint, StringComparison.Ordinal))
+                throw new ArgumentException("Binding source/build provenance fingerprint does not match the record's source/build provenance.");
+            if (!string.Equals(executionProvenanceBinding.ExecutionEnvironmentProvenanceFingerprint, executionEnvironmentProvenance.ProvenanceFingerprint, StringComparison.Ordinal))
+                throw new ArgumentException("Binding execution environment provenance fingerprint does not match the record's execution environment provenance.");
+            if (!string.Equals(sourceBuildProvenance.ProvenanceFingerprint, sourceBuildProvenance.ComputeFingerprint(), StringComparison.Ordinal))
+                throw new ArgumentException("Source/build provenance fingerprint mismatch.");
+            if (!string.Equals(executionEnvironmentProvenance.DependencyManifestFingerprint, executionEnvironmentProvenance.ComputeDependencyManifestFingerprint(), StringComparison.Ordinal))
+                throw new ArgumentException("Dependency manifest fingerprint mismatch.");
+            if (!string.Equals(executionEnvironmentProvenance.ProvenanceFingerprint, executionEnvironmentProvenance.ComputeProvenanceFingerprint(), StringComparison.Ordinal))
+                throw new ArgumentException("Execution environment provenance fingerprint mismatch.");
         }
         else
         {
@@ -433,6 +589,7 @@ public sealed class PersistedResearchExperimentRecord
         SchemaVersion = schemaVersion;
         ExecutionProvenanceBinding = executionProvenanceBinding;
         SourceBuildProvenance = sourceBuildProvenance;
+        ExecutionEnvironmentProvenance = executionEnvironmentProvenance;
     }
 
     public string ExperimentId { get; }
@@ -445,8 +602,10 @@ public sealed class PersistedResearchExperimentRecord
     public DateTimeOffset CreatedAt { get; }
     public string SchemaVersion { get; }
     public ResearchExecutionProvenanceBinding? ExecutionProvenanceBinding { get; }
-    /// <summary>Observed source/build association for V3 records; null for V1 and V2 records.</summary>
+    /// <summary>Observed source/build association for V3 and V4 records; null for V1 and V2 records.</summary>
     public ResearchSourceBuildProvenance? SourceBuildProvenance { get; }
+    /// <summary>Observed execution environment and dependency association for V4 records; null for V1, V2 and V3 records.</summary>
+    public ResearchExecutionEnvironmentProvenance? ExecutionEnvironmentProvenance { get; }
 
     private static void RequireBinding(ResearchExecutionProvenanceBinding binding, string expectedVersion,
         ResearchExperimentDefinition definition, ResearchExperimentExecutionSummary executionSummary,

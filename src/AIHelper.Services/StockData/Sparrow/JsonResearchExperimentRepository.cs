@@ -111,6 +111,7 @@ public sealed class JsonResearchExperimentRepository : IResearchExperimentReposi
     private static void ValidateRecord(PersistedResearchExperimentRecord record)
     {
         if (!string.Equals(record.SchemaVersion, PersistedResearchExperimentRecord.CurrentSchemaVersion, StringComparison.Ordinal)
+            && !string.Equals(record.SchemaVersion, PersistedResearchExperimentRecord.SourceBuildProvenanceSchemaVersion, StringComparison.Ordinal)
             && !string.Equals(record.SchemaVersion, PersistedResearchExperimentRecord.ExecutionBindingSchemaVersion, StringComparison.Ordinal)
             && !string.Equals(record.SchemaVersion, PersistedResearchExperimentRecord.LegacySchemaVersion, StringComparison.Ordinal))
             throw new NotSupportedException($"Research experiment schema '{record.SchemaVersion}' is unsupported.");

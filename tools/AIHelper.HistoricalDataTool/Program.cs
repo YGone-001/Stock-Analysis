@@ -15,6 +15,8 @@ try
     if (options.ContainsKey("report-experiment") || options.ContainsKey("report-lineage") || options.ContainsKey("report-comparison")) detectedModes.Add("research-reporting");
     if (Bool("show-source-build-provenance", false)) detectedModes.Add("source-build-provenance");
     if (options.ContainsKey("verify-source-build-provenance")) detectedModes.Add("source-build-provenance-verification");
+    if (Bool("show-execution-environment-provenance", false)) detectedModes.Add("execution-environment-provenance");
+    if (options.ContainsKey("verify-execution-environment-provenance")) detectedModes.Add("execution-environment-provenance-verification");
     if (options.ContainsKey("run-research-experiment")) detectedModes.Add("managed-research-experiment");
     if (Bool("analyze-benchmark", false)) detectedModes.Add("benchmark-analysis");
     if (Bool("export-portfolio-research", false)) detectedModes.Add("portfolio-research-export");
@@ -44,6 +46,10 @@ try
         return ShowSourceBuildProvenance();
     if (options.TryGetValue("verify-source-build-provenance", out string? provenanceExperimentId))
         return await VerifySourceBuildProvenanceAsync(provenanceExperimentId);
+    if (Bool("show-execution-environment-provenance", false))
+        return ShowExecutionEnvironmentProvenance();
+    if (options.TryGetValue("verify-execution-environment-provenance", out string? environmentExperimentId))
+        return await VerifyExecutionEnvironmentProvenanceAsync(environmentExperimentId);
     if (Bool("analyze-benchmark", false))
         return await AnalyzeBenchmarkAsync();
     if (Bool("export-portfolio-research", false))
@@ -203,6 +209,62 @@ async Task<int> VerifySourceBuildProvenanceAsync(string experimentId)
     foreach (string reason in result.ReasonCodes) Console.WriteLine($"REASON={reason}");
 
     return result.Status == ResearchSourceBuildProvenanceVerificationStatus.Match ? 0 : 1;
+}
+
+int ShowExecutionEnvironmentProvenance()
+{
+    try
+    {
+        ResearchExecutionEnvironmentProvenance provenance = new ResearchExecutionEnvironmentProvenanceProvider().Capture();
+        Console.WriteLine("EXECUTION_ENVIRONMENT_PROVENANCE_STATUS=Available");
+        Console.WriteLine($"FRAMEWORK_DESCRIPTION={provenance.FrameworkDescription}");
+        Console.WriteLine($"RUNTIME_VERSION={provenance.RuntimeVersion}");
+        Console.WriteLine($"RUNTIME_IDENTIFIER={provenance.RuntimeIdentifier}");
+        Console.WriteLine($"OS_PLATFORM={provenance.OSPlatform}");
+        Console.WriteLine($"OS_ARCHITECTURE={provenance.OSArchitecture}");
+        Console.WriteLine($"PROCESS_ARCHITECTURE={provenance.ProcessArchitecture}");
+        Console.WriteLine($"DEPENDENCY_RUNTIME_TARGET={provenance.DependencyRuntimeTarget}");
+        Console.WriteLine($"DEPENDENCY_COUNT={provenance.Dependencies.Count}");
+        Console.WriteLine($"DEPENDENCY_MANIFEST_FINGERPRINT={provenance.DependencyManifestFingerprint}");
+        Console.WriteLine($"EXECUTION_ENVIRONMENT_PROVENANCE_FINGERPRINT={provenance.ProvenanceFingerprint}");
+        foreach (ResearchResolvedDependency dependency in provenance.Dependencies)
+            Console.WriteLine($"DEPENDENCY={dependency.Name}/{dependency.Version}:{dependency.Type}");
+        return 0;
+    }
+    catch (ResearchExecutionEnvironmentProvenanceException exception)
+    {
+        Console.WriteLine("EXECUTION_ENVIRONMENT_PROVENANCE_STATUS=Unavailable");
+        Console.WriteLine($"REASON={exception.ReasonCode}");
+        return 1;
+    }
+}
+
+async Task<int> VerifyExecutionEnvironmentProvenanceAsync(string experimentId)
+{
+    JsonResearchExperimentRepository repository = new(Value("experiment-store"));
+    PersistedResearchExperimentRecord record;
+    try
+    {
+        record = await repository.GetAsync(experimentId);
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"EXPERIMENT_LOAD_FAILED: {exception.Message}");
+        return 1;
+    }
+
+    ResearchExecutionEnvironmentProvenanceVerificationResult result = new ResearchExecutionEnvironmentProvenanceVerifier().Verify(record);
+    Console.WriteLine($"EXECUTION_ENVIRONMENT_VERIFICATION_STATUS={result.Status}");
+    Console.WriteLine($"EXPERIMENT_ID={record.ExperimentId}");
+    void WriteEnvironmentField(string key, string? value) { if (!string.IsNullOrWhiteSpace(value)) Console.WriteLine($"{key}={value}"); }
+    WriteEnvironmentField("RECORDED_EXECUTION_ENVIRONMENT_PROVENANCE_FINGERPRINT", result.RecordedProvenanceFingerprint);
+    WriteEnvironmentField("CURRENT_EXECUTION_ENVIRONMENT_PROVENANCE_FINGERPRINT", result.CurrentProvenanceFingerprint);
+    Console.WriteLine($"CHECK_COUNT={result.CheckCount}");
+    Console.WriteLine($"FAILED_CHECK_COUNT={result.FailedCheckCount}");
+    foreach (ResearchReproducibilityCheck check in result.Checks) Console.WriteLine($"CHECK={check.Code}:{check.Status}");
+    foreach (string reason in result.ReasonCodes) Console.WriteLine($"REASON={reason}");
+
+    return result.Status == ResearchExecutionEnvironmentProvenanceVerificationStatus.Match ? 0 : 1;
 }
 
 async Task<int> ReproduceExperimentAsync(string experimentId)
@@ -461,6 +523,7 @@ async Task<int> RunResearchExperimentAsync(string experimentId)
     Console.WriteLine($"ANALYSIS_FINGERPRINT={result.AnalysisFingerprint}");
     Console.WriteLine($"ARTIFACT_FINGERPRINT={result.ArtifactFingerprint}");
     Console.WriteLine($"SOURCE_BUILD_PROVENANCE_FINGERPRINT={result.SourceBuildProvenanceFingerprint}");
+    Console.WriteLine($"EXECUTION_ENVIRONMENT_PROVENANCE_FINGERPRINT={result.ExecutionEnvironmentProvenanceFingerprint}");
     Console.WriteLine($"EXECUTION_BINDING_FINGERPRINT={result.ExecutionBindingFingerprint}");
     Console.WriteLine($"ARTIFACT_VERSION={result.ArtifactVersion}");
     Console.WriteLine($"EXPERIMENT_RECORD_VERSION={result.ExperimentRecordSchemaVersion}");

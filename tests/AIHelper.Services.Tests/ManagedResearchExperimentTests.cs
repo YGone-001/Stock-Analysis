@@ -27,6 +27,17 @@ public sealed class ManagedResearchExperimentTests
         ResearchSourceBuildProvenance.CurrentProvenanceVersion, Commit, Tree, ResearchSourceBuildProvenance.CleanSourceState,
         "Release", ".NETCoreApp,Version=v10.0", ToolMvid, ServicesMvid, CoreMvid);
 
+    private static ResearchExecutionEnvironmentProvenance FixedEnvironmentProvenance() => ResearchExecutionEnvironmentProvenance.Create(
+        ResearchExecutionEnvironmentProvenance.CurrentProvenanceVersion, ".NET 10.0.12", "10.0.12", "win-x64", "Windows", "X64", "X64",
+        ".NETCoreApp,Version=v10.0",
+        new[]
+        {
+            new ResearchResolvedDependency("AIHelper.HistoricalDataTool", "1.0.0", "project",
+                new[] { new ResearchResolvedDependencyReference("AIHelper.Services", "1.0.0") }),
+            new ResearchResolvedDependency("AIHelper.Services", "1.0.0", "project", null),
+            new ResearchResolvedDependency("Serilog", "4.3.1", "package", null)
+        });
+
     // ---- end-to-end -------------------------------------------------------------------------------------
 
     [Theory]
@@ -85,6 +96,17 @@ public sealed class ManagedResearchExperimentTests
             ResearchSourceBuildProvenanceVerificationResult provenance = new ResearchSourceBuildProvenanceVerifier(new StubProvider(FixedProvenance())).Verify(record);
             Assert.Equal(Match, provenance.Status);
             Assert.Equal(0, provenance.FailedCheckCount);
+
+            // Phase 3.14 execution environment and dependency provenance chain.
+            Assert.Equal(ResearchExecutionProvenanceBinding.CurrentBindingVersion, record.ExecutionProvenanceBinding.BindingVersion);
+            Assert.Equal(FixedEnvironmentProvenance().ProvenanceFingerprint, result.ExecutionEnvironmentProvenanceFingerprint);
+            Assert.Equal(FixedEnvironmentProvenance().ProvenanceFingerprint, record.ExecutionEnvironmentProvenance!.ProvenanceFingerprint);
+            Assert.Equal(FixedEnvironmentProvenance().ProvenanceFingerprint, record.ExecutionProvenanceBinding.ExecutionEnvironmentProvenanceFingerprint);
+
+            ResearchExecutionEnvironmentProvenanceVerificationResult environment = new ResearchExecutionEnvironmentProvenanceVerifier(
+                new StubEnvironmentProvider(FixedEnvironmentProvenance())).Verify(record);
+            Assert.Equal(ResearchExecutionEnvironmentProvenanceVerificationStatus.Match, environment.Status);
+            Assert.Equal(0, environment.FailedCheckCount);
         }
         finally { DeleteDirectory(harness.Root); }
     }
@@ -285,7 +307,8 @@ public sealed class ManagedResearchExperimentTests
             List<string> events = new();
             RecordingArtifactWriter writer = new(events);
             ManagedResearchExperimentRunner runner = new(new StubProvider(FixedProvenance()), writer, new FixedTimeProvider(DateTimeOffset.UnixEpoch),
-                store => new FailingRepository(new JsonResearchExperimentRepository(store)));
+                store => new FailingRepository(new JsonResearchExperimentRepository(store)),
+                new StubEnvironmentProvider(FixedEnvironmentProvenance()));
 
             await Assert.ThrowsAsync<IOException>(() => runner.RunAsync(harness.Request));
 
@@ -366,9 +389,11 @@ public sealed class ManagedResearchExperimentTests
                 Assert.Contains("MANAGED_EXPERIMENT_STATUS=Completed", stdout);
                 Assert.Contains($"EXPERIMENT_ID={harness.Request.ExperimentId}", stdout);
                 Assert.Contains("ARTIFACT_VERSION=portfolio-research-v2", stdout);
-                Assert.Contains("EXPERIMENT_RECORD_VERSION=research-experiment-record-v3", stdout);
+                Assert.Contains("EXPERIMENT_RECORD_VERSION=research-experiment-record-v4", stdout);
                 Assert.Contains("SOURCE_BUILD_PROVENANCE_FINGERPRINT=", stdout);
+                Assert.Contains("EXECUTION_ENVIRONMENT_PROVENANCE_FINGERPRINT=", stdout);
                 Assert.Contains("EXECUTION_BINDING_FINGERPRINT=", stdout);
+                Assert.Contains("EXPERIMENT_RECORD_VERSION=research-experiment-record-v4", stdout);
             }
             else
             {
@@ -473,7 +498,9 @@ public sealed class ManagedResearchExperimentTests
         List<string>? events = null) => new(
         events is null ? new StubProvider(FixedProvenance()) : new RecordingProvenanceProvider(events, FixedProvenance),
         writer,
-        new FixedTimeProvider(DateTimeOffset.UnixEpoch));
+        new FixedTimeProvider(DateTimeOffset.UnixEpoch),
+        repositoryFactory: null,
+        executionEnvironmentProvenanceProvider: new StubEnvironmentProvider(FixedEnvironmentProvenance()));
 
     private static ManagedResearchExperimentRequest Clone(ManagedResearchExperimentRequest source, string artifactOutputPath) => new(
         source.ExperimentId, source.DatasetPath, source.ParameterSnapshotPath, source.StrategyMode, source.StartDate, source.EndDate,
@@ -586,6 +613,14 @@ public sealed class ManagedResearchExperimentTests
         public StubProvider(ResearchSourceBuildProvenance provenance) : this(() => provenance) { }
         public StubProvider(Func<ResearchSourceBuildProvenance> capture) => _capture = capture;
         public ResearchSourceBuildProvenance Capture() => _capture();
+    }
+
+    private sealed class StubEnvironmentProvider : IResearchExecutionEnvironmentProvenanceProvider
+    {
+        private readonly Func<ResearchExecutionEnvironmentProvenance> _capture;
+        public StubEnvironmentProvider(ResearchExecutionEnvironmentProvenance provenance) : this(() => provenance) { }
+        public StubEnvironmentProvider(Func<ResearchExecutionEnvironmentProvenance> capture) => _capture = capture;
+        public ResearchExecutionEnvironmentProvenance Capture() => _capture();
     }
 
     private sealed class RecordingProvenanceProvider : IResearchSourceBuildProvenanceProvider

@@ -104,6 +104,7 @@ public sealed class ManagedResearchExperimentResult
         string analysisFingerprint,
         string artifactFingerprint,
         string sourceBuildProvenanceFingerprint,
+        string executionEnvironmentProvenanceFingerprint,
         string executionBindingFingerprint,
         string artifactVersion,
         string experimentRecordSchemaVersion,
@@ -117,6 +118,7 @@ public sealed class ManagedResearchExperimentResult
         ArgumentException.ThrowIfNullOrWhiteSpace(analysisFingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(artifactFingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceBuildProvenanceFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(executionEnvironmentProvenanceFingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(executionBindingFingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(artifactVersion);
         ArgumentException.ThrowIfNullOrWhiteSpace(experimentRecordSchemaVersion);
@@ -130,6 +132,7 @@ public sealed class ManagedResearchExperimentResult
         AnalysisFingerprint = analysisFingerprint;
         ArtifactFingerprint = artifactFingerprint;
         SourceBuildProvenanceFingerprint = sourceBuildProvenanceFingerprint;
+        ExecutionEnvironmentProvenanceFingerprint = executionEnvironmentProvenanceFingerprint;
         ExecutionBindingFingerprint = executionBindingFingerprint;
         ArtifactVersion = artifactVersion;
         ExperimentRecordSchemaVersion = experimentRecordSchemaVersion;
@@ -145,6 +148,8 @@ public sealed class ManagedResearchExperimentResult
     public string AnalysisFingerprint { get; }
     public string ArtifactFingerprint { get; }
     public string SourceBuildProvenanceFingerprint { get; }
+    /// <summary>Observed execution-environment and dependency-graph identity bound into the execution binding.</summary>
+    public string ExecutionEnvironmentProvenanceFingerprint { get; }
     public string ExecutionBindingFingerprint { get; }
     public string ArtifactVersion { get; }
     public string ExperimentRecordSchemaVersion { get; }

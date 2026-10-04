@@ -49,6 +49,7 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
     public const string OrphanArtifactReasonCode = "MANAGED_EXPERIMENT_ORPHAN_ARTIFACT";
 
     private readonly IResearchSourceBuildProvenanceProvider _provenanceProvider;
+    private readonly IResearchExecutionEnvironmentProvenanceProvider _executionEnvironmentProvenanceProvider;
     private readonly IManagedResearchArtifactWriter _artifactWriter;
     private readonly TimeProvider _timeProvider;
     private readonly Func<string, IResearchExperimentRepository> _repositoryFactory;
@@ -61,9 +62,11 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
         IResearchSourceBuildProvenanceProvider? provenanceProvider = null,
         IManagedResearchArtifactWriter? artifactWriter = null,
         TimeProvider? timeProvider = null,
-        Func<string, IResearchExperimentRepository>? repositoryFactory = null)
+        Func<string, IResearchExperimentRepository>? repositoryFactory = null,
+        IResearchExecutionEnvironmentProvenanceProvider? executionEnvironmentProvenanceProvider = null)
     {
         _provenanceProvider = provenanceProvider ?? new ResearchSourceBuildProvenanceProvider();
+        _executionEnvironmentProvenanceProvider = executionEnvironmentProvenanceProvider ?? new ResearchExecutionEnvironmentProvenanceProvider();
         _artifactWriter = artifactWriter ?? new AtomicManagedResearchArtifactWriter();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _repositoryFactory = repositoryFactory ?? (store => new JsonResearchExperimentRepository(store));
@@ -93,8 +96,9 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
             new[] { request.HorizonTradingDays }, request.BacktestRoundTripCostRate, request.BacktestSlippageRate,
             ClassicParameters: classicParameters, V2Parameters: v2Parameters);
 
-        // Authoritative source/build provenance is captured before research execution and before any output side effect.
+        // Authoritative provenance for both domains is captured before research execution and before any output side effect.
         ResearchSourceBuildProvenance provenance = _provenanceProvider.Capture();
+        ResearchExecutionEnvironmentProvenance executionEnvironmentProvenance = _executionEnvironmentProvenanceProvider.Capture();
 
         DateTimeOffset startedAt = _timeProvider.GetUtcNow();
         ResearchExperimentIdentity identity = new(request.ExperimentId, ResearchExperimentIdentity.CurrentExperimentVersion, "AIHelper.HistoricalDataTool", startedAt);
@@ -126,7 +130,8 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
             execution, new ResearchExperimentPerformanceSummary(artifact.PerformanceSummary.TotalReturnPercent,
                 artifact.PerformanceSummary.MaximumDrawdownPercent, artifact.PerformanceSummary.TradeCount, artifact.PerformanceSummary.WinRate));
 
-        PersistedResearchExperimentRecord record = ResearchExperimentRecordFactory.CreateCurrent(definition, summary, artifact, completedAt, provenance);
+        PersistedResearchExperimentRecord record = ResearchExperimentRecordFactory.CreateCurrent(
+            definition, summary, artifact, completedAt, provenance, executionEnvironmentProvenance);
 
         // In-memory validation before anything becomes discoverable.
         string artifactJson = SparrowPortfolioResearchExporter.Serialize(artifact);
@@ -161,7 +166,8 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
         return new ManagedResearchExperimentResult(
             request.ExperimentId, definition.SemanticFingerprint, artifact.DatasetFingerprint, artifact.PortfolioRequest.StrategyParameterFingerprint,
             artifact.PortfolioConfigurationFingerprint, artifact.AnalysisFingerprint, artifact.ArtifactFingerprint,
-            provenance.ProvenanceFingerprint, record.ExecutionProvenanceBinding!.BindingFingerprint,
+            provenance.ProvenanceFingerprint, executionEnvironmentProvenance.ProvenanceFingerprint,
+            record.ExecutionProvenanceBinding!.BindingFingerprint,
             artifact.ArtifactVersion, record.SchemaVersion, request.ArtifactOutputPath);
     }
 
