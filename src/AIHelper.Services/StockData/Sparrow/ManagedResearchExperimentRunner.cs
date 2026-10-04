@@ -155,8 +155,11 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
             throw;
         }
 
+        // The result reports the artifact-side executable strategy parameter fingerprint, which is the
+        // identity bound into the execution binding. artifact.StrategyFingerprint is the distinct
+        // higher-level portfolio-research strategy wrapper and is deliberately not projected here.
         return new ManagedResearchExperimentResult(
-            request.ExperimentId, definition.SemanticFingerprint, artifact.DatasetFingerprint, artifact.StrategyFingerprint,
+            request.ExperimentId, definition.SemanticFingerprint, artifact.DatasetFingerprint, artifact.PortfolioRequest.StrategyParameterFingerprint,
             artifact.PortfolioConfigurationFingerprint, artifact.AnalysisFingerprint, artifact.ArtifactFingerprint,
             provenance.ProvenanceFingerprint, record.ExecutionProvenanceBinding!.BindingFingerprint,
             artifact.ArtifactVersion, record.SchemaVersion, request.ArtifactOutputPath);

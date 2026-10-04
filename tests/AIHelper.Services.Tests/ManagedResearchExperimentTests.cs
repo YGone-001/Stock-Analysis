@@ -7,6 +7,7 @@ using AIHelper.Core.Sparrow;
 using AIHelper.Models;
 using AIHelper.Services.StockData.Sparrow;
 using Xunit;
+using static AIHelper.Core.Sparrow.ResearchReexecutionCheckCodes;
 using static AIHelper.Core.Sparrow.ResearchSourceBuildProvenanceReasonCodes;
 using static AIHelper.Core.Sparrow.ResearchSourceBuildProvenanceVerificationStatus;
 
@@ -59,6 +60,14 @@ public sealed class ManagedResearchExperimentTests
             Assert.Equal(record.ExperimentId, reports.BuildExperimentReport(record).ExperimentId);
             Assert.Equal(record.ExperimentId, reports.BuildLineageReport(record).ExperimentId);
 
+            // Strategy parameter identity chain: the result reports the artifact-side executable parameter
+            // fingerprint, never the distinct higher-level strategy wrapper fingerprint.
+            SparrowPortfolioResearchArtifact artifact = await ReadArtifactAsync(harness.ArtifactPath);
+            Assert.Equal(artifact.PortfolioRequest.StrategyParameterFingerprint, result.StrategyParameterFingerprint);
+            Assert.Equal(record.ExecutionProvenanceBinding.ArtifactStrategyParameterFingerprint, result.StrategyParameterFingerprint);
+            Assert.NotEqual(artifact.StrategyFingerprint, result.StrategyParameterFingerprint);
+            Assert.Equal(SparrowPortfolioResearchFingerprint.Strategy(artifact.PortfolioRequest), artifact.StrategyFingerprint);
+
             // Phase 3.9 readiness compatibility.
             ResearchReproducibilityVerificationResult readiness = await new SparrowResearchReproducibilityVerifier().VerifyAsync(record, harness.ArtifactPath);
             Assert.Equal(ResearchReproducibilityVerificationStatus.Verified, readiness.Status);
@@ -67,11 +76,43 @@ public sealed class ManagedResearchExperimentTests
             ResearchReexecutionValidationResult reexecution = await new SparrowResearchReexecutionValidator()
                 .ValidateReexecutionAsync(record, harness.ArtifactPath, harness.DatasetPath, harness.ParametersPath, BacktestCost, BacktestSlippage);
             Assert.Equal(ResearchReexecutionStatus.Equivalent, reexecution.Status);
+            Assert.Equal(ResearchReexecutionCheckStatus.Pass,
+                Assert.Single(reexecution.Checks, check => check.Code == ResearchReexecutionCheckCodes.ExecutableParameterFingerprintMatch).Status);
+            Assert.Equal(ResearchReexecutionCheckStatus.Pass,
+                Assert.Single(reexecution.Checks, check => check.Code == ResearchReexecutionCheckCodes.BacktestParameterFingerprintMatch).Status);
 
             // Phase 3.12 source/build provenance compatibility.
             ResearchSourceBuildProvenanceVerificationResult provenance = new ResearchSourceBuildProvenanceVerifier(new StubProvider(FixedProvenance())).Verify(record);
             Assert.Equal(Match, provenance.Status);
             Assert.Equal(0, provenance.FailedCheckCount);
+        }
+        finally { DeleteDirectory(harness.Root); }
+    }
+
+    [Theory]
+    [InlineData("classic")]
+    [InlineData("v2")]
+    public async Task ManagedResult_StrategyParameterFingerprint_MatchesArtifactAndBinding(string mode)
+    {
+        Harness harness = await CreateHarnessAsync(mode);
+        try
+        {
+            ManagedResearchExperimentResult result = await Runner().RunAsync(harness.Request);
+            SparrowPortfolioResearchArtifact artifact = await ReadArtifactAsync(harness.ArtifactPath);
+            PersistedResearchExperimentRecord record = await new JsonResearchExperimentRepository(harness.StorePath).GetAsync(harness.Request.ExperimentId);
+            ResearchReexecutionValidationResult reexecution = await new SparrowResearchReexecutionValidator()
+                .ValidateReexecutionAsync(record, harness.ArtifactPath, harness.DatasetPath, harness.ParametersPath, BacktestCost, BacktestSlippage);
+
+            // Corrected chain: managed result == artifact portfolio parameter identity == binding == executed backtest identity.
+            Assert.Equal(artifact.PortfolioRequest.StrategyParameterFingerprint, result.StrategyParameterFingerprint);
+            Assert.Equal(record.ExecutionProvenanceBinding!.ArtifactStrategyParameterFingerprint, result.StrategyParameterFingerprint);
+            Assert.Equal(ResearchReexecutionStatus.Equivalent, reexecution.Status);
+            Assert.Equal(ResearchReexecutionCheckStatus.Pass, Assert.Single(reexecution.Checks, check => check.Code == BacktestParameterFingerprintMatch).Status);
+
+            // The higher-level strategy wrapper identity stays a separate domain and still recomputes through the frozen contract.
+            Assert.NotEqual(artifact.StrategyFingerprint, result.StrategyParameterFingerprint);
+            Assert.Equal(artifact.Strategy.StrategyFingerprint, artifact.StrategyFingerprint);
+            Assert.Equal(SparrowPortfolioResearchFingerprint.Strategy(artifact.PortfolioRequest), artifact.StrategyFingerprint);
         }
         finally { DeleteDirectory(harness.Root); }
     }
@@ -339,6 +380,44 @@ public sealed class ManagedResearchExperimentTests
     }
 
     [Fact]
+    public async Task Cli_ManagedExperiment_EmitsArtifactStrategyParameterFingerprint()
+    {
+        Harness harness = await CreateHarnessAsync("classic");
+        try
+        {
+            (int exitCode, string stdout) = await RunCliAsync(
+                "--run-research-experiment", harness.Request.ExperimentId,
+                "--experiment-store", harness.StorePath,
+                "--dataset", harness.DatasetPath,
+                "--parameters", harness.ParametersPath,
+                "--strategy", "classic",
+                "--start", "2026-03-01", "--end", "2026-03-10",
+                "--top-n", "2", "--horizon", "1",
+                "--backtest-round-trip-cost-rate", "0.001", "--backtest-slippage-rate", "0.002",
+                "--initial-capital", "1000000",
+                "--portfolio-commission-rate", "0.0003", "--portfolio-slippage-rate", "0.0004",
+                "--position-sizing", "EqualWeight", "--execution-model", "CloseBased",
+                "--output", harness.ArtifactPath);
+
+            if (exitCode != 0)
+            {
+                // Managed execution requires a clean worktree, so a dirty checkout must refuse instead of emitting identity.
+                Assert.False(File.Exists(harness.ArtifactPath));
+                return;
+            }
+
+            string emitted = Line(stdout, "STRATEGY_PARAMETER_FINGERPRINT");
+            SparrowPortfolioResearchArtifact artifact = await ReadArtifactAsync(harness.ArtifactPath);
+            PersistedResearchExperimentRecord record = await new JsonResearchExperimentRepository(harness.StorePath).GetAsync(harness.Request.ExperimentId);
+
+            Assert.Equal(artifact.PortfolioRequest.StrategyParameterFingerprint, emitted);
+            Assert.Equal(record.ExecutionProvenanceBinding!.ArtifactStrategyParameterFingerprint, emitted);
+            Assert.NotEqual(artifact.StrategyFingerprint, emitted);
+        }
+        finally { DeleteDirectory(harness.Root); }
+    }
+
+    [Fact]
     public async Task Cli_ManagedExperiment_RejectsMissingParametersAndCosts()
     {
         Harness harness = await CreateHarnessAsync("classic");
@@ -426,6 +505,14 @@ public sealed class ManagedResearchExperimentTests
     private static async Task<SparrowPortfolioResearchArtifact> ReadArtifactAsync(string path) =>
         JsonSerializer.Deserialize<SparrowPortfolioResearchArtifact>(await File.ReadAllTextAsync(path),
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+
+    private static string Line(string stdout, string key)
+    {
+        string? match = stdout.Split('\n').Select(line => line.Trim())
+            .FirstOrDefault(line => line.StartsWith(key + "=", StringComparison.Ordinal));
+        Assert.NotNull(match);
+        return match![(key.Length + 1)..];
+    }
 
     private static HistoricalDatasetFile CreateDatasetFile(string id)
     {
