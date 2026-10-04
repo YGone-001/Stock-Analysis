@@ -15,6 +15,7 @@ try
     if (options.ContainsKey("report-experiment") || options.ContainsKey("report-lineage") || options.ContainsKey("report-comparison")) detectedModes.Add("research-reporting");
     if (Bool("show-source-build-provenance", false)) detectedModes.Add("source-build-provenance");
     if (options.ContainsKey("verify-source-build-provenance")) detectedModes.Add("source-build-provenance-verification");
+    if (options.ContainsKey("run-research-experiment")) detectedModes.Add("managed-research-experiment");
     if (Bool("analyze-benchmark", false)) detectedModes.Add("benchmark-analysis");
     if (Bool("export-portfolio-research", false)) detectedModes.Add("portfolio-research-export");
     if (options.ContainsKey("source") || options.ContainsKey("dataset-id") || options.ContainsKey("symbols") || options.ContainsKey("benchmarks"))
@@ -47,6 +48,8 @@ try
         return await AnalyzeBenchmarkAsync();
     if (Bool("export-portfolio-research", false))
         return await ExportPortfolioResearchAsync();
+    if (options.TryGetValue("run-research-experiment", out string? managedExperimentId))
+        return await RunResearchExperimentAsync(managedExperimentId);
 
     string source = Value("source", "tushare");
     string adjustment = Value("adjustment", "raw");
@@ -411,6 +414,94 @@ async Task<int> ExportPortfolioResearchAsync()
     Console.WriteLine($"TRADE_COUNT={artifact.PerformanceSummary.TradeCount}");
     Console.WriteLine($"OUTPUT_FILE={Path.GetFullPath(Value("output"))}");
     return 0;
+}
+
+async Task<int> RunResearchExperimentAsync(string experimentId)
+{
+    string strategyText = Required("strategy").Trim().ToLowerInvariant();
+    SparrowStrategyMode strategyMode = strategyText switch
+    {
+        "classic" => SparrowStrategyMode.Classic,
+        "v2" => SparrowStrategyMode.V2,
+        _ => throw new ArgumentException("--strategy must be classic or v2.")
+    };
+
+    if (!Enum.TryParse(Required("position-sizing").Trim(), ignoreCase: false, out PortfolioPositionSizingMethod positionSizing))
+        throw new ArgumentException($"--position-sizing must be {nameof(PortfolioPositionSizingMethod.EqualWeight)}.");
+    if (!Enum.TryParse(Required("execution-model").Trim(), ignoreCase: false, out PortfolioExecutionModel executionModel))
+        throw new ArgumentException($"--execution-model must be {nameof(PortfolioExecutionModel.CloseBased)}.");
+
+    ManagedResearchExperimentRequest request = new(
+        experimentId,
+        Required("dataset"),
+        Required("parameters"),
+        strategyMode,
+        RequiredDate("start"),
+        RequiredDate("end"),
+        RequiredInteger("top-n"),
+        RequiredInteger("horizon"),
+        RequiredDouble("backtest-round-trip-cost-rate"),
+        RequiredDouble("backtest-slippage-rate"),
+        RequiredDecimal("initial-capital"),
+        positionSizing,
+        RequiredDecimal("portfolio-commission-rate"),
+        RequiredDecimal("portfolio-slippage-rate"),
+        executionModel,
+        Required("output"),
+        Required("experiment-store"));
+
+    ManagedResearchExperimentResult result = await new ManagedResearchExperimentRunner().RunAsync(request);
+
+    Console.WriteLine("MANAGED_EXPERIMENT_STATUS=Completed");
+    Console.WriteLine($"EXPERIMENT_ID={result.ExperimentId}");
+    Console.WriteLine($"EXPERIMENT_FINGERPRINT={result.ExperimentFingerprint}");
+    Console.WriteLine($"DATASET_FINGERPRINT={result.DatasetFingerprint}");
+    Console.WriteLine($"STRATEGY_PARAMETER_FINGERPRINT={result.StrategyParameterFingerprint}");
+    Console.WriteLine($"PORTFOLIO_CONFIGURATION_FINGERPRINT={result.PortfolioConfigurationFingerprint}");
+    Console.WriteLine($"ANALYSIS_FINGERPRINT={result.AnalysisFingerprint}");
+    Console.WriteLine($"ARTIFACT_FINGERPRINT={result.ArtifactFingerprint}");
+    Console.WriteLine($"SOURCE_BUILD_PROVENANCE_FINGERPRINT={result.SourceBuildProvenanceFingerprint}");
+    Console.WriteLine($"EXECUTION_BINDING_FINGERPRINT={result.ExecutionBindingFingerprint}");
+    Console.WriteLine($"ARTIFACT_VERSION={result.ArtifactVersion}");
+    Console.WriteLine($"EXPERIMENT_RECORD_VERSION={result.ExperimentRecordSchemaVersion}");
+    Console.WriteLine($"ARTIFACT_OUTPUT={Path.GetFullPath(result.ArtifactOutputPath)}");
+    return 0;
+}
+
+string Required(string name) => options.TryGetValue(name, out string? value) && !string.IsNullOrWhiteSpace(value)
+    ? value
+    : throw new ArgumentException($"--{name} is required for --run-research-experiment.");
+
+int RequiredInteger(string name)
+{
+    string raw = Required(name);
+    if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+        throw new ArgumentException($"--{name} must be an invariant-culture integer.");
+    return value;
+}
+
+double RequiredDouble(string name)
+{
+    string raw = Required(name);
+    if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) || !double.IsFinite(value))
+        throw new ArgumentException($"--{name} must be a finite invariant-culture number.");
+    return value;
+}
+
+decimal RequiredDecimal(string name)
+{
+    string raw = Required(name);
+    if (!decimal.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal value))
+        throw new ArgumentException($"--{name} must be an invariant-culture number.");
+    return value;
+}
+
+DateOnly RequiredDate(string name)
+{
+    string raw = Required(name);
+    if (!DateOnly.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly value))
+        throw new ArgumentException($"--{name} must be an invariant-culture date in yyyy-MM-dd form.");
+    return value;
 }
 
 static Dictionary<string, string> Parse(string[] args)
