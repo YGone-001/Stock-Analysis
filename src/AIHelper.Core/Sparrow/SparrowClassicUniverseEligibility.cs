@@ -9,8 +9,10 @@ public static class SparrowClassicUniverseEligibility
     {
         if (string.IsNullOrWhiteSpace(symbol) || string.IsNullOrWhiteSpace(name))
             return new(false, "IDENTITY_MISSING", "Security code or name is missing.");
-        if (name.Contains("ST", StringComparison.OrdinalIgnoreCase))
+        if (IsStName(name))
             return new(false, "ST_EXCLUDED", "ST securities are excluded by Classic universe policy.");
+        if (name.Contains('退'))
+            return new(false, "DELISTING_EXCLUDED", "Delisting securities are excluded by Classic universe policy.");
         if (symbol.StartsWith("688", StringComparison.Ordinal))
             return new(false, "STAR_EXCLUDED", "STAR Market securities are excluded by Classic universe policy.");
         if (!symbol.StartsWith("60", StringComparison.Ordinal)
@@ -18,6 +20,16 @@ public static class SparrowClassicUniverseEligibility
             && !symbol.StartsWith("30", StringComparison.Ordinal))
             return new(false, "MARKET_EXCLUDED", "Security code is outside the Classic market universe.");
         return new(true, "ELIGIBLE", "Eligible for the Classic universe.");
+    }
+
+    /// <summary>Detects the A-share ST naming convention (ST / *ST / SST / S*ST prefixes) without matching mid-name substrings.</summary>
+    private static bool IsStName(string name)
+    {
+        string upper = name.Trim().ToUpperInvariant();
+        return upper.StartsWith("ST", StringComparison.Ordinal)
+            || upper.StartsWith("*ST", StringComparison.Ordinal)
+            || upper.StartsWith("SST", StringComparison.Ordinal)
+            || upper.StartsWith("S*ST", StringComparison.Ordinal);
     }
 
     /// <summary>Historical callers supply dated ST evidence. Null never means "normal".</summary>
