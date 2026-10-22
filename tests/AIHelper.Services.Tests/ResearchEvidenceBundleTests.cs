@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using AIHelper.Core.Sparrow;
 using AIHelper.Core.StockData;
@@ -460,6 +461,13 @@ public sealed class ResearchEvidenceBundleTests
             ResearchEvidenceBundleVerificationResult result = await new ResearchEvidenceBundleVerifier().VerifyAsync(tamperedPath);
             Assert.Equal(Status.Failed, result.Status);
             Assert.Contains(BundleManifestFingerprintMismatch, result.ReasonCodes);
+
+            // Entry integrity completed; the record, artifact, dataset and parameter stages never ran.
+            Assert.Equal("Verified", result.EntryIntegrityStatus);
+            Assert.Equal("NotChecked", result.ExperimentRecordStatus);
+            Assert.Equal("NotChecked", result.ArtifactLineageStatus);
+            Assert.Equal("NotChecked", result.DatasetStatus);
+            Assert.Equal("NotChecked", result.ParameterStatus);
         }
         finally { DeleteDirectory(harness.Root); }
     }
@@ -497,6 +505,13 @@ public sealed class ResearchEvidenceBundleTests
             ResearchEvidenceBundleVerificationResult result = await new ResearchEvidenceBundleVerifier().VerifyAsync(tamperedPath);
             Assert.Equal(Status.Failed, result.Status);
             Assert.Contains(BundleArchiveInvalid, result.ReasonCodes);
+
+            // Archive structure failed before any component stage ran.
+            Assert.Equal("NotChecked", result.EntryIntegrityStatus);
+            Assert.Equal("NotChecked", result.ExperimentRecordStatus);
+            Assert.Equal("NotChecked", result.ArtifactLineageStatus);
+            Assert.Equal("NotChecked", result.DatasetStatus);
+            Assert.Equal("NotChecked", result.ParameterStatus);
         }
         finally { DeleteDirectory(harness.Root); }
     }
@@ -947,14 +962,7 @@ public sealed class ResearchEvidenceBundleTests
         Harness harness = await CreateHarnessAsync("classic");
         try
         {
-            await CreateRunner().RunAsync(harness.Request);
-
-            string bundlePath = Path.Combine(harness.Root, "bundle.zip");
-            ResearchEvidenceBundleExportRequest exportRequest = new(
-                harness.Request.ExperimentId, harness.StorePath, harness.ArtifactPath, harness.DatasetPath,
-                harness.ParametersPath, BacktestCost, BacktestSlippage, bundlePath);
-
-            await new ResearchEvidenceBundleExporter().ExportAsync(exportRequest);
+            string bundlePath = await ExportBundleAsync(harness, harness.Root, "bundle.zip");
 
             ResearchReexecutionValidationResult mockDivergence = new(
                 ResearchReexecutionStatus.Diverged,
@@ -966,10 +974,43 @@ public sealed class ResearchEvidenceBundleTests
             ResearchEvidenceBundleVerifier verifier = new(reexecutionValidator: new StubReexecutionValidator(mockDivergence));
             ResearchEvidenceBundleVerificationResult result = await verifier.VerifyAsync(bundlePath, reexecute: true);
 
-            // Structural integrity is Verified, but re-execution is Diverged
-            Assert.Equal(Status.Failed, result.Status);
+            // Structural integrity stays Verified; the divergence is reported in the independent domain.
+            Assert.Equal(Status.Verified, result.Status);
             Assert.Equal(ReexecStatus.Diverged, result.ReexecutionStatus);
             Assert.Contains(BundleReexecutionDiverged, result.ReasonCodes);
+            Assert.Equal("Verified", result.EntryIntegrityStatus);
+            Assert.Equal("Verified", result.ExperimentRecordStatus);
+            Assert.Equal("Verified", result.ArtifactLineageStatus);
+            Assert.Equal("Verified", result.DatasetStatus);
+            Assert.Equal("Verified", result.ParameterStatus);
+
+            // The aggregate failed-check count includes the re-execution check and does not redefine Status.
+            Assert.True(result.FailedCheckCount > 0);
+            Assert.Contains(result.Checks, c => c.CheckCode == Reexecution && c.Status == "Fail");
+            Assert.False(result.FullVerificationSucceeded);
+            Assert.DoesNotContain(result.Checks, c => c.CheckCode == PortfolioArtifact && c.Status != "Pass");
+        }
+        finally { DeleteDirectory(harness.Root); }
+    }
+
+    // ==============================================================================================
+    // 5. Verification Status Contract Tests
+    // ==============================================================================================
+
+    [Fact]
+    public async Task Verify_StructuralOnly_ReportsVerifiedWithNotRequestedReexecution()
+    {
+        Harness harness = await CreateHarnessAsync("classic");
+        try
+        {
+            string bundlePath = await ExportBundleAsync(harness, harness.Root, "bundle.zip");
+
+            ResearchEvidenceBundleVerificationResult result = await new ResearchEvidenceBundleVerifier().VerifyAsync(bundlePath);
+
+            Assert.Equal(Status.Verified, result.Status);
+            Assert.Equal(ReexecStatus.NotRequested, result.ReexecutionStatus);
+            Assert.Equal(0, result.FailedCheckCount);
+            Assert.True(result.FullVerificationSucceeded);
             Assert.Equal("Verified", result.EntryIntegrityStatus);
             Assert.Equal("Verified", result.ExperimentRecordStatus);
             Assert.Equal("Verified", result.ArtifactLineageStatus);
@@ -979,9 +1020,323 @@ public sealed class ResearchEvidenceBundleTests
         finally { DeleteDirectory(harness.Root); }
     }
 
+    [Fact]
+    public async Task Verify_EquivalentReexecution_KeepsStructuralVerified()
+    {
+        Harness harness = await CreateHarnessAsync("classic");
+        try
+        {
+            string bundlePath = await ExportBundleAsync(harness, harness.Root, "bundle.zip");
+
+            ResearchReexecutionValidationResult equivalent = new(
+                ResearchReexecutionStatus.Equivalent, Array.Empty<ResearchReexecutionCheck>(), harness.Request.ExperimentId);
+
+            ResearchEvidenceBundleVerificationResult result = await new ResearchEvidenceBundleVerifier(
+                reexecutionValidator: new StubReexecutionValidator(equivalent)).VerifyAsync(bundlePath, reexecute: true);
+
+            Assert.Equal(Status.Verified, result.Status);
+            Assert.Equal(ReexecStatus.Equivalent, result.ReexecutionStatus);
+            Assert.Equal(0, result.FailedCheckCount);
+            Assert.True(result.FullVerificationSucceeded);
+            Assert.Contains(result.Checks, c => c.CheckCode == Reexecution && c.Status == "Pass");
+        }
+        finally { DeleteDirectory(harness.Root); }
+    }
+
+    [Fact]
+    public async Task Verify_UnsupportedReexecution_KeepsStructuralVerified()
+    {
+        Harness harness = await CreateHarnessAsync("classic");
+        try
+        {
+            string bundlePath = await ExportBundleAsync(harness, harness.Root, "bundle.zip");
+
+            ResearchReexecutionValidationResult unsupported = new(
+                ResearchReexecutionStatus.Unsupported, Array.Empty<ResearchReexecutionCheck>(), harness.Request.ExperimentId,
+                reasonCodes: new[] { ResearchReexecutionReasonCodes.LegacyArtifactUnsupported });
+
+            ResearchEvidenceBundleVerificationResult result = await new ResearchEvidenceBundleVerifier(
+                reexecutionValidator: new StubReexecutionValidator(unsupported)).VerifyAsync(bundlePath, reexecute: true);
+
+            Assert.Equal(Status.Verified, result.Status);
+            Assert.Equal(ReexecStatus.Unsupported, result.ReexecutionStatus);
+            Assert.Contains(BundleReexecutionUnsupported, result.ReasonCodes);
+            Assert.Equal("Verified", result.EntryIntegrityStatus);
+            Assert.Equal("Verified", result.ParameterStatus);
+            Assert.False(result.FullVerificationSucceeded);
+            Assert.True(result.FailedCheckCount > 0);
+        }
+        finally { DeleteDirectory(harness.Root); }
+    }
+
+    [Fact]
+    public async Task Verify_FailedReexecution_KeepsStructuralVerified()
+    {
+        Harness harness = await CreateHarnessAsync("classic");
+        try
+        {
+            string bundlePath = await ExportBundleAsync(harness, harness.Root, "bundle.zip");
+
+            ResearchReexecutionValidationResult failed = new(
+                ResearchReexecutionStatus.Failed, Array.Empty<ResearchReexecutionCheck>(), harness.Request.ExperimentId,
+                reasonCodes: new[] { ResearchReexecutionReasonCodes.BacktestExecutionFailed });
+
+            ResearchEvidenceBundleVerificationResult result = await new ResearchEvidenceBundleVerifier(
+                reexecutionValidator: new StubReexecutionValidator(failed)).VerifyAsync(bundlePath, reexecute: true);
+
+            Assert.Equal(Status.Verified, result.Status);
+            Assert.Equal(ReexecStatus.Failed, result.ReexecutionStatus);
+            Assert.Contains(BundleReexecutionFailed, result.ReasonCodes);
+            Assert.Equal("Verified", result.ArtifactLineageStatus);
+            Assert.Equal("Verified", result.DatasetStatus);
+            Assert.False(result.FullVerificationSucceeded);
+            Assert.True(result.FailedCheckCount > 0);
+        }
+        finally { DeleteDirectory(harness.Root); }
+    }
+
+    [Fact]
+    public async Task Verify_ReexecutionException_ProducesStructuredFailureWithoutInvalidatingBundle()
+    {
+        Harness harness = await CreateHarnessAsync("classic");
+        try
+        {
+            string bundlePath = await ExportBundleAsync(harness, harness.Root, "bundle.zip");
+
+            ResearchEvidenceBundleVerificationResult result = await new ResearchEvidenceBundleVerifier(
+                reexecutionValidator: new ThrowingReexecutionValidator(new InvalidOperationException("simulated execution crash")))
+                .VerifyAsync(bundlePath, reexecute: true);
+
+            Assert.Equal(Status.Verified, result.Status);
+            Assert.Equal(ReexecStatus.Failed, result.ReexecutionStatus);
+            Assert.Contains(BundleReexecutionFailed, result.ReasonCodes);
+            Assert.Contains(result.Checks, c => c.CheckCode == Reexecution && c.Status == "Fail");
+            Assert.Equal("Verified", result.EntryIntegrityStatus);
+            Assert.Equal("Verified", result.ExperimentRecordStatus);
+            Assert.Equal("Verified", result.ArtifactLineageStatus);
+            Assert.Equal("Verified", result.DatasetStatus);
+            Assert.Equal("Verified", result.ParameterStatus);
+            Assert.False(result.FullVerificationSucceeded);
+        }
+        finally { DeleteDirectory(harness.Root); }
+    }
+
+    [Fact]
+    public async Task Verify_ReexecutionCancellation_PropagatesInsteadOfReportingSuccess()
+    {
+        Harness harness = await CreateHarnessAsync("classic");
+        try
+        {
+            string bundlePath = await ExportBundleAsync(harness, harness.Root, "bundle.zip");
+
+            ResearchEvidenceBundleVerifier verifier = new(
+                reexecutionValidator: new ThrowingReexecutionValidator(new OperationCanceledException()));
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => verifier.VerifyAsync(bundlePath, reexecute: true));
+        }
+        finally { DeleteDirectory(harness.Root); }
+    }
+
+    [Fact]
+    public async Task Verify_RecordValidationFailure_LeavesArtifactDatasetParameterNotChecked()
+    {
+        Harness harness = await CreateHarnessAsync("classic");
+        try
+        {
+            string bundlePath = await ExportBundleAsync(harness, harness.Root, "bundle.zip");
+            string resealedPath = await ResealBundleAfterEntryMutationAsync(bundlePath,
+                Path.Combine(harness.Root, "resealed-record.zip"), ResearchEvidenceBundleConstants.ExperimentRecordEntry,
+                text =>
+                {
+                    JsonNode node = JsonNode.Parse(text)!;
+                    node["experimentId"] = "EXP-UNRELATED-999";
+                    return node.ToJsonString();
+                });
+
+            ResearchEvidenceBundleVerificationResult result = await new ResearchEvidenceBundleVerifier().VerifyAsync(resealedPath);
+
+            Assert.Equal(Status.Failed, result.Status);
+            Assert.Contains(BundleExperimentRecordInvalid, result.ReasonCodes);
+            Assert.Equal("Verified", result.EntryIntegrityStatus);
+            Assert.Equal("Failed", result.ExperimentRecordStatus);
+            Assert.Equal("NotChecked", result.ArtifactLineageStatus);
+            Assert.Equal("NotChecked", result.DatasetStatus);
+            Assert.Equal("NotChecked", result.ParameterStatus);
+            Assert.DoesNotContain(result.Checks, c => c.CheckCode == DatasetIdentity);
+            Assert.DoesNotContain(result.Checks, c => c.CheckCode == ParameterIdentity);
+        }
+        finally { DeleteDirectory(harness.Root); }
+    }
+
+    [Theory]
+    [InlineData(ResearchEvidenceBundleReexecutionStatus.NotRequested, true)]
+    [InlineData(ResearchEvidenceBundleReexecutionStatus.Equivalent, true)]
+    [InlineData(ResearchEvidenceBundleReexecutionStatus.Diverged, false)]
+    [InlineData(ResearchEvidenceBundleReexecutionStatus.Unsupported, false)]
+    [InlineData(ResearchEvidenceBundleReexecutionStatus.Failed, false)]
+    public void VerificationResult_FullVerificationSucceeded_OnlyAcceptsEquivalentReexecution(
+        ResearchEvidenceBundleReexecutionStatus reexecutionStatus, bool expected)
+    {
+        ResearchEvidenceBundleVerificationResult result = new(
+            Status.Verified, reexecutionStatus, "EXP-1", ResearchEvidenceBundleConstants.BundleVersionV1, "manifest-fp",
+            Array.Empty<ResearchEvidenceBundleCheck>(), Array.Empty<string>());
+
+        Assert.Equal(Status.Verified, result.Status);
+        Assert.Equal(expected, result.FullVerificationSucceeded);
+    }
+
+    [Theory]
+    [InlineData(Status.Failed)]
+    [InlineData(Status.Unsupported)]
+    public void VerificationResult_FullVerificationSucceeded_RejectsStructuralFailure(Status structuralStatus)
+    {
+        ResearchEvidenceBundleVerificationResult result = new(
+            structuralStatus, ReexecStatus.NotRequested, "EXP-1", ResearchEvidenceBundleConstants.BundleVersionV1, "manifest-fp",
+            Array.Empty<ResearchEvidenceBundleCheck>(), Array.Empty<string>());
+
+        Assert.False(result.FullVerificationSucceeded);
+    }
+
+    [Fact]
+    public void VerificationResult_UnvisitedStagesDefaultToNotChecked()
+    {
+        ResearchEvidenceBundleVerificationResult result = new(
+            Status.Failed, ReexecStatus.NotRequested, null, null, null,
+            Array.Empty<ResearchEvidenceBundleCheck>(), Array.Empty<string>());
+
+        Assert.Equal("NotChecked", result.EntryIntegrityStatus);
+        Assert.Equal("NotChecked", result.ExperimentRecordStatus);
+        Assert.Equal("NotChecked", result.ArtifactLineageStatus);
+        Assert.Equal("NotChecked", result.DatasetStatus);
+        Assert.Equal("NotChecked", result.ParameterStatus);
+    }
+
+    [Fact]
+    public async Task Cli_VerificationExitCodeContract_SeparatesStructuralAndReexecutionStatus()
+    {
+        Harness harness = await CreateHarnessAsync("classic");
+        try
+        {
+            string bundlePath = await ExportBundleAsync(harness, harness.Root, "cli-contract.zip");
+
+            // 1. Structural verification only -> exit 0
+            (int structuralExit, string structuralOut) = await RunCliAsync("--verify-research-evidence-bundle", bundlePath);
+            Assert.Equal(0, structuralExit);
+            Assert.Contains("RESEARCH_EVIDENCE_BUNDLE_VERIFICATION_STATUS=Verified", structuralOut);
+            Assert.Contains("ENTRY_INTEGRITY_STATUS=Verified", structuralOut);
+            Assert.Contains("EXPERIMENT_RECORD_STATUS=Verified", structuralOut);
+            Assert.Contains("ARTIFACT_LINEAGE_STATUS=Verified", structuralOut);
+            Assert.Contains("DATASET_STATUS=Verified", structuralOut);
+            Assert.Contains("PARAMETER_STATUS=Verified", structuralOut);
+            Assert.Contains("REEXECUTION_STATUS=NotRequested", structuralOut);
+            Assert.Contains("FAILED_CHECK_COUNT=0", structuralOut);
+
+            // 2. Structural verification with equivalent re-execution -> exit 0
+            (int equivalentExit, string equivalentOut) = await RunCliAsync(
+                "--verify-research-evidence-bundle", bundlePath, "--reexecute", "true");
+            Assert.Equal(0, equivalentExit);
+            Assert.Contains("RESEARCH_EVIDENCE_BUNDLE_VERIFICATION_STATUS=Verified", equivalentOut);
+            Assert.Contains("REEXECUTION_STATUS=Equivalent", equivalentOut);
+
+            // 3. Structural failure -> exit non-zero, unvisited stages are not claimed as Verified
+            string brokenPath = await ResealBundleAfterEntryMutationAsync(bundlePath,
+                Path.Combine(harness.Root, "cli-broken.zip"), ResearchEvidenceBundleConstants.ExperimentRecordEntry,
+                text =>
+                {
+                    JsonNode node = JsonNode.Parse(text)!;
+                    node["experimentId"] = "EXP-UNRELATED-999";
+                    return node.ToJsonString();
+                });
+
+            (int failingExit, string failingOut) = await RunCliAsync("--verify-research-evidence-bundle", brokenPath);
+            Assert.NotEqual(0, failingExit);
+            Assert.Contains("RESEARCH_EVIDENCE_BUNDLE_VERIFICATION_STATUS=Failed", failingOut);
+            Assert.Contains("EXPERIMENT_RECORD_STATUS=Failed", failingOut);
+            Assert.Contains("DATASET_STATUS=NotChecked", failingOut);
+            Assert.Contains("PARAMETER_STATUS=NotChecked", failingOut);
+            Assert.Contains("REEXECUTION_STATUS=NotRequested", failingOut);
+            Assert.Contains(BundleExperimentRecordInvalid, failingOut);
+        }
+        finally { DeleteDirectory(harness.Root); }
+    }
+
     // ==============================================================================================
     // Helper Methods
     // ==============================================================================================
+
+    private static async Task<string> ExportBundleAsync(Harness harness, string outputRoot, string fileName)
+    {
+        await CreateRunner().RunAsync(harness.Request);
+
+        string bundlePath = Path.Combine(outputRoot, fileName);
+        ResearchEvidenceBundleExportRequest exportRequest = new(
+            harness.Request.ExperimentId, harness.StorePath, harness.ArtifactPath, harness.DatasetPath,
+            harness.ParametersPath, BacktestCost, BacktestSlippage, bundlePath);
+
+        await new ResearchEvidenceBundleExporter().ExportAsync(exportRequest);
+        return bundlePath;
+    }
+
+    /// <summary>
+    /// Rewrites one evidence entry and re-seals the bundle (entry digest, byte length and manifest fingerprint)
+    /// so the resulting archive stays structurally valid while the mutated evidence is structurally rejected.
+    /// </summary>
+    private static async Task<string> ResealBundleAfterEntryMutationAsync(
+        string sourcePath, string targetPath, string entryName, Func<string, string> mutate)
+    {
+        byte[] manifestBytes;
+        Dictionary<string, byte[]> payloads = new(StringComparer.Ordinal);
+        using (ZipArchive source = ZipFile.OpenRead(sourcePath))
+        {
+            manifestBytes = ReadEntryContent(source.GetEntry(ResearchEvidenceBundleConstants.ManifestEntry)!);
+            foreach (string name in ResearchEvidenceBundleConstants.FixedPayloadEntries)
+                payloads[name] = ReadEntryContent(source.GetEntry(name)!);
+        }
+
+        payloads[entryName] = Encoding.UTF8.GetBytes(mutate(Encoding.UTF8.GetString(payloads[entryName])));
+
+        ResearchEvidenceBundleManifest original = JsonSerializer.Deserialize<ResearchEvidenceBundleManifest>(
+            manifestBytes, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+
+        ResearchEvidenceBundleEntry[] resealedEntries = original.Entries
+            .Select(entry => string.Equals(entry.LogicalPath, entryName, StringComparison.Ordinal)
+                ? new ResearchEvidenceBundleEntry(entry.LogicalPath, payloads[entry.LogicalPath].LongLength,
+                    Convert.ToHexString(SHA256.HashData(payloads[entry.LogicalPath])))
+                : entry)
+            .ToArray();
+
+        ResearchEvidenceBundleManifest resealed = ResearchEvidenceBundleManifest.Create(
+            original.BundleVersion, original.ExperimentId, original.ExperimentFingerprint, original.DatasetFingerprint,
+            original.ArtifactFingerprint, original.ExecutionBindingFingerprint, original.SourceBuildProvenanceFingerprint,
+            original.ExecutionEnvironmentProvenanceFingerprint, resealedEntries);
+
+        byte[] resealedManifestBytes = JsonSerializer.SerializeToUtf8Bytes(resealed,
+            new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+        using (FileStream destFs = new(targetPath, FileMode.CreateNew))
+        using (ZipArchive dest = new(destFs, ZipArchiveMode.Create))
+        {
+            ZipArchiveEntry manifestEntry = dest.CreateEntry(ResearchEvidenceBundleConstants.ManifestEntry);
+            using (Stream manifestStream = manifestEntry.Open()) await manifestStream.WriteAsync(resealedManifestBytes);
+
+            foreach (string name in ResearchEvidenceBundleConstants.FixedPayloadEntries)
+            {
+                ZipArchiveEntry payloadEntry = dest.CreateEntry(name);
+                using Stream payloadStream = payloadEntry.Open();
+                await payloadStream.WriteAsync(payloads[name]);
+            }
+        }
+
+        return targetPath;
+    }
+
+    private static byte[] ReadEntryContent(ZipArchiveEntry entry)
+    {
+        using Stream stream = entry.Open();
+        using MemoryStream buffer = new();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
 
     private static async Task AssertTamperedEntryFailsAsync(string entryName, string tamperedContent, string expectedReason)
     {
@@ -1022,6 +1377,16 @@ public sealed class ResearchEvidenceBundleTests
             ResearchEvidenceBundleVerificationResult result = await new ResearchEvidenceBundleVerifier().VerifyAsync(tamperedPath);
             Assert.Equal(Status.Failed, result.Status);
             Assert.Contains(expectedReason, result.ReasonCodes);
+
+            // Entry integrity is the stage that failed; no later stage was ever evaluated.
+            Assert.Equal("Failed", result.EntryIntegrityStatus);
+            Assert.Equal("NotChecked", result.ExperimentRecordStatus);
+            Assert.Equal("NotChecked", result.ArtifactLineageStatus);
+            Assert.Equal("NotChecked", result.DatasetStatus);
+            Assert.Equal("NotChecked", result.ParameterStatus);
+            Assert.DoesNotContain(result.Checks, c => c.CheckCode == ExperimentRecord);
+            Assert.DoesNotContain(result.Checks, c => c.CheckCode == DatasetIdentity);
+            Assert.DoesNotContain(result.Checks, c => c.CheckCode == ParameterIdentity);
         }
         finally { DeleteDirectory(harness.Root); }
     }
@@ -1141,5 +1506,17 @@ public sealed class ResearchEvidenceBundleTests
             double backtestRoundTripCostRate,
             double backtestSlippageRate,
             CancellationToken cancellationToken = default) => Task.FromResult(result);
+    }
+
+    private sealed class ThrowingReexecutionValidator(Exception exception) : ISparrowResearchReexecutionValidator
+    {
+        public Task<ResearchReexecutionValidationResult> ValidateReexecutionAsync(
+            PersistedResearchExperimentRecord experimentRecord,
+            string originalArtifactPath,
+            string datasetPath,
+            string? parametersPath,
+            double backtestRoundTripCostRate,
+            double backtestSlippageRate,
+            CancellationToken cancellationToken = default) => Task.FromException<ResearchReexecutionValidationResult>(exception);
     }
 }

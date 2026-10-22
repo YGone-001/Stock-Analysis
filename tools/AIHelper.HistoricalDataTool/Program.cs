@@ -643,36 +643,31 @@ async Task<int> VerifyResearchEvidenceBundleAsync(string bundlePath)
     {
         ResearchEvidenceBundleVerificationResult result = await new ResearchEvidenceBundleVerifier().VerifyAsync(bundlePath, reexecute);
 
-        if (result.Status == ResearchEvidenceBundleVerificationStatus.Verified)
-        {
-            Console.WriteLine("RESEARCH_EVIDENCE_BUNDLE_VERIFICATION_STATUS=Verified");
-            Console.WriteLine();
-            Console.WriteLine($"EXPERIMENT_ID={result.ExperimentId}");
-            Console.WriteLine($"BUNDLE_VERSION={result.BundleVersion}");
-            Console.WriteLine();
-            Console.WriteLine($"BUNDLE_MANIFEST_FINGERPRINT={result.BundleManifestFingerprint}");
-            Console.WriteLine($"ENTRY_INTEGRITY_STATUS={result.EntryIntegrityStatus}");
-            Console.WriteLine($"EXPERIMENT_RECORD_STATUS={result.ExperimentRecordStatus}");
-            Console.WriteLine($"ARTIFACT_LINEAGE_STATUS={result.ArtifactLineageStatus}");
-            Console.WriteLine($"DATASET_STATUS={result.DatasetStatus}");
-            Console.WriteLine($"PARAMETER_STATUS={result.ParameterStatus}");
-            Console.WriteLine();
-            Console.WriteLine($"REEXECUTION_STATUS={result.ReexecutionStatus}");
-            Console.WriteLine($"FAILED_CHECK_COUNT={result.FailedCheckCount}");
-            return 0;
-        }
+        // Structural status is reported independently from optional re-execution. A structurally valid
+        // bundle is always reported as Verified, even when a requested re-execution diverged, was
+        // unsupported or failed; only the process exit code reflects the full requested verification.
+        TextWriter statusWriter = result.Status == ResearchEvidenceBundleVerificationStatus.Verified ? Console.Out : Console.Error;
+        statusWriter.WriteLine($"RESEARCH_EVIDENCE_BUNDLE_VERIFICATION_STATUS={result.Status}");
+        if (!string.IsNullOrEmpty(result.ExperimentId)) statusWriter.WriteLine($"EXPERIMENT_ID={result.ExperimentId}");
+        if (!string.IsNullOrEmpty(result.BundleVersion)) statusWriter.WriteLine($"BUNDLE_VERSION={result.BundleVersion}");
+        if (!string.IsNullOrEmpty(result.BundleManifestFingerprint)) statusWriter.WriteLine($"BUNDLE_MANIFEST_FINGERPRINT={result.BundleManifestFingerprint}");
+        statusWriter.WriteLine($"ENTRY_INTEGRITY_STATUS={result.EntryIntegrityStatus}");
+        statusWriter.WriteLine($"EXPERIMENT_RECORD_STATUS={result.ExperimentRecordStatus}");
+        statusWriter.WriteLine($"ARTIFACT_LINEAGE_STATUS={result.ArtifactLineageStatus}");
+        statusWriter.WriteLine($"DATASET_STATUS={result.DatasetStatus}");
+        statusWriter.WriteLine($"PARAMETER_STATUS={result.ParameterStatus}");
+        statusWriter.WriteLine($"REEXECUTION_STATUS={result.ReexecutionStatus}");
 
-        Console.Error.WriteLine($"RESEARCH_EVIDENCE_BUNDLE_VERIFICATION_STATUS={result.Status}");
-        if (!string.IsNullOrEmpty(result.ExperimentId)) Console.Error.WriteLine($"EXPERIMENT_ID={result.ExperimentId}");
-        if (!string.IsNullOrEmpty(result.BundleVersion)) Console.Error.WriteLine($"BUNDLE_VERSION={result.BundleVersion}");
+        // Aggregate count of every non-passing check, including optional re-execution checks.
+        statusWriter.WriteLine($"FAILED_CHECK_COUNT={result.FailedCheckCount}");
+
         if (result.ReasonCodes.Count > 0) Console.Error.WriteLine($"REASONS={string.Join(',', result.ReasonCodes)}");
-        Console.Error.WriteLine($"REEXECUTION_STATUS={result.ReexecutionStatus}");
-        Console.Error.WriteLine($"FAILED_CHECK_COUNT={result.FailedCheckCount}");
-        foreach (var check in result.Checks.Where(c => c.Status != "Pass"))
+        foreach (var check in result.Checks.Where(c => c.Status != ResearchEvidenceBundleCheckStatus.Pass))
         {
             Console.Error.WriteLine($"FAILED_CHECK={check.CheckCode}:{check.Message}");
         }
-        return 1;
+
+        return result.FullVerificationSucceeded ? 0 : 1;
     }
     catch (Exception ex)
     {

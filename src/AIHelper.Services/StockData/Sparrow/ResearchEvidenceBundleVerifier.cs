@@ -64,15 +64,14 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             if (!reasonCodes.Contains(reason, StringComparer.Ordinal)) reasonCodes.Add(reason);
         }
 
+        // Stage progression state: every reported component status starts as NotChecked and is promoted only
+        // when the corresponding structural stage actually completes. No stage is assumed to have passed.
+        StageProgress progress = new();
+
         ResearchEvidenceBundleVerificationResult Result(
             ResearchEvidenceBundleVerificationStatus status,
             ResearchEvidenceBundleManifest? manifest = null,
-            ResearchEvidenceBundleReexecutionStatus reexecStatus = ResearchEvidenceBundleReexecutionStatus.NotRequested,
-            string entryIntegrityStatus = "Verified",
-            string recordStatus = "Verified",
-            string artifactStatus = "Verified",
-            string datasetStatus = "Verified",
-            string parameterStatus = "Verified")
+            ResearchEvidenceBundleReexecutionStatus reexecStatus = ResearchEvidenceBundleReexecutionStatus.NotRequested)
         {
             return new ResearchEvidenceBundleVerificationResult(
                 status,
@@ -82,11 +81,11 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
                 manifest?.BundleManifestFingerprint,
                 checks,
                 reasonCodes,
-                entryIntegrityStatus,
-                recordStatus,
-                artifactStatus,
-                datasetStatus,
-                parameterStatus);
+                progress.EntryIntegrity,
+                progress.ExperimentRecord,
+                progress.ArtifactLineage,
+                progress.Dataset,
+                progress.Parameters);
         }
 
         // ==============================================================================================
@@ -195,7 +194,8 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             {
                 Fail(EntryIntegrity, $"{ResearchEvidenceBundleConstants.FixedPayloadEntries.Count} entries", $"{manifest.Entries.Count} entries",
                     "Manifest declared entry count mismatch.", BundleArchiveInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, entryIntegrityStatus: "Failed");
+                progress.EntryIntegrity = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
 
             foreach (string path in ResearchEvidenceBundleConstants.FixedPayloadEntries)
@@ -203,7 +203,8 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
                 if (manifest.Entries.All(e => !string.Equals(e.LogicalPath, path, StringComparison.Ordinal)))
                 {
                     Fail(EntryIntegrity, path, "Missing", $"Manifest does not declare entry '{path}'.", BundleArchiveInvalid);
-                    return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, entryIntegrityStatus: "Failed");
+                    progress.EntryIntegrity = ResearchEvidenceBundleStageStatus.Failed;
+                    return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
                 }
             }
 
@@ -224,14 +225,16 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
                 catch (InvalidOperationException limitEx)
                 {
                     Fail(EntryIntegrity, "WithinLimits", "Exceeded", limitEx.Message, BundleSecurityLimitExceeded);
-                    return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, entryIntegrityStatus: "Failed");
+                    progress.EntryIntegrity = ResearchEvidenceBundleStageStatus.Failed;
+                    return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
                 }
 
                 if (entryContent.LongLength != entryDecl.ByteLength)
                 {
                     Fail(EntryIntegrity, $"{entryDecl.ByteLength} bytes", $"{entryContent.LongLength} bytes",
                         $"Byte length mismatch for entry '{entryDecl.LogicalPath}'.", BundleEntryIntegrityFailed);
-                    return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, entryIntegrityStatus: "Failed");
+                    progress.EntryIntegrity = ResearchEvidenceBundleStageStatus.Failed;
+                    return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
                 }
 
                 string actualHash = Convert.ToHexString(SHA256.HashData(entryContent));
@@ -239,13 +242,15 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
                 {
                     Fail(EntryIntegrity, entryDecl.Sha256, actualHash,
                         $"SHA-256 hash mismatch for entry '{entryDecl.LogicalPath}'.", BundleEntryIntegrityFailed);
-                    return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, entryIntegrityStatus: "Failed");
+                    progress.EntryIntegrity = ResearchEvidenceBundleStageStatus.Failed;
+                    return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
                 }
 
                 payloadBytes[entryDecl.LogicalPath] = entryContent;
             }
 
             Pass(EntryIntegrity, "Verified", "Verified", "All entry byte lengths and SHA-256 hashes match manifest.");
+            progress.EntryIntegrity = ResearchEvidenceBundleStageStatus.Verified;
 
             // ==============================================================================================
             // Stage C: Manifest Fingerprint
@@ -270,7 +275,8 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             catch (Exception ex)
             {
                 Fail(ExperimentRecord, "ValidRecordJson", "DeserializationFailed", $"Record deserialization failed: {ex.Message}", BundleExperimentRecordInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, recordStatus: "Failed");
+                progress.ExperimentRecord = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
 
             if (record is null
@@ -286,9 +292,11 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
                 || !string.Equals(record.ExecutionEnvironmentProvenance.ProvenanceFingerprint, manifest.ExecutionEnvironmentProvenanceFingerprint, StringComparison.Ordinal))
             {
                 Fail(ExperimentRecord, "ValidCompletedRecordV4", "Invalid", "Experiment record V4 verification failed.", BundleExperimentRecordInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, recordStatus: "Failed");
+                progress.ExperimentRecord = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
             Pass(ExperimentRecord, "Verified", "Verified", "Experiment record V4 schema, status and manifest identities verified.");
+            progress.ExperimentRecord = ResearchEvidenceBundleStageStatus.Verified;
 
             // ==============================================================================================
             // Stage E & F: Portfolio Artifact V2 Integrity & Phase 3.9 Lineage
@@ -302,7 +310,8 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             catch (Exception ex)
             {
                 Fail(PortfolioArtifact, "ValidArtifactJson", "DeserializationFailed", $"Artifact deserialization failed: {ex.Message}", BundlePortfolioArtifactInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, artifactStatus: "Failed");
+                progress.ArtifactLineage = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
 
             if (artifact is null
@@ -313,7 +322,8 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             {
                 Fail(PortfolioArtifact, manifest.ArtifactFingerprint, artifact?.ArtifactFingerprint ?? "<null>",
                     "Portfolio artifact V2 identity or dataset fingerprint does not match manifest.", BundlePortfolioArtifactInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, artifactStatus: "Failed");
+                progress.ArtifactLineage = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
             Pass(PortfolioArtifact, manifest.ArtifactFingerprint, artifact.ArtifactFingerprint, "Portfolio artifact V2 identity verified.");
 
@@ -322,9 +332,11 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             {
                 Fail(ArtifactLineage, "Verified", readiness.Status.ToString(),
                     $"Artifact lineage and reproducibility readiness failed: {string.Join(", ", readiness.ReasonCodes)}", BundleLineageFailed);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, artifactStatus: "Failed");
+                progress.ArtifactLineage = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
             Pass(ArtifactLineage, "Verified", "Verified", "Artifact lineage, execution binding V3 and reproducibility readiness verified.");
+            progress.ArtifactLineage = ResearchEvidenceBundleStageStatus.Verified;
 
             // ==============================================================================================
             // Stage G: Historical Dataset Identity
@@ -338,7 +350,8 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             if (!datasetResult.Success || datasetResult.Dataset is null)
             {
                 Fail(DatasetIdentity, "Success", "Failed", $"Dataset load failed: {string.Join("; ", datasetResult.Errors)}", BundleDatasetInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, datasetStatus: "Failed");
+                progress.Dataset = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
 
             HistoricalMarketDataset dataset = datasetResult.Dataset;
@@ -346,9 +359,11 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             {
                 Fail(DatasetIdentity, manifest.DatasetFingerprint, dataset.Fingerprint,
                     "Recomputed historical dataset fingerprint does not match manifest.", BundleDatasetInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, datasetStatus: "Failed");
+                progress.Dataset = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
             Pass(DatasetIdentity, manifest.DatasetFingerprint, dataset.Fingerprint, "Historical dataset fingerprint verified.");
+            progress.Dataset = ResearchEvidenceBundleStageStatus.Verified;
 
             // ==============================================================================================
             // Stage H: Typed Parameter & Executable Strategy Parameter Identities
@@ -362,7 +377,8 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             catch (Exception ex)
             {
                 Fail(ReexecutionInputs, "ValidInputsJson", "DeserializationFailed", $"Reexecution inputs deserialization failed: {ex.Message}", BundleReexecutionInputsInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, parameterStatus: "Failed");
+                progress.Parameters = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
 
             if (reexecInputs is null
@@ -370,7 +386,8 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
                 || !double.IsFinite(reexecInputs.BacktestSlippageRate) || reexecInputs.BacktestSlippageRate < 0)
             {
                 Fail(ReexecutionInputs, "ValidFiniteNonNegative", "Invalid", "Explicit re-execution costs are invalid or missing.", BundleReexecutionInputsInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, parameterStatus: "Failed");
+                progress.Parameters = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
             Pass(ReexecutionInputs, "Valid", "Valid", "Explicit re-execution backtest costs verified.");
 
@@ -387,13 +404,15 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
                 {
                     Unsup(ParameterIdentity, "Classic or V2", artifact.PortfolioRequest.StrategyMode.ToString(),
                         $"Unsupported strategy mode: {artifact.PortfolioRequest.StrategyMode}", BundleParametersInvalid);
-                    return Result(ResearchEvidenceBundleVerificationStatus.Unsupported, manifest, parameterStatus: "Failed");
+                    progress.Parameters = ResearchEvidenceBundleStageStatus.Unsupported;
+                    return Result(ResearchEvidenceBundleVerificationStatus.Unsupported, manifest);
                 }
             }
             catch (Exception ex)
             {
                 Fail(ParameterIdentity, "ValidTypedParameters", "DeserializationFailed", $"Typed parameter deserialization failed: {ex.Message}", BundleParametersInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, parameterStatus: "Failed");
+                progress.Parameters = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
 
             var pr = artifact.PortfolioRequest;
@@ -407,7 +426,8 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             {
                 Fail(ParameterIdentity, pr.StrategyParameterFingerprint, candidateParamFp,
                     "Reconstructed executable parameter fingerprint does not match artifact and binding.", BundleParametersInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, parameterStatus: "Failed");
+                progress.Parameters = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
 
             ExperimentParameterSnapshot genericParams = ResearchExperimentParameterSnapshotFactory.Create(
@@ -420,7 +440,8 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             {
                 Fail(ParameterIdentity, record.Definition.Parameters.Fingerprint, genericParams.Fingerprint,
                     "Reconstructed generic experiment parameter snapshot fingerprint does not match record and binding.", BundleParametersInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, parameterStatus: "Failed");
+                progress.Parameters = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
 
             if (!string.Equals(genericParams.StrategyFingerprint, record.Definition.Parameters.StrategyFingerprint, StringComparison.Ordinal)
@@ -432,10 +453,12 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             {
                 Fail(ParameterIdentity, "MatchingSections", "Mismatch",
                     "Reconstructed generic experiment parameter section fingerprints do not match record and execution binding.", BundleParametersInvalid);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, parameterStatus: "Failed");
+                progress.Parameters = ResearchEvidenceBundleStageStatus.Failed;
+                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest);
             }
 
             Pass(ParameterIdentity, "Verified", "Verified", "Typed parameter, executable strategy parameter and generic experiment parameter identities verified.");
+            progress.Parameters = ResearchEvidenceBundleStageStatus.Verified;
 
             // ==============================================================================================
             // Stage I: Stored Provenance Internal Consistency
@@ -459,6 +482,9 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
 
             // ==============================================================================================
             // Stage J: Optional Full Re-execution
+            // Structural verification is already complete at this point. Re-execution is an independent
+            // domain: its outcome never rewrites the structural bundle status. Callers that requested full
+            // verification decide their own process exit code from ReexecutionStatus.
             // ==============================================================================================
             if (!reexecute)
             {
@@ -468,40 +494,53 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             string stagingDir = Path.Combine(Path.GetTempPath(), "sparrow-bundle-stage-" + Guid.NewGuid().ToString("N"));
             try
             {
-                Directory.CreateDirectory(stagingDir);
-                string stagedArtifact = Path.Combine(stagingDir, "portfolio-artifact.json");
-                string stagedDataset = Path.Combine(stagingDir, "historical-dataset.json");
-                string stagedParameters = Path.Combine(stagingDir, "strategy-parameters.json");
-
-                await File.WriteAllBytesAsync(stagedArtifact, payloadBytes[ResearchEvidenceBundleConstants.PortfolioArtifactEntry], cancellationToken).ConfigureAwait(false);
-                await File.WriteAllBytesAsync(stagedDataset, payloadBytes[ResearchEvidenceBundleConstants.HistoricalDatasetEntry], cancellationToken).ConfigureAwait(false);
-                await File.WriteAllBytesAsync(stagedParameters, payloadBytes[ResearchEvidenceBundleConstants.StrategyParametersEntry], cancellationToken).ConfigureAwait(false);
-
-                ResearchReexecutionValidationResult reexec = await _reexecutionValidator.ValidateReexecutionAsync(
-                    record, stagedArtifact, stagedDataset, stagedParameters,
-                    reexecInputs.BacktestRoundTripCostRate, reexecInputs.BacktestSlippageRate, cancellationToken).ConfigureAwait(false);
-
-                if (reexec.Status == ResearchReexecutionStatus.Equivalent)
+                ResearchReexecutionValidationResult reexec;
+                try
                 {
-                    Pass(Reexecution, "Equivalent", "Equivalent", "Deterministic research re-execution reproduced equivalent results.");
-                    return Result(ResearchEvidenceBundleVerificationStatus.Verified, manifest, ResearchEvidenceBundleReexecutionStatus.Equivalent);
+                    Directory.CreateDirectory(stagingDir);
+                    string stagedArtifact = Path.Combine(stagingDir, "portfolio-artifact.json");
+                    string stagedDataset = Path.Combine(stagingDir, "historical-dataset.json");
+                    string stagedParameters = Path.Combine(stagingDir, "strategy-parameters.json");
+
+                    await File.WriteAllBytesAsync(stagedArtifact, payloadBytes[ResearchEvidenceBundleConstants.PortfolioArtifactEntry], cancellationToken).ConfigureAwait(false);
+                    await File.WriteAllBytesAsync(stagedDataset, payloadBytes[ResearchEvidenceBundleConstants.HistoricalDatasetEntry], cancellationToken).ConfigureAwait(false);
+                    await File.WriteAllBytesAsync(stagedParameters, payloadBytes[ResearchEvidenceBundleConstants.StrategyParametersEntry], cancellationToken).ConfigureAwait(false);
+
+                    reexec = await _reexecutionValidator.ValidateReexecutionAsync(
+                        record, stagedArtifact, stagedDataset, stagedParameters,
+                        reexecInputs.BacktestRoundTripCostRate, reexecInputs.BacktestSlippageRate, cancellationToken).ConfigureAwait(false);
                 }
-                if (reexec.Status == ResearchReexecutionStatus.Diverged)
+                catch (OperationCanceledException)
                 {
-                    Fail(Reexecution, "Equivalent", reexec.Status.ToString(),
-                        $"Re-execution diverged: {string.Join(", ", reexec.ReasonCodes)}", BundleReexecutionDiverged);
-                    return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, ResearchEvidenceBundleReexecutionStatus.Diverged);
+                    // Cancellation is never downgraded to a structured verification outcome.
+                    throw;
                 }
-                if (reexec.Status == ResearchReexecutionStatus.Unsupported)
+                catch (Exception ex)
                 {
-                    Unsup(Reexecution, "Equivalent", reexec.Status.ToString(),
-                        $"Re-execution unsupported: {string.Join(", ", reexec.ReasonCodes)}", BundleReexecutionUnsupported);
-                    return Result(ResearchEvidenceBundleVerificationStatus.Unsupported, manifest, ResearchEvidenceBundleReexecutionStatus.Unsupported);
+                    // The optional execution process must not retroactively invalidate completed structural checks.
+                    Fail(Reexecution, "Equivalent", "ExecutionException",
+                        $"Optional re-execution could not complete: {ex.Message}", BundleReexecutionFailed);
+                    return Result(ResearchEvidenceBundleVerificationStatus.Verified, manifest, ResearchEvidenceBundleReexecutionStatus.Failed);
                 }
 
-                Fail(Reexecution, "Equivalent", reexec.Status.ToString(),
-                    $"Re-execution failed: {string.Join(", ", reexec.ReasonCodes)}", BundleReexecutionFailed);
-                return Result(ResearchEvidenceBundleVerificationStatus.Failed, manifest, ResearchEvidenceBundleReexecutionStatus.Failed);
+                switch (reexec.Status)
+                {
+                    case ResearchReexecutionStatus.Equivalent:
+                        Pass(Reexecution, "Equivalent", "Equivalent", "Deterministic research re-execution reproduced equivalent results.");
+                        return Result(ResearchEvidenceBundleVerificationStatus.Verified, manifest, ResearchEvidenceBundleReexecutionStatus.Equivalent);
+                    case ResearchReexecutionStatus.Diverged:
+                        Fail(Reexecution, "Equivalent", reexec.Status.ToString(),
+                            $"Re-execution diverged: {string.Join(", ", reexec.ReasonCodes)}", BundleReexecutionDiverged);
+                        return Result(ResearchEvidenceBundleVerificationStatus.Verified, manifest, ResearchEvidenceBundleReexecutionStatus.Diverged);
+                    case ResearchReexecutionStatus.Unsupported:
+                        Unsup(Reexecution, "Equivalent", reexec.Status.ToString(),
+                            $"Re-execution unsupported: {string.Join(", ", reexec.ReasonCodes)}", BundleReexecutionUnsupported);
+                        return Result(ResearchEvidenceBundleVerificationStatus.Verified, manifest, ResearchEvidenceBundleReexecutionStatus.Unsupported);
+                    default:
+                        Fail(Reexecution, "Equivalent", reexec.Status.ToString(),
+                            $"Re-execution failed: {string.Join(", ", reexec.ReasonCodes)}", BundleReexecutionFailed);
+                        return Result(ResearchEvidenceBundleVerificationStatus.Verified, manifest, ResearchEvidenceBundleReexecutionStatus.Failed);
+                }
             }
             finally
             {
@@ -512,6 +551,19 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Narrow progression state used to report only the structural stages that actually completed.
+    /// Every component starts as NotChecked and is promoted at the moment its stage completes.
+    /// </summary>
+    private sealed class StageProgress
+    {
+        public string EntryIntegrity { get; set; } = ResearchEvidenceBundleStageStatus.NotChecked;
+        public string ExperimentRecord { get; set; } = ResearchEvidenceBundleStageStatus.NotChecked;
+        public string ArtifactLineage { get; set; } = ResearchEvidenceBundleStageStatus.NotChecked;
+        public string Dataset { get; set; } = ResearchEvidenceBundleStageStatus.NotChecked;
+        public string Parameters { get; set; } = ResearchEvidenceBundleStageStatus.NotChecked;
     }
 
     private static byte[] ReadEntryBytes(ZipArchiveEntry entry, long byteLimit)

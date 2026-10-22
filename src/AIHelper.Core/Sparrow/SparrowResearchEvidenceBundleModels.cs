@@ -265,11 +265,39 @@ public sealed class ResearchEvidenceBundleCheck
     public string Message { get; }
 }
 
+/// <summary>
+/// Structural verification status of a portable research evidence bundle. This domain describes the
+/// bundle evidence only and is independent from <see cref="ResearchEvidenceBundleReexecutionStatus"/>.
+/// </summary>
 public enum ResearchEvidenceBundleVerificationStatus
 {
+    /// <summary>All required structural evidence checks passed.</summary>
     Verified,
+
+    /// <summary>At least one required structural verification failed.</summary>
     Failed,
+
+    /// <summary>Structural evidence uses an unsupported contract.</summary>
     Unsupported
+}
+
+/// <summary>
+/// Per-stage structural status. A stage that was never executed must report <see cref="NotChecked"/>;
+/// no stage is ever assumed to have passed.
+/// </summary>
+public static class ResearchEvidenceBundleStageStatus
+{
+    /// <summary>The stage was never executed; nothing about it is known.</summary>
+    public const string NotChecked = "NotChecked";
+
+    /// <summary>The stage completed and all of its structural requirements passed.</summary>
+    public const string Verified = "Verified";
+
+    /// <summary>The stage completed and at least one of its structural requirements failed.</summary>
+    public const string Failed = "Failed";
+
+    /// <summary>The stage completed but the stored contract is not supported by this verifier.</summary>
+    public const string Unsupported = "Unsupported";
 }
 
 public enum ResearchEvidenceBundleReexecutionStatus
@@ -281,6 +309,11 @@ public enum ResearchEvidenceBundleReexecutionStatus
     Failed
 }
 
+/// <summary>
+/// Outcome of verifying a portable research evidence bundle. <see cref="Status"/> reports structural
+/// evidence validity only; <see cref="ReexecutionStatus"/> reports the optional computational
+/// re-execution. The two domains never modify each other.
+/// </summary>
 public sealed class ResearchEvidenceBundleVerificationResult
 {
     public ResearchEvidenceBundleVerificationResult(
@@ -291,11 +324,11 @@ public sealed class ResearchEvidenceBundleVerificationResult
         string? bundleManifestFingerprint,
         IReadOnlyList<ResearchEvidenceBundleCheck> checks,
         IReadOnlyList<string> reasonCodes,
-        string entryIntegrityStatus = "Verified",
-        string experimentRecordStatus = "Verified",
-        string artifactLineageStatus = "Verified",
-        string datasetStatus = "Verified",
-        string parameterStatus = "Verified")
+        string entryIntegrityStatus = ResearchEvidenceBundleStageStatus.NotChecked,
+        string experimentRecordStatus = ResearchEvidenceBundleStageStatus.NotChecked,
+        string artifactLineageStatus = ResearchEvidenceBundleStageStatus.NotChecked,
+        string datasetStatus = ResearchEvidenceBundleStageStatus.NotChecked,
+        string parameterStatus = ResearchEvidenceBundleStageStatus.NotChecked)
     {
         Status = status;
         ReexecutionStatus = reexecutionStatus;
@@ -312,20 +345,48 @@ public sealed class ResearchEvidenceBundleVerificationResult
         ParameterStatus = parameterStatus;
     }
 
+    /// <summary>Structural evidence status only. Never derived from <see cref="ReexecutionStatus"/>.</summary>
     public ResearchEvidenceBundleVerificationStatus Status { get; }
+
+    /// <summary>Optional computational re-execution status only. Never derived from <see cref="Status"/>.</summary>
     public ResearchEvidenceBundleReexecutionStatus ReexecutionStatus { get; }
+
     public string? ExperimentId { get; }
     public string? BundleVersion { get; }
     public string? BundleManifestFingerprint { get; }
     public IReadOnlyList<ResearchEvidenceBundleCheck> Checks { get; }
     public IReadOnlyList<string> ReasonCodes { get; }
+
+    /// <summary>
+    /// Aggregate count of every non-passing check, including optional re-execution checks. A structurally
+    /// valid bundle with diverged re-execution therefore reports a count greater than zero while
+    /// <see cref="Status"/> remains <see cref="ResearchEvidenceBundleVerificationStatus.Verified"/>.
+    /// </summary>
     public int FailedCheckCount { get; }
 
+    /// <summary>Stage status: NotChecked, Verified, Failed or Unsupported.</summary>
     public string EntryIntegrityStatus { get; }
+
+    /// <summary>Stage status: NotChecked, Verified, Failed or Unsupported.</summary>
     public string ExperimentRecordStatus { get; }
+
+    /// <summary>Stage status: NotChecked, Verified, Failed or Unsupported.</summary>
     public string ArtifactLineageStatus { get; }
+
+    /// <summary>Stage status: NotChecked, Verified, Failed or Unsupported.</summary>
     public string DatasetStatus { get; }
+
+    /// <summary>Stage status: NotChecked, Verified, Failed or Unsupported.</summary>
     public string ParameterStatus { get; }
+
+    /// <summary>
+    /// Command-level success contract used by callers that choose a process exit code: structural evidence is
+    /// <see cref="ResearchEvidenceBundleVerificationStatus.Verified"/> and a requested re-execution did not
+    /// fail (NotRequested or Equivalent). Deliberately separate from <see cref="Status"/>.
+    /// </summary>
+    public bool FullVerificationSucceeded =>
+        Status == ResearchEvidenceBundleVerificationStatus.Verified
+        && ReexecutionStatus is ResearchEvidenceBundleReexecutionStatus.NotRequested or ResearchEvidenceBundleReexecutionStatus.Equivalent;
 }
 
 public sealed class ResearchEvidenceBundleExportRequest
