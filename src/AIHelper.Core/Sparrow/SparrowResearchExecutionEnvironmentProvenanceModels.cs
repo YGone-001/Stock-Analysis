@@ -308,11 +308,36 @@ public static class ResearchDependencyGraph
                     $"Dependency manifest contains conflicting semantic content for '{library.Name}/{library.Version}:{library.Type}'.");
         }
 
+        ValidateCanonicalGraphResolution(byIdentity.Values);
+
         return Array.AsReadOnly(byIdentity.Values
             .OrderBy(library => library.Name, StringComparer.Ordinal)
             .ThenBy(library => library.Version, StringComparer.Ordinal)
             .ThenBy(library => library.Type, StringComparer.Ordinal)
             .ToArray());
+    }
+
+    /// <summary>
+    /// Validates that the normalized canonical graph is unambiguous and self-contained when resolved
+    /// against its own canonical target identities, ensuring canonicalization closure C(C(G)) = C(G).
+    /// </summary>
+    private static void ValidateCanonicalGraphResolution(IEnumerable<ResearchResolvedDependency> libraries)
+    {
+        Dictionary<string, List<TargetIdentity>> exactTargets = new(StringComparer.Ordinal);
+        Dictionary<string, List<TargetIdentity>> packageTargets = new(StringComparer.Ordinal);
+        foreach (ResearchResolvedDependency library in libraries)
+        {
+            TargetIdentity target = new(library.Name, library.Version, library.Type);
+            Add(exactTargets, library.Name + '\u001f' + library.Version, target);
+            if (string.Equals(library.Type, PackageType, StringComparison.Ordinal))
+                Add(packageTargets, library.Name + '\u001f' + library.Version, target);
+        }
+
+        foreach (ResearchResolvedDependency library in libraries)
+        {
+            foreach (ResearchResolvedDependencyReference edge in library.Dependencies)
+                Resolve(edge, exactTargets, packageTargets);
+        }
     }
 
     /// <summary>

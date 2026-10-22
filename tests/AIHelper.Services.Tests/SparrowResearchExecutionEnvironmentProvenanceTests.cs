@@ -329,17 +329,92 @@ public sealed class SparrowResearchExecutionEnvironmentProvenanceTests
     }
 
     [Fact]
-    public void ExactProjectTargetResolution_TakesPrecedenceOverPackageFallback()
+    public void Canonicalization_NonIdempotentCrossTypeCounterexample_IsRejectedAtFirstCanonicalization()
+    {
+        // App -> foo/1.0.0, Foo/1.0.0:package, foo/1.0.0:project
+        // Initial factual edge resolution is insufficient because normalizing Foo:package to foo:package creates
+        // an ambiguous normalized graph. Rejection must happen during the first authoritative canonicalization.
+        ResearchResolvedDependency app = new("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("foo", "1.0.0") });
+        ResearchResolvedDependency package = new("Foo", "1.0.0", "package", null);
+        ResearchResolvedDependency project = new("foo", "1.0.0", "project", null);
+
+        ResearchExecutionEnvironmentProvenanceException exception = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(
+            () => ResearchDependencyGraph.Canonicalize(new[] { app, package, project }));
+        Assert.Equal(DependencyManifestInvalid, exception.ReasonCode);
+    }
+
+    [Fact]
+    public void Canonicalization_NonIdempotentCrossTypeCounterexample_IsRejectedInReversedOrder()
     {
         ResearchResolvedDependency app = new("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("foo", "1.0.0") });
         ResearchResolvedDependency package = new("Foo", "1.0.0", "package", null);
         ResearchResolvedDependency project = new("foo", "1.0.0", "project", null);
 
-        IReadOnlyList<ResearchResolvedDependency> canonical = ResearchDependencyGraph.Canonicalize(new[] { app, package, project });
-        ResearchResolvedDependency appResolved = Assert.Single(canonical, d => d.Name == "App");
+        ResearchExecutionEnvironmentProvenanceException exception = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(
+            () => ResearchDependencyGraph.Canonicalize(new[] { app, project, package }));
+        Assert.Equal(DependencyManifestInvalid, exception.ReasonCode);
+    }
+
+    [Fact]
+    public void Canonicalization_IsValidAndIdempotent_ForRepresentableGraph()
+    {
+        IReadOnlyList<ResearchResolvedDependency> original = MixedGraph();
+        IReadOnlyList<ResearchResolvedDependency> canonical1 = ResearchDependencyGraph.Canonicalize(original);
+        IReadOnlyList<ResearchResolvedDependency> canonical2 = ResearchDependencyGraph.Canonicalize(canonical1);
+
+        // Assert full semantic structural equality: C(C(G)) == C(G)
+        Assert.Equal(canonical1.Count, canonical2.Count);
+        for (int i = 0; i < canonical1.Count; i++)
+        {
+            Assert.Equal(canonical1[i].Name, canonical2[i].Name);
+            Assert.Equal(canonical1[i].Version, canonical2[i].Version);
+            Assert.Equal(canonical1[i].Type, canonical2[i].Type);
+            Assert.Equal(canonical1[i].Dependencies.Count, canonical2[i].Dependencies.Count);
+            for (int j = 0; j < canonical1[i].Dependencies.Count; j++)
+            {
+                Assert.Equal(canonical1[i].Dependencies[j].Name, canonical2[i].Dependencies[j].Name);
+                Assert.Equal(canonical1[i].Dependencies[j].Version, canonical2[i].Dependencies[j].Version);
+            }
+        }
+
+        // Fingerprint canonical closure: Fingerprint(G) == Fingerprint(C(G))
+        string fp1 = Fingerprint(original);
+        string fp2 = Fingerprint(canonical1);
+        string fp3 = Fingerprint(canonical2);
+        Assert.Equal(fp1, fp2);
+        Assert.Equal(fp2, fp3);
+    }
+
+    [Fact]
+    public void ExactProjectTargetResolution_TakesPrecedenceOverPackageFallback()
+    {
+        // Case-distinct project target FOO/1.0.0 whose name does not collide with the package's normalized name foo/1.0.0.
+        // App edge FOO/1.0.0 matches FOO:project exactly; package fallback foo:package must not run.
+        ResearchResolvedDependency app = new("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("FOO", "1.0.0") });
+        ResearchResolvedDependency package = new("Foo", "1.0.0", "package", null);
+        ResearchResolvedDependency project = new("FOO", "1.0.0", "project", null);
+
+        IReadOnlyList<ResearchResolvedDependency> canonical1 = ResearchDependencyGraph.Canonicalize(new[] { app, package, project });
+        ResearchResolvedDependency appResolved = Assert.Single(canonical1, d => d.Name == "App");
         ResearchResolvedDependencyReference edge = Assert.Single(appResolved.Dependencies);
-        Assert.Equal("foo", edge.Name);
+        Assert.Equal("FOO", edge.Name);
         Assert.Equal("1.0.0", edge.Version);
+
+        // Idempotence C(C(G)) == C(G)
+        IReadOnlyList<ResearchResolvedDependency> canonical2 = ResearchDependencyGraph.Canonicalize(canonical1);
+        Assert.Equal(canonical1.Count, canonical2.Count);
+        for (int i = 0; i < canonical1.Count; i++)
+        {
+            Assert.Equal(canonical1[i].Name, canonical2[i].Name);
+            Assert.Equal(canonical1[i].Version, canonical2[i].Version);
+            Assert.Equal(canonical1[i].Type, canonical2[i].Type);
+        }
+
+        // Provenance creation and JSON round-trip succeeds
+        ResearchExecutionEnvironmentProvenance provenance = Environment(dependencies: new[] { app, package, project });
+        ResearchExecutionEnvironmentProvenance reloaded = RoundTrip(provenance);
+        Assert.Equal(provenance.DependencyManifestFingerprint, reloaded.DependencyManifestFingerprint);
+        Assert.Equal(provenance.ProvenanceFingerprint, reloaded.ProvenanceFingerprint);
     }
 
     [Fact]
