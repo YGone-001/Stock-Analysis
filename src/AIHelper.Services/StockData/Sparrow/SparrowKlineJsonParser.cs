@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace AIHelper.Services.StockData.Sparrow;
 
 /// <summary>
-/// Reads daily K-line closes from the legacy Sparrow K-line JSON payload (milli-units).
+/// Reads daily K-line closes from the yuan-unit cached K-line JSON payload.
 /// Closes are returned for the Classic technical evaluator.
 /// </summary>
 public static class SparrowKlineJsonParser
@@ -39,9 +39,9 @@ public static class SparrowKlineJsonParser
 
         foreach (JsonElement item in data.EnumerateArray())
         {
-            if (SparrowJsonElement.TryGetDouble(item, "Close", out double closeRaw))
+            if (SparrowJsonElement.TryGetDouble(item, "Close", out double close))
             {
-                closes.Add(closeRaw / MarketDataUnits.MilliDivisor);
+                closes.Add(close);
             }
         }
         return closes;

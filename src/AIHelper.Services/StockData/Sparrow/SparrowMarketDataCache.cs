@@ -19,7 +19,8 @@ namespace AIHelper.Services.StockData.Sparrow;
 public sealed class SparrowMarketDataCache
 {
     private const string KlineKeyPrefix = "kline:";
-    private const int PersistVersion = 1;
+    // Bumped to 2 when cached K-lines switched from milli-units to yuan-units; older persisted files are ignored.
+    private const int PersistVersion = 2;
     private static readonly TimeSpan PersistDebounceDelay = TimeSpan.FromSeconds(1);
 
     private sealed record CacheEntry(string Json, DateTimeOffset ExpiresAt, DateTimeOffset StoredAt);

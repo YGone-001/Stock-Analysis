@@ -267,7 +267,7 @@ public class SparrowScannerService
                 && !string.IsNullOrWhiteSpace(cachedJson)
                 && SparrowKlineFetchHelper.IsUsableKlineJson(cachedJson))
             {
-                SparrowKlineSnapshot? snapshot = SparrowKlineSnapshotFactory.FromLegacyJson(cachedJson);
+                SparrowKlineSnapshot? snapshot = SparrowKlineSnapshotFactory.FromCachedJson(cachedJson);
                 if (snapshot != null)
                 {
                     klineData[stock.Code] = snapshot;
@@ -304,7 +304,7 @@ public class SparrowScannerService
                     {
                         SparrowKlineSnapshot? snapshot = outcome.Series != null
                             ? SparrowKlineSnapshotFactory.FromSeries(outcome.Series)
-                            : SparrowKlineSnapshotFactory.FromLegacyJson(outcome.Json!);
+                            : SparrowKlineSnapshotFactory.FromCachedJson(outcome.Json!);
                         if (snapshot == null)
                         {
                             throw new InvalidOperationException("Usable Sparrow Kline response produced no snapshot.");

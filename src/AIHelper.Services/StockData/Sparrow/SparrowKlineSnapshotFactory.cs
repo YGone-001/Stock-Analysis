@@ -46,8 +46,8 @@ public static class SparrowKlineSnapshotFactory
         return new SparrowKlineSnapshot(closesNewestFirst, latestPrice, latestPercent);
     }
 
-    /// <summary>Reads only the pre-existing cache/raw compatibility payload; never call from a rule evaluator.</summary>
-    public static SparrowKlineSnapshot? FromLegacyJson(string? json)
+    /// <summary>Reads a yuan-unit cached K-line payload; never call from a rule evaluator.</summary>
+    public static SparrowKlineSnapshot? FromCachedJson(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
@@ -78,12 +78,11 @@ public static class SparrowKlineSnapshotFactory
             double latestPercent = 0;
             for (int index = elements.Length - 1; index >= 0; index--)
             {
-                if (!TryGetDouble(elements[index], "Close", out double rawClose))
+                if (!TryGetDouble(elements[index], "Close", out double close))
                 {
                     continue;
                 }
 
-                double close = rawClose / MarketDataUnits.MilliDivisor;
                 if (close > 0)
                 {
                     closesNewestFirst.Add(close);
@@ -91,9 +90,8 @@ public static class SparrowKlineSnapshotFactory
                 if (index == elements.Length - 1)
                 {
                     latestPrice = close;
-                    if (index > 0 && TryGetDouble(elements[index - 1], "Close", out double previousRaw))
+                    if (index > 0 && TryGetDouble(elements[index - 1], "Close", out double previous))
                     {
-                        double previous = previousRaw / MarketDataUnits.MilliDivisor;
                         latestPercent = previous > 0 ? (close - previous) / previous * 100.0 : 0;
                     }
                 }

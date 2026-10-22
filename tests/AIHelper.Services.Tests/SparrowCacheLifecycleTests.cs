@@ -636,7 +636,7 @@ public sealed class SparrowCacheLifecycleTests
 
         // Pre-fill cache with valid passing Kline
         string cacheKey = SparrowDataCachePolicy.GetKlineKey("600000", 120, "day");
-        string cachedPassingKline = BuildPassingKlineJson(10.0, count: 120);
+        string cachedPassingKline = BuildPassingKlineJson(10.0, count: 120, inYuan: true);
         klineCache.Set(cacheKey, cachedPassingKline, TimeSpan.FromSeconds(300));
 
         fakeProvider.SetResponse("/api/quote?code=600000", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
@@ -972,22 +972,32 @@ public sealed class SparrowCacheLifecycleTests
         return JsonSerializer.Serialize(new { data = list });
     }
 
-    private static string BuildPassingKlineJson(double latestPrice, int count = 65)
+    private static string BuildPassingKlineJson(double latestPrice, int count = 65, bool inYuan = false)
     {
         // Generates daily bars with MA5 > MA10 > MA20 and tight adhesion (< 1.5%)
         var rows = new List<object>();
         for (int i = 0; i < count; i++)
         {
             double basePrice = latestPrice - (count - i) * 0.05;
-            rows.Add(new
-            {
-                Time = $"2026-06-{(i % 28) + 1:D2}",
-                Close = (long)Math.Round(basePrice * 1000),
-                Open = (long)Math.Round((basePrice - 0.02) * 1000),
-                High = (long)Math.Round((basePrice + 0.05) * 1000),
-                Low = (long)Math.Round((basePrice - 0.03) * 1000),
-                Volume = 50000.0
-            });
+            rows.Add(inYuan
+                ? new
+                {
+                    Time = $"2026-06-{(i % 28) + 1:D2}",
+                    Close = basePrice,
+                    Open = basePrice - 0.02,
+                    High = basePrice + 0.05,
+                    Low = basePrice - 0.03,
+                    Volume = 50000.0
+                }
+                : new
+                {
+                    Time = $"2026-06-{(i % 28) + 1:D2}",
+                    Close = (long)Math.Round(basePrice * 1000),
+                    Open = (long)Math.Round((basePrice - 0.02) * 1000),
+                    High = (long)Math.Round((basePrice + 0.05) * 1000),
+                    Low = (long)Math.Round((basePrice - 0.03) * 1000),
+                    Volume = 50000.0
+                });
         }
         return JsonSerializer.Serialize(new { data = rows });
     }

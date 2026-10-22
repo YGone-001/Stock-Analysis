@@ -147,7 +147,7 @@ internal static class SparrowKlineFetchHelper
 			{
 				return new SparrowKlineFetchOutcome(code, null, SparrowKlineFetchFailureReason.InvalidResponse, "Invalid Kline response");
 			}
-			return new SparrowKlineFetchOutcome(code, SerializeForLegacySparrow(response.Data), null, null, response.Data);
+			return new SparrowKlineFetchOutcome(code, SerializeKlineSeries(response.Data), null, null, response.Data);
 		}
 		catch (OperationCanceledException) when (callerToken.IsCancellationRequested)
 		{
@@ -256,17 +256,17 @@ internal static class SparrowKlineFetchHelper
     }
 
 	public static bool IsUsableKlineJson(string json) =>
-		SparrowKlineSnapshotFactory.FromLegacyJson(json) is { ClosesNewestFirst.Count: > 0 };
+		SparrowKlineSnapshotFactory.FromCachedJson(json) is { ClosesNewestFirst.Count: > 0 };
 
-	private static string SerializeForLegacySparrow(KlineSeries series) => JsonSerializer.Serialize(new
+	private static string SerializeKlineSeries(KlineSeries series) => JsonSerializer.Serialize(new
 	{
 		data = series.Bars.Select(bar => new
 		{
 			Date = bar.Date.ToString("yyyy-MM-dd"),
-			Open = ToMilli(bar.Open),
-			High = ToMilli(bar.High),
-			Low = ToMilli(bar.Low),
-			Close = ToMilli(bar.Close),
+			Open = bar.Open,
+			High = bar.High,
+			Low = bar.Low,
+			Close = bar.Close,
 			Volume = bar.Volume,
 			Amount = bar.Amount,
 			Percent = bar.ChangePercent,
@@ -274,8 +274,4 @@ internal static class SparrowKlineFetchHelper
 			Turnover = bar.TurnoverRate
 		})
 	});
-
-	private static long? ToMilli(double? value) => value.HasValue
-		? (long)Math.Round(value.Value * 1000.0)
-		: null;
 }

@@ -58,7 +58,7 @@ public class SparrowJsonElementTests
 
 public class SparrowKlineJsonParserTests
 {
-    private const string WrappedJson = "{\"data\":[{\"Close\":10100},{\"Close\":10200},{\"Close\":10300}]}";
+    private const string WrappedJson = "{\"data\":[{\"Close\":10.1},{\"Close\":10.2},{\"Close\":10.3}]}";
 
     [Fact]
     public void ParseClosesNewestFirst_ReversesAndExtractsLatest()
@@ -69,7 +69,7 @@ public class SparrowKlineJsonParserTests
     }
 
     [Fact]
-    public void ParseClosesOldestFirst_DividesMilliUnits()
+    public void ParseClosesOldestFirst_ReadsYuanUnits()
     {
         List<double> closes = SparrowKlineJsonParser.ParseClosesOldestFirst(WrappedJson);
         Assert.Equal(new[] { 10.1, 10.2, 10.3 }, closes);
@@ -78,7 +78,7 @@ public class SparrowKlineJsonParserTests
     [Fact]
     public void ParseClosesOldestFirst_HandlesListEnvelope()
     {
-        const string json = "{\"data\":{\"list\":[{\"Close\":5000},{\"Close\":6000}]}}";
+        const string json = "{\"data\":{\"list\":[{\"Close\":5.0},{\"Close\":6.0}]}}";
         List<double> closes = SparrowKlineJsonParser.ParseClosesOldestFirst(json);
         Assert.Equal(new[] { 5.0, 6.0 }, closes);
     }

@@ -140,7 +140,7 @@ public sealed class SparrowKlineFaultIsolationTests
     public async Task V2_CacheHitsReduceNetworkAndTimeoutDoesNotPolluteCache()
     {
         var cache = new SparrowMarketDataCache();
-        string validJson = KlineJson(120);
+        string validJson = KlineJson(120, inYuan: true);
         cache.Set(SparrowDataCachePolicy.GetKlineKey("600000", 120, "day"), validJson, TimeSpan.FromMinutes(30));
         cache.Set(SparrowDataCachePolicy.GetKlineKey("600001", 120, "day"), validJson, TimeSpan.FromMinutes(30));
         var provider = ProviderFor(
@@ -168,7 +168,7 @@ public sealed class SparrowKlineFaultIsolationTests
     {
         var cache = new SparrowMarketDataCache();
         string key = SparrowDataCachePolicy.GetKlineKey("600000", 120, "day");
-        string validJson = KlineJson(120);
+        string validJson = KlineJson(120, inYuan: true);
         cache.Set(key, validJson, TimeSpan.FromMinutes(30));
         var provider = ProviderFor(("600000", KlineBehavior.OperationCanceled));
         SparrowScanParameters parameters = V2();
@@ -305,12 +305,12 @@ public sealed class SparrowKlineFaultIsolationTests
         })
     });
 
-    private static string KlineJson(int count) => JsonSerializer.Serialize(new
+    private static string KlineJson(int count, bool inYuan = false) => JsonSerializer.Serialize(new
     {
         data = Enumerable.Range(0, count).Select(index => new
         {
             Time = new DateTime(2026, 1, 1).AddDays(index).ToString("yyyy-MM-dd"),
-            Close = (long)Math.Round((8.0 + index * 0.02) * 1000)
+            Close = inYuan ? 8.0 + index * 0.02 : (double)(long)Math.Round((8.0 + index * 0.02) * 1000)
         })
     });
 

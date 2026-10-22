@@ -126,7 +126,16 @@ public sealed class SparrowComparisonServiceTests
     {
         var provider = ProviderForSingle(Quote("600000", turnover: 10), PassingCloses(120));
         SparrowScanParameters v2 = V2();
-        SparrowKlineSnapshot snapshot = SparrowKlineSnapshotFactory.FromLegacyJson(KlineJson(PassingCloses(120)))!;
+        // Reproduce the milli→yuan round-trip exactly as the typed KlineService does, so the
+        // baseline momentum matches the scan's momentum at the strict boundary.
+        double[] closesNewestFirst = PassingCloses(120)
+            .Select(close => Math.Round(close * 1000) / 1000.0)
+            .Reverse()
+            .ToArray();
+        SparrowKlineSnapshot snapshot = new(
+            closesNewestFirst,
+            closesNewestFirst[0],
+            (closesNewestFirst[0] - closesNewestFirst[1]) / closesNewestFirst[1] * 100.0);
         SparrowTechnicalEvaluation baseline = SparrowV2RuleEvaluator.Evaluate(snapshot, 0, v2);
         v2.MomentumThreshold = baseline.Momentum;
 
