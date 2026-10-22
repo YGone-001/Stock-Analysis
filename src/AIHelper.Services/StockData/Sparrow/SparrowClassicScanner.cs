@@ -126,7 +126,6 @@ public sealed class SparrowClassicScanner
                 .Select(group => group.Select(item => item.stock).ToList())
                 .ToList();
 
-            string refreshQuery = parameters.UseCache ? "" : "&refresh=1";
             int p2Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
             using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(SparrowConstants.MaxP2Concurrency, p2Concurrency)));
             await Task.WhenAll(batches.Select(async batch =>
@@ -140,7 +139,7 @@ public sealed class SparrowClassicScanner
                     SparrowRetryOutcome retry = await SparrowRetryPolicy.RetryAsync(
                         async token =>
                         {
-                            quoteRows = await AttemptQuoteBatchAsync(batch, refreshQuery, parameters, token);
+                            quoteRows = await AttemptQuoteBatchAsync(batch, parameters, token);
                             return quoteRows is not null;
                         },
                         SparrowRetryPolicy.DefaultMaxAttempts,
@@ -283,9 +282,8 @@ public sealed class SparrowClassicScanner
                 else
                 {
                     Interlocked.Increment(ref klineNetworkRequested);
-                    string refreshParam = parameters.UseCache ? "" : "&refresh=1";
                     StockDataRequest request = StockDataRequest.Parse(
-                        "/api/kline-all?code=" + stock.Code + "&type=day&limit=" + SparrowConstants.ClassicKlineLimit + refreshParam);
+                        SparrowEndpoints.KlineAll(stock.Code, SparrowConstants.ClassicKlineLimit, !parameters.UseCache));
 					SparrowKlineFetchOutcome outcome = _klineService != null
 						? await SparrowKlineFetchHelper.FetchDailyAsync(
 							_klineService, stock.Code, SparrowConstants.ClassicKlineLimit, !parameters.UseCache, cancellationToken)
@@ -583,7 +581,6 @@ public sealed class SparrowClassicScanner
 
     private async Task<List<(string Code, SparrowQuoteData Quote)>?> AttemptQuoteBatchAsync(
         List<(string Code, string Name)> batch,
-        string refreshQuery,
         SparrowClassicScanParameters parameters,
         CancellationToken cancellationToken)
     {
@@ -601,7 +598,7 @@ public sealed class SparrowClassicScanner
 
         string codes = string.Join(",", batch.Select(stock => stock.Code));
         StockDataResult result = await _dataProvider.GetDataAsync(
-            StockDataRequest.Parse("/api/quote?code=" + codes + refreshQuery), cancellationToken);
+            StockDataRequest.Parse(SparrowEndpoints.Quote(codes, !parameters.UseCache)), cancellationToken);
         if (!result.Success || string.IsNullOrWhiteSpace(result.Json))
         {
             return null;

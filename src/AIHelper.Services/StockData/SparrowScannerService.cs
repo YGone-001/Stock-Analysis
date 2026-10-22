@@ -99,9 +99,8 @@ public class SparrowScannerService
                 }
                 else
                 {
-                    string refreshQuery = parameters.UseCache ? "" : "?refresh=1";
                     StockDataResult snapshot = await _dataProvider.GetDataAsync(
-                        StockDataRequest.Parse("/api/quote-all" + refreshQuery), ct);
+                        StockDataRequest.Parse(SparrowEndpoints.QuoteAll(!parameters.UseCache)), ct);
                     if (snapshot.Success)
                     {
                         AddQuotesToCache(snapshot.Json, quoteCache);
@@ -137,7 +136,6 @@ public class SparrowScannerService
                 .Select(x => x.Select(v => v.Value).ToList())
                 .ToList();
 
-            string refreshQuery = parameters.UseCache ? "" : "&refresh=1";
             int p2Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
             using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(SparrowConstants.MaxP2Concurrency, p2Concurrency)));
             await Task.WhenAll(batches.Select(async batch =>
@@ -149,7 +147,7 @@ public class SparrowScannerService
                     string[] codes = batch.Select(x => x.Code).ToArray();
 
                     SparrowRetryOutcome retry = await SparrowRetryPolicy.RetryAsync(
-                        token => AttemptQuoteBatchAsync(codes, refreshQuery, parameters, quoteCache, token),
+                        token => AttemptQuoteBatchAsync(codes, parameters, quoteCache, token),
                         SparrowRetryPolicy.DefaultMaxAttempts,
                         i => SparrowRetryPolicy.ExponentialBackoff(i),
                         ct);
@@ -290,7 +288,6 @@ public class SparrowScannerService
             int fetchCompleted = 0;
             progress?.Report(new SparrowScanReport { ProgressMax = p3Missing.Count, ProgressValue = 0 });
 
-            string refreshParam = parameters.UseCache ? "" : "&refresh=1";
             int p3Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
             using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(SparrowConstants.MaxP3Concurrency, p3Concurrency * SparrowConstants.P3ConcurrencyMultiplier)));
             await Task.WhenAll(p3Missing.Select(async stock =>
@@ -307,7 +304,7 @@ public class SparrowScannerService
                     else
                     {
                         StockDataRequest request = StockDataRequest.Parse(
-                            "/api/kline-all?code=" + stock.Code + "&limit=" + SparrowConstants.V2KlineLimit + refreshParam);
+                            SparrowEndpoints.KlineAll(stock.Code, SparrowConstants.V2KlineLimit, !parameters.UseCache, type: null));
                         outcome = await SparrowKlineFetchHelper.FetchAsync(
                             _dataProvider, stock.Code, request, SparrowKlineFetchHelper.IsUsableKlineJson, ct);
                     }
@@ -415,7 +412,6 @@ public class SparrowScannerService
 
     private async Task<bool> AttemptQuoteBatchAsync(
         string[] codes,
-        string refreshQuery,
         SparrowScanParameters parameters,
         ConcurrentDictionary<string, SparrowQuoteData> quoteCache,
         CancellationToken ct)
@@ -433,7 +429,7 @@ public class SparrowScannerService
         }
 
         string codesStr = string.Join(",", codes);
-        var req = StockDataRequest.Parse("/api/quote?code=" + codesStr + refreshQuery);
+        var req = StockDataRequest.Parse(SparrowEndpoints.Quote(codesStr, !parameters.UseCache));
         var res = await _dataProvider.GetDataAsync(req, ct);
         if (!res.Success || string.IsNullOrWhiteSpace(res.Json))
         {
@@ -504,9 +500,7 @@ public class SparrowScannerService
         double shIndexPctChg = 0.0;
         try
         {
-            string url = forceRefresh
-                ? "/api/index?code=" + SparrowConstants.ShanghaiIndexCode + "&limit=2&refresh=1"
-                : "/api/index?code=" + SparrowConstants.ShanghaiIndexCode + "&limit=2";
+            string url = SparrowEndpoints.Index(SparrowConstants.ShanghaiIndexCode, 2, forceRefresh);
             var req = StockDataRequest.Parse(url);
             var res = await _dataProvider.GetDataAsync(req, cancellationToken);
             if (res.Success && !string.IsNullOrWhiteSpace(res.Json))

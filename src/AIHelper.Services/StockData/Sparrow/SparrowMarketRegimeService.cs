@@ -64,7 +64,7 @@ public sealed class SparrowMarketRegimeService
     {
         try
         {
-            string url = forceRefresh ? $"/api/trend?code={code}&refresh=1" : $"/api/trend?code={code}";
+            string url = SparrowEndpoints.Trend(code, forceRefresh);
             var request = StockDataRequest.Parse(url);
             StockDataResult result = await _dataProvider.GetDataAsync(request, cancellationToken);
             if (!result.Success || string.IsNullOrWhiteSpace(result.Json))

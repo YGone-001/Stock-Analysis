@@ -217,9 +217,8 @@ public sealed class SparrowComparisonService
     {
         try
         {
-            string refresh = forceRefresh ? "&refresh=1" : "";
             StockDataResult result = await _dataProvider.GetDataAsync(
-                StockDataRequest.Parse("/api/index?code=" + SparrowConstants.ShanghaiIndexCode + "&limit=2" + refresh), cancellationToken);
+                StockDataRequest.Parse(SparrowEndpoints.Index(SparrowConstants.ShanghaiIndexCode, 2, forceRefresh)), cancellationToken);
             if (!result.Success || string.IsNullOrWhiteSpace(result.Json))
             {
                 return null;
@@ -283,9 +282,8 @@ public sealed class SparrowComparisonService
                 }
                 else
                 {
-                    string refresh = parameters.UseCache ? "" : "?refresh=1";
                     StockDataResult response = await _dataProvider.GetDataAsync(
-                        StockDataRequest.Parse("/api/quote-all" + refresh), cancellationToken);
+                        StockDataRequest.Parse(SparrowEndpoints.QuoteAll(!parameters.UseCache)), cancellationToken);
                     if (response.Success && !string.IsNullOrWhiteSpace(response.Json))
                     {
                         AddQuotesFromJson(response.Json, quotes, universeCodes);
@@ -378,10 +376,9 @@ public sealed class SparrowComparisonService
             return true;
         }
 
-        string refresh = parameters.UseCache ? "" : "&refresh=1";
         string codes = string.Join(',', batch.Select(stock => stock.Code));
         StockDataResult result = await _dataProvider.GetDataAsync(
-            StockDataRequest.Parse("/api/quote?code=" + codes + refresh), cancellationToken);
+            StockDataRequest.Parse(SparrowEndpoints.Quote(codes, !parameters.UseCache)), cancellationToken);
         if (!result.Success || string.IsNullOrWhiteSpace(result.Json))
         {
             return false;
@@ -513,9 +510,8 @@ public sealed class SparrowComparisonService
                 else
                 {
                     Interlocked.Increment(ref networkRequested);
-                    string refresh = parameters.UseCache ? "" : "&refresh=1";
                     StockDataRequest request = StockDataRequest.Parse(
-                        $"/api/kline-all?code={code}&type=day&limit={SparrowConstants.V2KlineLimit}{refresh}");
+                        SparrowEndpoints.KlineAll(code, SparrowConstants.V2KlineLimit, !parameters.UseCache));
 					SparrowKlineFetchOutcome outcome = _klineService != null
 						? await SparrowKlineFetchHelper.FetchDailyAsync(
 							_klineService, code, SparrowConstants.V2KlineLimit, !parameters.UseCache, cancellationToken)

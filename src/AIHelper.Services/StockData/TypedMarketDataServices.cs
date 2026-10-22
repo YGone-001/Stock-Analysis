@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using AIHelper.Core.Sparrow;
 using Serilog;
 
 namespace AIHelper.Services.StockData;
@@ -36,7 +37,7 @@ public sealed class QuoteService : IQuoteService
 				Array.Empty<QuoteSnapshot>(), new MarketDataMetadata("", false, false, false));
 		}
 
-		string endpoint = "/api/quote?code=" + string.Join(',', normalized) + (forceRefresh ? "&refresh=1" : "");
+		string endpoint = SparrowEndpoints.Quote(string.Join(',', normalized), forceRefresh);
 		StockDataResult response = await _transport.GetDataAsync(StockDataRequest.Parse(endpoint), cancellationToken);
 		MarketDataMetadata metadata = ToMetadata(response);
 		if (!response.Success)
@@ -52,7 +53,7 @@ public sealed class QuoteService : IQuoteService
 		bool forceRefresh = false,
 		CancellationToken cancellationToken = default)
 	{
-		string endpoint = "/api/quote-all" + (forceRefresh ? "?refresh=1" : "");
+		string endpoint = SparrowEndpoints.QuoteAll(forceRefresh);
 		StockDataResult response = await _transport.GetDataAsync(StockDataRequest.Parse(endpoint), cancellationToken);
 		MarketDataMetadata metadata = ToMetadata(response);
 		if (!response.Success)
@@ -86,7 +87,7 @@ public sealed class KlineService : IKlineService
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(symbol);
 		ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
-		string endpoint = $"/api/kline-all?code={Uri.EscapeDataString(symbol.Trim())}&type=day&limit={limit}" + (forceRefresh ? "&refresh=1" : "");
+		string endpoint = SparrowEndpoints.KlineAll(Uri.EscapeDataString(symbol.Trim()), limit, forceRefresh);
 		StockDataResult response = await _transport.GetDataAsync(StockDataRequest.Parse(endpoint), cancellationToken);
 		MarketDataMetadata metadata = new(response.Source, response.UsedCache, response.IsStale, response.IsBackgroundRefresh,
 			response.SourceKind, response.FallbackReason, response.CacheFreshness);
