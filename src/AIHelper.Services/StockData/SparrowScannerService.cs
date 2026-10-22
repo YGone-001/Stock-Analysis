@@ -26,8 +26,8 @@ public class SparrowScanReport
 public class SparrowScannerService
 {
     private readonly IStockDataProvider _dataProvider;
-    private readonly IKlineService? _klineService;
-    private readonly IQuoteService? _quoteService;
+    private readonly IKlineService _klineService;
+    private readonly IQuoteService _quoteService;
     private readonly SparrowMarketDataCache _klineCache;
     private readonly SparrowMarketRegimeService _marketRegimeService;
 
@@ -42,8 +42,8 @@ public class SparrowScannerService
     {
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
         _klineCache = klineCache ?? new SparrowMarketDataCache();
-        _klineService = klineService;
-        _quoteService = quoteService;
+        _klineService = klineService ?? new KlineService(dataProvider);
+        _quoteService = quoteService ?? new QuoteService(dataProvider);
         _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
     }
 
@@ -298,8 +298,8 @@ public class SparrowScannerService
                 try
                 {
                     SparrowKlineFetchOutcome outcome = await SparrowMarketDataFetcher.FetchKlineAsync(
-                        _dataProvider, _klineService, _klineCache, klineStatistics,
-                        stock.Code, SparrowConstants.V2KlineLimit, type: null, parameters.UseCache, ct);
+                        _klineService, _klineCache, klineStatistics,
+                        stock.Code, SparrowConstants.V2KlineLimit, parameters.UseCache, ct);
                     if (outcome.Success)
                     {
                         SparrowKlineSnapshot? snapshot = outcome.Series != null
@@ -408,7 +408,7 @@ public class SparrowScannerService
         CancellationToken ct)
     {
         IReadOnlyList<(string Code, SparrowQuoteData Quote)>? rows = await SparrowMarketDataFetcher.FetchQuoteBatchAsync(
-            _dataProvider, _quoteService, codes, !parameters.UseCache, ct);
+            _quoteService, codes, !parameters.UseCache, ct);
         if (rows == null)
         {
             return false;

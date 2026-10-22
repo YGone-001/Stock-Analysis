@@ -175,7 +175,7 @@ public sealed class SparrowCacheLifecycleTests
         var scanner = new SparrowScannerService(fakeProvider);
 
         var pool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
-        fakeProvider.SetResponse("/api/kline-all?code=600000&limit=120", BuildPassingKlineJson(10.0));
+        fakeProvider.SetResponse("/api/kline-all?code=600000&type=day&limit=120", BuildPassingKlineJson(10.0));
 
         var parameters = new SparrowScanParameters
         {
@@ -547,7 +547,7 @@ public sealed class SparrowCacheLifecycleTests
         var scanner = new SparrowScannerService(fakeProvider, klineCache);
 
         fakeProvider.SetResponse("/api/quote?code=600000&refresh=1", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
-        fakeProvider.SetResponse("/api/kline-all?code=600000&limit=120&refresh=1", BuildPassingKlineJson(10.0, count: 120));
+        fakeProvider.SetResponse("/api/kline-all?code=600000&type=day&limit=120&refresh=1", BuildPassingKlineJson(10.0, count: 120));
 
         var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
         var parameters = new SparrowScanParameters
@@ -590,7 +590,7 @@ public sealed class SparrowCacheLifecycleTests
 
         fakeProvider.SetResponse("/api/quote?code=600000&refresh=1", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
         string freshPassingKline = BuildPassingKlineJson(10.0, count: 120);
-        fakeProvider.SetResponse("/api/kline-all?code=600000&limit=120&refresh=1", freshPassingKline);
+        fakeProvider.SetResponse("/api/kline-all?code=600000&type=day&limit=120&refresh=1", freshPassingKline);
 
         var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
         var parameters = new SparrowScanParameters
@@ -613,9 +613,14 @@ public sealed class SparrowCacheLifecycleTests
         // P3 must have used fresh data B (not stale failing data A)
         Assert.Single(results);
 
-        // After scan, shared cache must be updated with fresh data B
+        // After scan, shared cache must be updated with fresh data B (120 bars, not stale 30-bar data A).
+        // The typed path stores the normalized legacy-compatible JSON, not the raw upstream payload.
         Assert.True(klineCache.TryGet(cacheKey, true, out var updatedCached));
-        Assert.Equal(freshPassingKline, updatedCached);
+        Assert.NotEqual(staleFailingKline, updatedCached);
+        using (JsonDocument doc = JsonDocument.Parse(updatedCached!))
+        {
+            Assert.Equal(120, doc.RootElement.GetProperty("data").GetArrayLength());
+        }
     }
 
     // =========================================================================
@@ -741,7 +746,7 @@ public sealed class SparrowCacheLifecycleTests
 
         fakeProvider.SetResponse("/api/index?code=sh000001&limit=2&refresh=1", BuildIndexJson(3000, 3030));
         fakeProvider.SetResponse("/api/quote?code=600000&refresh=1", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
-        fakeProvider.SetResponse("/api/kline-all?code=600000&limit=120&refresh=1", BuildPassingKlineJson(10.0, count: 120));
+        fakeProvider.SetResponse("/api/kline-all?code=600000&type=day&limit=120&refresh=1", BuildPassingKlineJson(10.0, count: 120));
 
         var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
         var parameters = new SparrowScanParameters
@@ -769,7 +774,7 @@ public sealed class SparrowCacheLifecycleTests
         fakeProvider.RecordedRequests.Clear();
         fakeProvider.SetResponse("/api/index?code=sh000001&limit=2", BuildIndexJson(3000, 3030));
         fakeProvider.SetResponse("/api/quote?code=600000", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
-        fakeProvider.SetResponse("/api/kline-all?code=600000&limit=120", BuildPassingKlineJson(10.0, count: 120));
+        fakeProvider.SetResponse("/api/kline-all?code=600000&type=day&limit=120", BuildPassingKlineJson(10.0, count: 120));
 
         parameters.UseCache = true;
         await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);

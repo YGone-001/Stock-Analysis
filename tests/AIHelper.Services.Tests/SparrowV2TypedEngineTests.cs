@@ -196,7 +196,11 @@ public sealed class SparrowV2TypedEngineTests
                 }),
                 "/api/kline-all" => JsonSerializer.Serialize(new
                 {
-                    data = Enumerable.Range(0, 120).Select(index => new { Close = (long)Math.Round((8.0 + index * 0.02) * 1000) })
+                    data = Enumerable.Range(0, 120).Select(index => new
+                    {
+                        Date = new DateTime(2026, 1, 1).AddDays(index).ToString("yyyy-MM-dd"),
+                        Close = (long)Math.Round((8.0 + index * 0.02) * 1000)
+                    })
                 }),
                 _ => ""
             };

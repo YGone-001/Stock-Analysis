@@ -20,8 +20,8 @@ public sealed class SparrowComparisonService
     private static readonly TimeSpan BeijingOffset = TimeSpan.FromHours(8);
 
     private readonly IStockDataProvider _dataProvider;
-	private readonly IKlineService? _klineService;
-	private readonly IQuoteService? _quoteService;
+	private readonly IKlineService _klineService;
+	private readonly IQuoteService _quoteService;
     private readonly SparrowMarketRegimeService _marketRegimeService;
     private readonly SparrowMarketDataCache _klineCache;
     private readonly TimeProvider _timeProvider;
@@ -41,8 +41,8 @@ public sealed class SparrowComparisonService
         _klineCache = klineCache ?? new SparrowMarketDataCache(timeProvider);
         _timeProvider = timeProvider ?? TimeProvider.System;
         _rankingEngine = rankingEngine ?? new SparrowRankingEngine();
-		_klineService = klineService;
-		_quoteService = quoteService;
+		_klineService = klineService ?? new KlineService(dataProvider);
+		_quoteService = quoteService ?? new QuoteService(dataProvider);
     }
 
     public async Task<SparrowComparisonResult> CompareAsync(
@@ -363,7 +363,7 @@ public sealed class SparrowComparisonService
         CancellationToken cancellationToken)
     {
         IReadOnlyList<(string Code, SparrowQuoteData Quote)>? rows = await SparrowMarketDataFetcher.FetchQuoteBatchAsync(
-            _dataProvider, _quoteService, batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
+            _quoteService, batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
         if (rows == null)
         {
             return false;
@@ -502,8 +502,8 @@ public sealed class SparrowComparisonService
                 {
                     Interlocked.Increment(ref networkRequested);
                     SparrowKlineFetchOutcome outcome = await SparrowMarketDataFetcher.FetchKlineAsync(
-                        _dataProvider, _klineService, _klineCache, statistics,
-                        code, SparrowConstants.V2KlineLimit, type: "day", parameters.UseCache, cancellationToken);
+                        _klineService, _klineCache, statistics,
+                        code, SparrowConstants.V2KlineLimit, parameters.UseCache, cancellationToken);
                     if (outcome.Success)
                     {
                         json = outcome.Json!;

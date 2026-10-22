@@ -13,8 +13,8 @@ namespace AIHelper.Services.StockData.Sparrow;
 public sealed class SparrowClassicScanner
 {
     private readonly IStockDataProvider _dataProvider;
-	private readonly IKlineService? _klineService;
-	private readonly IQuoteService? _quoteService;
+	private readonly IKlineService _klineService;
+	private readonly IQuoteService _quoteService;
     private readonly SparrowMarketRegimeService _marketRegimeService;
     private readonly SparrowMarketDataCache _klineCache;
 
@@ -30,8 +30,8 @@ public sealed class SparrowClassicScanner
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
         _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
         _klineCache = klineCache ?? new SparrowMarketDataCache();
-		_klineService = klineService;
-		_quoteService = quoteService;
+		_klineService = klineService ?? new KlineService(dataProvider);
+		_quoteService = quoteService ?? new QuoteService(dataProvider);
     }
 
     public async Task<List<SparrowClassicCandidate>> ScanAsync(
@@ -279,8 +279,8 @@ public sealed class SparrowClassicScanner
                 {
                     Interlocked.Increment(ref klineNetworkRequested);
                     SparrowKlineFetchOutcome outcome = await SparrowMarketDataFetcher.FetchKlineAsync(
-                        _dataProvider, _klineService, _klineCache, klineStatistics,
-                        stock.Code, SparrowConstants.ClassicKlineLimit, type: "day", parameters.UseCache, cancellationToken);
+                        _klineService, _klineCache, klineStatistics,
+                        stock.Code, SparrowConstants.ClassicKlineLimit, parameters.UseCache, cancellationToken);
                     if (outcome.Success)
                     {
                         klineJson = outcome.Json!;
@@ -477,7 +477,7 @@ public sealed class SparrowClassicScanner
         CancellationToken cancellationToken)
     {
         IReadOnlyList<(string Code, SparrowQuoteData Quote)>? rows = await SparrowMarketDataFetcher.FetchQuoteBatchAsync(
-            _dataProvider, _quoteService, batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
+            _quoteService, batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
         return rows?.ToList();
     }
 

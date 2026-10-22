@@ -270,7 +270,7 @@ public sealed class SparrowComparisonServiceTests
         await new SparrowScannerService(v2Provider).ScanAsync(
             new List<(string Code, string Name)> { ("600000", "A") }, V2(), null, CancellationToken.None);
         Assert.Contains(v2Provider.Requests,
-            request => request.Endpoint == "/api/kline-all?code=600000&limit=120");
+            request => request.Endpoint == "/api/kline-all?code=600000&type=day&limit=120");
         Assert.DoesNotContain(v2Provider.Requests, request => request.Endpoint.Contains("limit=65"));
     }
 
@@ -299,7 +299,7 @@ public sealed class SparrowComparisonServiceTests
 
         var v2Provider = new FakeProvider();
         v2Provider.Set("/api/quote?code=600000", QuoteJson(Quote("600000", turnover: 10)));
-        v2Provider.Set("/api/kline-all?code=600000&limit=120", KlineJson(PassingCloses(120)));
+        v2Provider.Set("/api/kline-all?code=600000&type=day&limit=120", KlineJson(PassingCloses(120)));
         List<SparrowV2Candidate> v2Candidates = await new SparrowScannerService(v2Provider).ScanWithFeaturesAsync(
             new List<(string Code, string Name)> { ("600000", "A") }, V2(), null, CancellationToken.None);
         int v2RequestsAfterScan = v2Provider.Requests.Count;
@@ -388,7 +388,7 @@ public sealed class SparrowComparisonServiceTests
     {
         data = closes.Select((close, index) => new
         {
-            Time = $"2026-01-{index + 1:D3}",
+            Time = new DateTime(2026, 1, 1).AddDays(index).ToString("yyyy-MM-dd"),
             Close = (long)Math.Round(close * 1000)
         })
     });

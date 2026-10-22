@@ -64,7 +64,7 @@ public sealed class SparrowQuoteFaultIsolationTests
 	{
 		data = Enumerable.Range(0, 120).Select(index => new
 		{
-			Time = $"2026-01-{index + 1:D3}",
+			Time = new DateTime(2026, 1, 1).AddDays(index).ToString("yyyy-MM-dd"),
 			Close = (long)Math.Round((8.0 + index * 0.02) * 1000)
 		})
 	});

@@ -83,8 +83,7 @@ public sealed class SparrowKlineFaultIsolationTests
         Assert.All(new[] { "600001", "600002", "600003", "600004" },
             code => Assert.Equal(3, provider.CountForCode(code)));
         Assert.Contains("Downloaded:         1", progress.Log);
-        Assert.Contains("Request failed:     3", progress.Log);
-        Assert.Contains("Empty response:     1", progress.Log);
+        Assert.Contains("Request failed:     4", progress.Log);
         Assert.Contains("Unavailable:        4", progress.Log);
     }
 
@@ -310,7 +309,7 @@ public sealed class SparrowKlineFaultIsolationTests
     {
         data = Enumerable.Range(0, count).Select(index => new
         {
-            Time = $"2026-01-{index + 1:D3}",
+            Time = new DateTime(2026, 1, 1).AddDays(index).ToString("yyyy-MM-dd"),
             Close = (long)Math.Round((8.0 + index * 0.02) * 1000)
         })
     });
