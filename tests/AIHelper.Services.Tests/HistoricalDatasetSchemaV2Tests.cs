@@ -42,7 +42,7 @@ public sealed class HistoricalDatasetSchemaV2Tests
         file.PriceSeriesProvenance!.Add(new HistoricalPriceSeriesProvenance("600000", "second", HistoricalPriceAdjustmentMode.Raw));
         HistoricalDatasetLoadResult result = await Load(file);
         Assert.False(result.Success);
-        Assert.Contains(result.Errors, error => error.Contains("mixed adjustment", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Errors, error => error.Contains("混用", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -52,13 +52,13 @@ public sealed class HistoricalDatasetSchemaV2Tests
         invalidAdjustment.PriceSeriesProvenance![0] = invalidAdjustment.PriceSeriesProvenance[0] with { AdjustmentMode = (HistoricalPriceAdjustmentMode)99 };
         HistoricalDatasetLoadResult adjustmentResult = await Load(invalidAdjustment);
         Assert.False(adjustmentResult.Success);
-        Assert.Contains(adjustmentResult.Errors, error => error.Contains("adjustment", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(adjustmentResult.Errors, error => error.Contains("复权方式无效", StringComparison.Ordinal));
 
         HistoricalDatasetFile unknownSymbol = FileModel();
         unknownSymbol.Quotes![0].Symbol = "999999";
         HistoricalDatasetLoadResult symbolResult = await Load(unknownSymbol);
         Assert.False(symbolResult.Success);
-        Assert.Contains(symbolResult.Errors, error => error.Contains("historical security", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(symbolResult.Errors, error => error.Contains("历史证券", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public sealed class HistoricalDatasetSchemaV2Tests
         HistoricalDatasetLoadResult result = await Load(file);
         Assert.True(result.Success);
         Assert.Equal(HistoricalUniverseQuality.CurrentUniverseFallback, result.Dataset!.Metadata.UniverseQuality);
-        Assert.Contains(result.Warnings, warning => warning.Contains("partial", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Warnings, warning => warning.Contains("不完整", StringComparison.Ordinal));
     }
 
     [Fact]

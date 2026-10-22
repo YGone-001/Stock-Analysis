@@ -15,16 +15,16 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
     public async Task<HistoricalDatasetLoadResult> LoadAsync(string path, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(path)) return HistoricalDatasetLoadResult.Failed("A historical dataset file path is required.");
+        if (string.IsNullOrWhiteSpace(path)) return HistoricalDatasetLoadResult.Failed("必须提供历史数据集文件路径。");
         try
         {
             await using FileStream stream = File.OpenRead(path);
             return await LoadStreamAsync(stream, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { throw; }
-        catch (IOException ex) { return HistoricalDatasetLoadResult.Failed($"Unable to read historical dataset: {ex.Message}"); }
-        catch (UnauthorizedAccessException ex) { return HistoricalDatasetLoadResult.Failed($"Unable to access historical dataset: {ex.Message}"); }
-        catch (Exception ex) { return HistoricalDatasetLoadResult.Failed($"Unexpected dataset load failure: {ex.Message}"); }
+        catch (IOException ex) { return HistoricalDatasetLoadResult.Failed($"无法读取历史数据集：{ex.Message}"); }
+        catch (UnauthorizedAccessException ex) { return HistoricalDatasetLoadResult.Failed($"无法访问历史数据集：{ex.Message}"); }
+        catch (Exception ex) { return HistoricalDatasetLoadResult.Failed($"历史数据集加载出现未知错误：{ex.Message}"); }
     }
 
     public async Task<HistoricalDatasetLoadResult> LoadStreamAsync(Stream stream, CancellationToken cancellationToken = default)
@@ -35,73 +35,73 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
         {
             HistoricalDatasetFile? file = await JsonSerializer.DeserializeAsync<HistoricalDatasetFile>(stream, JsonOptions, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            if (file is null) return HistoricalDatasetLoadResult.Failed("Invalid dataset file: JSON document is empty.");
+            if (file is null) return HistoricalDatasetLoadResult.Failed("数据集文件无效：JSON 内容为空。");
             List<string> errors = Validate(file);
             if (errors.Count > 0) return new HistoricalDatasetLoadResult(false, null, errors, Array.Empty<string>());
 
             HistoricalMarketDataset dataset = Build(file);
             if (!string.IsNullOrWhiteSpace(file.Fingerprint) && !string.Equals(file.Fingerprint, dataset.Fingerprint, StringComparison.OrdinalIgnoreCase))
-                return HistoricalDatasetLoadResult.Failed("Dataset fingerprint mismatch. The file contents do not match its declared fingerprint.");
+                return HistoricalDatasetLoadResult.Failed("数据集指纹不匹配：文件内容与声明的指纹不一致。");
             List<string> warnings = new();
             if (dataset.PriceAdjustmentMode == HistoricalPriceAdjustmentMode.Unknown)
-                warnings.Add("Price adjustment mode is Unknown; corporate-action comparability may be limited.");
+                warnings.Add("复权方式为「未知」，公司行为（除权除息）前后的可比性可能受限。");
             if (dataset.Metadata.UniverseQuality != HistoricalUniverseQuality.Complete)
-                warnings.Add("Historical universe is partial; survivorship bias may remain.");
+                warnings.Add("历史股票池不完整，可能仍存在幸存者偏差。");
             return HistoricalDatasetLoadResult.Loaded(dataset, warnings);
         }
         catch (OperationCanceledException) { throw; }
-        catch (JsonException ex) { return HistoricalDatasetLoadResult.Failed($"Invalid dataset schema: {ex.Message}"); }
-        catch (Exception ex) { return HistoricalDatasetLoadResult.Failed($"Unexpected dataset load failure: {ex.Message}"); }
+        catch (JsonException ex) { return HistoricalDatasetLoadResult.Failed($"数据集模式无效：{ex.Message}"); }
+        catch (Exception ex) { return HistoricalDatasetLoadResult.Failed($"历史数据集加载出现未知错误：{ex.Message}"); }
     }
 
     private static List<string> Validate(HistoricalDatasetFile file)
     {
         List<string> errors = new();
-        if (file.SchemaVersion is not LegacySchemaVersion and not CurrentSchemaVersion) errors.Add($"Unsupported historical dataset schema version '{file.SchemaVersion}'. Supported versions: {LegacySchemaVersion}, {CurrentSchemaVersion}.");
-        if (string.IsNullOrWhiteSpace(file.DatasetId)) errors.Add("Historical dataset requires a non-empty datasetId.");
-        if (file.TradingDates is not { Count: > 0 }) errors.Add("Historical dataset requires tradingDates.");
+        if (file.SchemaVersion is not LegacySchemaVersion and not CurrentSchemaVersion) errors.Add($"不支持的历史数据集模式版本「{file.SchemaVersion}」，当前支持：{LegacySchemaVersion}、{CurrentSchemaVersion}。");
+        if (string.IsNullOrWhiteSpace(file.DatasetId)) errors.Add("历史数据集必须提供非空的 datasetId。");
+        if (file.TradingDates is not { Count: > 0 }) errors.Add("历史数据集必须提供 tradingDates。");
         else
         {
             for (int i = 1; i < file.TradingDates.Count; i++)
-                if (file.TradingDates[i - 1] >= file.TradingDates[i]) { errors.Add("Trading dates must be strictly ascending with no duplicates."); break; }
+                if (file.TradingDates[i - 1] >= file.TradingDates[i]) { errors.Add("交易日必须严格升序且不能重复。"); break; }
         }
-        if (file.SchemaVersion == LegacySchemaVersion && file.Capabilities is null) errors.Add("Historical dataset requires an explicit capabilities declaration.");
-        if (file.Quotes is null) errors.Add("Historical dataset requires a quotes collection.");
-        if (file.Klines is null) errors.Add("Historical dataset requires a klines collection.");
+        if (file.SchemaVersion == LegacySchemaVersion && file.Capabilities is null) errors.Add("历史数据集必须显式声明 capabilities。");
+        if (file.Quotes is null) errors.Add("历史数据集必须提供 quotes 集合。");
+        if (file.Klines is null) errors.Add("历史数据集必须提供 klines 集合。");
         if (errors.Count > 0) return errors;
 
         HashSet<DateOnly> dates = file.TradingDates!.ToHashSet();
         HashSet<(DateOnly Date, string Symbol)> quoteKeys = new();
         foreach (HistoricalQuoteFile quote in file.Quotes!)
         {
-            if (!dates.Contains(quote.TradingDate)) errors.Add($"Quote '{quote.Symbol}' has a date outside tradingDates.");
-            if (string.IsNullOrWhiteSpace(quote.Symbol)) errors.Add("Quotes must provide a symbol.");
-            else if (!quoteKeys.Add((quote.TradingDate, quote.Symbol))) errors.Add($"Duplicate quote observation for '{quote.Symbol}' on {quote.TradingDate:yyyy-MM-dd}.");
-            ValidateNonNegative(quote.Volume, "Quote volume", errors);
-            ValidateNonNegative(quote.Amount, "Quote amount", errors);
-            ValidateNonNegative(quote.Turnover, "Quote turnover", errors);
-            ValidateNonNegative(quote.OuterVolume, "Quote outerVolume", errors);
-            ValidateNonNegative(quote.InnerVolume, "Quote innerVolume", errors);
+            if (!dates.Contains(quote.TradingDate)) errors.Add($"行情「{quote.Symbol}」的日期不在 tradingDates 范围内。");
+            if (string.IsNullOrWhiteSpace(quote.Symbol)) errors.Add("行情必须提供 symbol。");
+            else if (!quoteKeys.Add((quote.TradingDate, quote.Symbol))) errors.Add($"{quote.TradingDate:yyyy-MM-dd} 存在重复的行情观测「{quote.Symbol}」。");
+            ValidateNonNegative(quote.Volume, "行情成交量", errors);
+            ValidateNonNegative(quote.Amount, "行情成交额", errors);
+            ValidateNonNegative(quote.Turnover, "行情换手率", errors);
+            ValidateNonNegative(quote.OuterVolume, "行情外盘量", errors);
+            ValidateNonNegative(quote.InnerVolume, "行情内盘量", errors);
         }
         HashSet<string> symbols = new(StringComparer.Ordinal);
         foreach (HistoricalKlineSeriesFile series in file.Klines!)
         {
-            if (string.IsNullOrWhiteSpace(series.Symbol)) { errors.Add("K-line series must provide a symbol."); continue; }
-            if (!symbols.Add(series.Symbol)) errors.Add($"Duplicate K-line series for '{series.Symbol}'.");
-            if (series.Bars is null || series.Bars.Count == 0) { errors.Add($"K-line series '{series.Symbol}' requires bars."); continue; }
+            if (string.IsNullOrWhiteSpace(series.Symbol)) { errors.Add("K 线序列必须提供 symbol。"); continue; }
+            if (!symbols.Add(series.Symbol)) errors.Add($"「{series.Symbol}」存在重复的 K 线序列。");
+            if (series.Bars is null || series.Bars.Count == 0) { errors.Add($"K 线序列「{series.Symbol}」必须包含 bars。"); continue; }
             DateOnly? previous = null;
             foreach (HistoricalKlineBarFile bar in series.Bars)
             {
                 DateOnly date = DateOnly.FromDateTime(bar.Date);
-                if (bar.Date.TimeOfDay != TimeSpan.Zero) errors.Add($"K-line '{series.Symbol}' has a non-date timestamp.");
-                if (!dates.Contains(date)) errors.Add($"K-line '{series.Symbol}' has a date outside tradingDates.");
-                if (previous.HasValue && previous.Value >= date) errors.Add($"K-line dates for '{series.Symbol}' must be strictly ascending with no duplicates.");
+                if (bar.Date.TimeOfDay != TimeSpan.Zero) errors.Add($"K 线「{series.Symbol}」的时间戳带有时间部分，只允许日期。");
+                if (!dates.Contains(date)) errors.Add($"K 线「{series.Symbol}」的日期不在 tradingDates 范围内。");
+                if (previous.HasValue && previous.Value >= date) errors.Add($"K 线「{series.Symbol}」的日期必须严格升序且不能重复。");
                 previous = date;
                 ValidateBar(series.Symbol, bar, errors);
             }
         }
         foreach (HistoricalMarketContextFile context in file.MarketContexts ?? Enumerable.Empty<HistoricalMarketContextFile>())
-            if (!dates.Contains(context.TradingDate)) errors.Add($"Market context has a date outside tradingDates: {context.TradingDate:yyyy-MM-dd}.");
+            if (!dates.Contains(context.TradingDate)) errors.Add($"大盘上下文的日期不在 tradingDates 范围内：{context.TradingDate:yyyy-MM-dd}。");
         ValidateBenchmarks(file.Benchmarks, dates, errors);
         if (file.SchemaVersion == CurrentSchemaVersion) ValidateV2(file, dates, errors);
         return errors.Distinct(StringComparer.Ordinal).ToList();
@@ -109,99 +109,99 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
 
     private static void ValidateV2(HistoricalDatasetFile file, HashSet<DateOnly> dates, List<string> errors)
     {
-        if (file.Metadata is null) errors.Add("Schema V2 requires metadata.");
-        else if (!string.Equals(file.Metadata.DatasetId, file.DatasetId, StringComparison.Ordinal)) errors.Add("Schema V2 metadata.datasetId must match datasetId.");
-        if (file.Securities is not { Count: > 0 }) { errors.Add("Schema V2 requires securities."); return; }
-        if (file.Universes is null) errors.Add("Schema V2 requires universes.");
-        if (file.FieldCapabilities is null) errors.Add("Schema V2 requires fieldCapabilities.");
-        if (file.PriceSeriesProvenance is null) errors.Add("Schema V2 requires priceSeriesProvenance.");
-        if (file.MarketContextProvenance is null) errors.Add("Schema V2 requires marketContextProvenance.");
+        if (file.Metadata is null) errors.Add("模式 V2 必须提供 metadata。");
+        else if (!string.Equals(file.Metadata.DatasetId, file.DatasetId, StringComparison.Ordinal)) errors.Add("模式 V2 的 metadata.datasetId 必须与 datasetId 一致。");
+        if (file.Securities is not { Count: > 0 }) { errors.Add("模式 V2 必须提供 securities。"); return; }
+        if (file.Universes is null) errors.Add("模式 V2 必须提供 universes。");
+        if (file.FieldCapabilities is null) errors.Add("模式 V2 必须提供 fieldCapabilities。");
+        if (file.PriceSeriesProvenance is null) errors.Add("模式 V2 必须提供 priceSeriesProvenance。");
+        if (file.MarketContextProvenance is null) errors.Add("模式 V2 必须提供 marketContextProvenance。");
         if (errors.Count > 0) return;
 
         HashSet<string> securitySymbols = new(StringComparer.Ordinal);
         foreach (HistoricalSecurityFile security in file.Securities)
         {
-            if (string.IsNullOrWhiteSpace(security.Symbol)) { errors.Add("Historical security requires a symbol."); continue; }
-            if (!securitySymbols.Add(security.Symbol)) errors.Add($"Duplicate historical security '{security.Symbol}'.");
-            if (!Enum.IsDefined(security.SecurityType) || !Enum.IsDefined(security.Market) || !Enum.IsDefined(security.LifecycleQuality)) errors.Add($"Historical security '{security.Symbol}' has an invalid enum value.");
+            if (string.IsNullOrWhiteSpace(security.Symbol)) { errors.Add("历史证券必须提供 symbol。"); continue; }
+            if (!securitySymbols.Add(security.Symbol)) errors.Add($"「{security.Symbol}」存在重复的历史证券记录。");
+            if (!Enum.IsDefined(security.SecurityType) || !Enum.IsDefined(security.Market) || !Enum.IsDefined(security.LifecycleQuality)) errors.Add($"历史证券「{security.Symbol}」包含无效的枚举值。");
             if (security.DelistingEffectiveDate.HasValue && security.ListingDate.HasValue && security.DelistingEffectiveDate <= security.ListingDate)
-                errors.Add($"Historical security '{security.Symbol}' has an invalid lifecycle range.");
+                errors.Add($"历史证券「{security.Symbol}」的上市/退市区间无效。");
         }
         foreach (HistoricalQuoteFile quote in file.Quotes!)
         {
-            if (!securitySymbols.Contains(quote.Symbol)) errors.Add($"Quote '{quote.Symbol}' does not reference a historical security.");
+            if (!securitySymbols.Contains(quote.Symbol)) errors.Add($"行情「{quote.Symbol}」没有引用任何历史证券。");
             HistoricalSecurityFile? security = file.Securities.FirstOrDefault(item => string.Equals(item.Symbol, quote.Symbol, StringComparison.Ordinal));
-            if (security is not null && !string.IsNullOrWhiteSpace(quote.Name) && !string.Equals(security.Name, quote.Name, StringComparison.Ordinal)) errors.Add($"Quote name for '{quote.Symbol}' does not match security master.");
+            if (security is not null && !string.IsNullOrWhiteSpace(quote.Name) && !string.Equals(security.Name, quote.Name, StringComparison.Ordinal)) errors.Add($"行情「{quote.Symbol}」的名称与证券主数据不一致。");
         }
         foreach (HistoricalKlineSeriesFile series in file.Klines!)
-            if (!securitySymbols.Contains(series.Symbol)) errors.Add($"K-line '{series.Symbol}' does not reference a historical security.");
+            if (!securitySymbols.Contains(series.Symbol)) errors.Add($"K 线「{series.Symbol}」没有引用任何历史证券。");
 
         Dictionary<DateOnly, HistoricalUniverseSnapshotFile> universes = new();
         foreach (HistoricalUniverseSnapshotFile universe in file.Universes!)
         {
-            if (!dates.Contains(universe.TradingDate)) errors.Add($"Universe has a date outside tradingDates: {universe.TradingDate:yyyy-MM-dd}.");
-            else if (!universes.TryAdd(universe.TradingDate, universe)) errors.Add($"Duplicate universe for {universe.TradingDate:yyyy-MM-dd}.");
-            if (!Enum.IsDefined(universe.Quality)) errors.Add($"Universe '{universe.TradingDate:yyyy-MM-dd}' has an invalid quality value.");
+            if (!dates.Contains(universe.TradingDate)) errors.Add($"股票池的日期不在 tradingDates 范围内：{universe.TradingDate:yyyy-MM-dd}。");
+            else if (!universes.TryAdd(universe.TradingDate, universe)) errors.Add($"{universe.TradingDate:yyyy-MM-dd} 存在重复的股票池快照。");
+            if (!Enum.IsDefined(universe.Quality)) errors.Add($"股票池「{universe.TradingDate:yyyy-MM-dd}」的质量取值无效。");
             foreach (string symbol in universe.SecuritySymbols ?? Enumerable.Empty<string>())
-                if (!securitySymbols.Contains(symbol)) errors.Add($"Universe '{universe.TradingDate:yyyy-MM-dd}' references unknown security '{symbol}'.");
+                if (!securitySymbols.Contains(symbol)) errors.Add($"股票池「{universe.TradingDate:yyyy-MM-dd}」引用了未知证券「{symbol}」。");
         }
-        foreach (DateOnly date in dates) if (!universes.ContainsKey(date)) errors.Add($"Schema V2 requires an explicit universe for {date:yyyy-MM-dd}.");
+        foreach (DateOnly date in dates) if (!universes.ContainsKey(date)) errors.Add($"模式 V2 要求为 {date:yyyy-MM-dd} 提供明确的股票池快照。");
 
         Dictionary<HistoricalField, HistoricalFieldCapability> capabilities = new();
         foreach (HistoricalFieldCapability capability in file.FieldCapabilities!)
         {
-            if (!Enum.IsDefined(capability.Field) || !Enum.IsDefined(capability.Origin) || !Enum.IsDefined(capability.Coverage) || !Enum.IsDefined(capability.Unit)) errors.Add("A field capability has an invalid enum value.");
-            if (!capabilities.TryAdd(capability.Field, capability)) errors.Add($"Duplicate field capability '{capability.Field}'.");
+            if (!Enum.IsDefined(capability.Field) || !Enum.IsDefined(capability.Origin) || !Enum.IsDefined(capability.Coverage) || !Enum.IsDefined(capability.Unit)) errors.Add("存在字段能力声明包含无效的枚举值。");
+            if (!capabilities.TryAdd(capability.Field, capability)) errors.Add($"字段「{capability.Field}」存在重复的能力声明。");
             if (capability.Origin == HistoricalFieldOrigin.Unavailable && capability.Coverage != HistoricalFieldCoverage.None)
-                errors.Add($"Unavailable field '{capability.Field}' must declare None coverage.");
+                errors.Add($"不可用字段「{capability.Field}」的覆盖度必须声明为 None。");
             if (capability.Coverage == HistoricalFieldCoverage.None && capability.Origin != HistoricalFieldOrigin.Unavailable)
-                errors.Add($"None coverage field '{capability.Field}' must declare Unavailable origin.");
+                errors.Add($"覆盖度为 None 的字段「{capability.Field}」必须声明来源为 Unavailable。");
         }
         foreach (HistoricalField field in Enum.GetValues<HistoricalField>())
-            if (!capabilities.ContainsKey(field)) errors.Add($"Schema V2 requires field capability '{field}'.");
+            if (!capabilities.ContainsKey(field)) errors.Add($"模式 V2 必须为字段「{field}」提供能力声明。");
         foreach (HistoricalFieldCapability capability in capabilities.Values.Where(item => item.Coverage == HistoricalFieldCoverage.Full))
-            if (file.Quotes!.Any(quote => !HasQuoteField(quote, capability.Field))) errors.Add($"Field '{capability.Field}' declares Full coverage but one or more quote observations have no value.");
+            if (file.Quotes!.Any(quote => !HasQuoteField(quote, capability.Field))) errors.Add($"字段「{capability.Field}」声明为完整覆盖（Full），但存在缺少该字段取值的行情观测。");
 
         HashSet<string> klineSymbols = file.Klines!.Select(series => series.Symbol).ToHashSet(StringComparer.Ordinal);
         HashSet<string> provenanceSymbols = new(StringComparer.Ordinal);
         foreach (HistoricalPriceSeriesProvenance provenance in file.PriceSeriesProvenance!)
         {
-            if (!provenanceSymbols.Add(provenance.Symbol)) errors.Add($"Duplicate price-series provenance for '{provenance.Symbol}' indicates unsupported mixed adjustment modes.");
-            if (!Enum.IsDefined(provenance.AdjustmentMode)) errors.Add($"Price-series provenance '{provenance.Symbol}' has an invalid adjustment mode.");
-            if (!klineSymbols.Contains(provenance.Symbol)) errors.Add($"Price-series provenance '{provenance.Symbol}' has no K-line series.");
-            if (provenance.ObservationEnd.HasValue && provenance.ObservationStart.HasValue && provenance.ObservationEnd < provenance.ObservationStart) errors.Add($"Price-series provenance '{provenance.Symbol}' has an invalid observation range.");
+            if (!provenanceSymbols.Add(provenance.Symbol)) errors.Add($"「{provenance.Symbol}」存在重复的价格序列来源声明，说明混用了不支持的复权方式。");
+            if (!Enum.IsDefined(provenance.AdjustmentMode)) errors.Add($"价格序列来源「{provenance.Symbol}」的复权方式无效。");
+            if (!klineSymbols.Contains(provenance.Symbol)) errors.Add($"价格序列来源「{provenance.Symbol}」没有对应的 K 线序列。");
+            if (provenance.ObservationEnd.HasValue && provenance.ObservationStart.HasValue && provenance.ObservationEnd < provenance.ObservationStart) errors.Add($"价格序列来源「{provenance.Symbol}」的观测区间无效。");
         }
-        foreach (string symbol in klineSymbols) if (!provenanceSymbols.Contains(symbol)) errors.Add($"Schema V2 requires price-series provenance for '{symbol}'.");
+        foreach (string symbol in klineSymbols) if (!provenanceSymbols.Contains(symbol)) errors.Add($"模式 V2 必须为「{symbol}」提供价格序列来源声明。");
 
         HashSet<DateOnly> contextDates = (file.MarketContexts ?? Enumerable.Empty<HistoricalMarketContextFile>()).Select(context => context.TradingDate).ToHashSet();
         HashSet<DateOnly> provenanceDates = new();
         foreach (HistoricalMarketContextProvenance provenance in file.MarketContextProvenance!)
         {
-            if (!dates.Contains(provenance.TradingDate)) errors.Add($"Market-context provenance has a date outside tradingDates: {provenance.TradingDate:yyyy-MM-dd}.");
-            if (!provenanceDates.Add(provenance.TradingDate)) errors.Add($"Duplicate market-context provenance for {provenance.TradingDate:yyyy-MM-dd}.");
+            if (!dates.Contains(provenance.TradingDate)) errors.Add($"大盘上下文来源的日期不在 tradingDates 范围内：{provenance.TradingDate:yyyy-MM-dd}。");
+            if (!provenanceDates.Add(provenance.TradingDate)) errors.Add($"{provenance.TradingDate:yyyy-MM-dd} 存在重复的大盘上下文来源声明。");
         }
-        foreach (DateOnly date in contextDates) if (!provenanceDates.Contains(date)) errors.Add($"Market context {date:yyyy-MM-dd} requires provenance.");
+        foreach (DateOnly date in contextDates) if (!provenanceDates.Contains(date)) errors.Add($"大盘上下文 {date:yyyy-MM-dd} 必须提供来源声明。");
         HashSet<(DateOnly Date, string Symbol)> declarationKeys = new();
         foreach (HistoricalObservationDeclaration declaration in file.ObservationDeclarations ?? Enumerable.Empty<HistoricalObservationDeclaration>())
         {
-            if (!dates.Contains(declaration.TradingDate)) errors.Add($"Observation declaration has a date outside tradingDates: {declaration.TradingDate:yyyy-MM-dd}.");
-            if (!securitySymbols.Contains(declaration.Symbol)) errors.Add($"Observation declaration references unknown security '{declaration.Symbol}'.");
-            if (!declarationKeys.Add((declaration.TradingDate, declaration.Symbol))) errors.Add($"Duplicate observation declaration for '{declaration.Symbol}' on {declaration.TradingDate:yyyy-MM-dd}.");
+            if (!dates.Contains(declaration.TradingDate)) errors.Add($"观测声明的日期不在 tradingDates 范围内：{declaration.TradingDate:yyyy-MM-dd}。");
+            if (!securitySymbols.Contains(declaration.Symbol)) errors.Add($"观测声明引用了未知证券「{declaration.Symbol}」。");
+            if (!declarationKeys.Add((declaration.TradingDate, declaration.Symbol))) errors.Add($"「{declaration.Symbol}」在 {declaration.TradingDate:yyyy-MM-dd} 存在重复的观测声明。");
         }
         HashSet<(DateOnly Date, string Symbol)> riskKeys = new();
         foreach (HistoricalRiskStatusObservation observation in file.RiskStatusObservations ?? Enumerable.Empty<HistoricalRiskStatusObservation>())
         {
-            if (!dates.Contains(observation.TradingDate)) errors.Add($"Historical ST observation has a date outside tradingDates: {observation.TradingDate:yyyy-MM-dd}.");
-            if (!securitySymbols.Contains(observation.Symbol)) errors.Add($"Historical ST observation references unknown security '{observation.Symbol}'.");
-            if (!riskKeys.Add((observation.TradingDate, observation.Symbol))) errors.Add($"Duplicate historical ST observation for '{observation.Symbol}' on {observation.TradingDate:yyyy-MM-dd}.");
+            if (!dates.Contains(observation.TradingDate)) errors.Add($"历史 ST 观测的日期不在 tradingDates 范围内：{observation.TradingDate:yyyy-MM-dd}。");
+            if (!securitySymbols.Contains(observation.Symbol)) errors.Add($"历史 ST 观测引用了未知证券「{observation.Symbol}」。");
+            if (!riskKeys.Add((observation.TradingDate, observation.Symbol))) errors.Add($"「{observation.Symbol}」在 {observation.TradingDate:yyyy-MM-dd} 存在重复的历史 ST 观测。");
         }
         HashSet<(DateOnly Date, string Symbol)> factorKeys = new();
         foreach (HistoricalAdjustmentFactor factor in file.AdjustmentFactors ?? Enumerable.Empty<HistoricalAdjustmentFactor>())
         {
-            if (!dates.Contains(factor.TradingDate)) errors.Add($"Adjustment factor has a date outside tradingDates: {factor.TradingDate:yyyy-MM-dd}.");
-            if (!securitySymbols.Contains(factor.Symbol)) errors.Add($"Adjustment factor references unknown security '{factor.Symbol}'.");
-            if (!factorKeys.Add((factor.TradingDate, factor.Symbol))) errors.Add($"Duplicate adjustment factor for '{factor.Symbol}' on {factor.TradingDate:yyyy-MM-dd}.");
-            if (double.IsNaN(factor.Factor) || double.IsInfinity(factor.Factor) || factor.Factor <= 0) errors.Add($"Adjustment factor for '{factor.Symbol}' must be positive and finite.");
+            if (!dates.Contains(factor.TradingDate)) errors.Add($"复权因子的日期不在 tradingDates 范围内：{factor.TradingDate:yyyy-MM-dd}。");
+            if (!securitySymbols.Contains(factor.Symbol)) errors.Add($"复权因子引用了未知证券「{factor.Symbol}」。");
+            if (!factorKeys.Add((factor.TradingDate, factor.Symbol))) errors.Add($"「{factor.Symbol}」在 {factor.TradingDate:yyyy-MM-dd} 存在重复的复权因子。");
+            if (double.IsNaN(factor.Factor) || double.IsInfinity(factor.Factor) || factor.Factor <= 0) errors.Add($"「{factor.Symbol}」的复权因子必须是有限的正数。");
         }
     }
 
@@ -210,25 +210,25 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
         HashSet<string> identifiers = new(StringComparer.Ordinal);
         foreach (HistoricalBenchmarkSeriesFile benchmark in benchmarks ?? Enumerable.Empty<HistoricalBenchmarkSeriesFile>())
         {
-            if (string.IsNullOrWhiteSpace(benchmark.BenchmarkId)) { errors.Add("Benchmark requires a non-empty benchmarkId."); continue; }
-            if (!identifiers.Add(benchmark.BenchmarkId)) errors.Add($"Duplicate benchmark '{benchmark.BenchmarkId}'.");
-            if (!Enum.IsDefined(benchmark.PriceBasis) || !Enum.IsDefined(benchmark.Coverage)) errors.Add($"Benchmark '{benchmark.BenchmarkId}' has an invalid price basis or coverage.");
-            if (string.IsNullOrWhiteSpace(benchmark.Source)) errors.Add($"Benchmark '{benchmark.BenchmarkId}' requires source.");
-            if (benchmark.Provenance is null) errors.Add($"Benchmark '{benchmark.BenchmarkId}' requires provenance.");
+            if (string.IsNullOrWhiteSpace(benchmark.BenchmarkId)) { errors.Add("基准必须提供非空的 benchmarkId。"); continue; }
+            if (!identifiers.Add(benchmark.BenchmarkId)) errors.Add($"基准「{benchmark.BenchmarkId}」重复。");
+            if (!Enum.IsDefined(benchmark.PriceBasis) || !Enum.IsDefined(benchmark.Coverage)) errors.Add($"基准「{benchmark.BenchmarkId}」的价格基准或覆盖度无效。");
+            if (string.IsNullOrWhiteSpace(benchmark.Source)) errors.Add($"基准「{benchmark.BenchmarkId}」必须提供 source。");
+            if (benchmark.Provenance is null) errors.Add($"基准「{benchmark.BenchmarkId}」必须提供来源声明。");
             else
             {
                 try { benchmark.Provenance.Validate(); }
-                catch (ArgumentException exception) { errors.Add($"Benchmark '{benchmark.BenchmarkId}' has invalid provenance: {exception.Message}"); }
+                catch (ArgumentException exception) { errors.Add($"基准「{benchmark.BenchmarkId}」的来源声明无效：{exception.Message}"); }
             }
             HashSet<DateOnly> observationDates = new();
             foreach (HistoricalBenchmarkObservationFile observation in benchmark.Observations ?? Enumerable.Empty<HistoricalBenchmarkObservationFile>())
             {
-                if (!dates.Contains(observation.TradingDate)) errors.Add($"Benchmark '{benchmark.BenchmarkId}' has a date outside tradingDates: {observation.TradingDate:yyyy-MM-dd}.");
-                if (!observationDates.Add(observation.TradingDate)) errors.Add($"Benchmark '{benchmark.BenchmarkId}' has duplicate date {observation.TradingDate:yyyy-MM-dd}.");
-                if (!double.IsFinite(observation.Close) || observation.Close <= 0) errors.Add($"Benchmark '{benchmark.BenchmarkId}' close must be finite and positive.");
+                if (!dates.Contains(observation.TradingDate)) errors.Add($"基准「{benchmark.BenchmarkId}」的日期不在 tradingDates 范围内：{observation.TradingDate:yyyy-MM-dd}。");
+                if (!observationDates.Add(observation.TradingDate)) errors.Add($"基准「{benchmark.BenchmarkId}」在 {observation.TradingDate:yyyy-MM-dd} 存在重复日期。");
+                if (!double.IsFinite(observation.Close) || observation.Close <= 0) errors.Add($"基准「{benchmark.BenchmarkId}」的收盘价必须是有限的正数。");
             }
             if (benchmark.Coverage == HistoricalFieldCoverage.Full && !observationDates.SetEquals(dates))
-                errors.Add($"Benchmark '{benchmark.BenchmarkId}' declares Full coverage but does not cover exactly the dataset trading dates.");
+                errors.Add($"基准「{benchmark.BenchmarkId}」声明为完整覆盖（Full），但未完整覆盖数据集的全部交易日。");
         }
     }
 
@@ -246,20 +246,20 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
 
     private static void ValidateBar(string symbol, HistoricalKlineBarFile bar, List<string> errors)
     {
-        ValidateNonNegative(bar.Volume, $"K-line volume for '{symbol}'", errors);
-        ValidateNonNegative(bar.Amount, $"K-line amount for '{symbol}'", errors);
+        ValidateNonNegative(bar.Volume, $"K 线「{symbol}」成交量", errors);
+        ValidateNonNegative(bar.Amount, $"K 线「{symbol}」成交额", errors);
         double? high = bar.High, low = bar.Low;
-        if (high.HasValue && low.HasValue && high < low) errors.Add($"K-line '{symbol}' has High below Low on {bar.Date:yyyy-MM-dd}.");
+        if (high.HasValue && low.HasValue && high < low) errors.Add($"K 线「{symbol}」在 {bar.Date:yyyy-MM-dd} 的最高价低于最低价。");
         foreach (double? value in new[] { bar.Open, bar.Close })
         {
-            if (high.HasValue && value.HasValue && high < value) errors.Add($"K-line '{symbol}' has High below Open/Close on {bar.Date:yyyy-MM-dd}.");
-            if (low.HasValue && value.HasValue && low > value) errors.Add($"K-line '{symbol}' has Low above Open/Close on {bar.Date:yyyy-MM-dd}.");
+            if (high.HasValue && value.HasValue && high < value) errors.Add($"K 线「{symbol}」在 {bar.Date:yyyy-MM-dd} 的最高价低于开盘价或收盘价。");
+            if (low.HasValue && value.HasValue && low > value) errors.Add($"K 线「{symbol}」在 {bar.Date:yyyy-MM-dd} 的最低价高于开盘价或收盘价。");
         }
     }
 
     private static void ValidateNonNegative(double? value, string label, List<string> errors)
     {
-        if (value is < 0) errors.Add($"{label} cannot be negative.");
+        if (value is < 0) errors.Add($"{label}不能为负数。");
     }
 
     private static HistoricalMarketDataset Build(HistoricalDatasetFile file)

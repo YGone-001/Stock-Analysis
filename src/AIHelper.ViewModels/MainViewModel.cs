@@ -485,7 +485,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 		});
 		menuItemModel2.Children.Add(new MenuItemModel
 		{
-			Header = "Historical Research / 回放回测",
+			Header = "历史回放 / 回测",
 			Icon = "📈",
 			Command = OpenSparrowResearchCommand
 		});

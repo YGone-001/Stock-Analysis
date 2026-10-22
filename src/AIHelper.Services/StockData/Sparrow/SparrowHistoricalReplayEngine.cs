@@ -78,12 +78,12 @@ public sealed class SparrowHistoricalReplayEngine
         HistoricalMarketSnapshot snapshot = _snapshotBuilder.Build(dataset, request.TradingDate);
         cancellationToken.ThrowIfCancellationRequested();
         var warnings = new List<string>(snapshot.Warnings);
-        if (request.StrategyMode == SparrowStrategyMode.Compare) return Unsupported(dataset, request, "Comparison is orchestration, not a replay strategy.");
-        if (request.StrategyMode == SparrowStrategyMode.Classic && request.ClassicParameters == null) return Unsupported(dataset, request, "Classic parameter snapshot is required.");
-        if (request.StrategyMode == SparrowStrategyMode.V2 && request.V2Parameters == null) return Unsupported(dataset, request, "V2 parameter snapshot is required.");
+        if (request.StrategyMode == SparrowStrategyMode.Compare) return Unsupported(dataset, request, "Compare 属于对比编排模式，不能直接用于回放。");
+        if (request.StrategyMode == SparrowStrategyMode.Classic && request.ClassicParameters == null) return Unsupported(dataset, request, "缺少经典策略的参数快照。");
+        if (request.StrategyMode == SparrowStrategyMode.V2 && request.V2Parameters == null) return Unsupported(dataset, request, "缺少 V2 策略的参数快照。");
         if (!HasRequiredCapabilities(dataset, request, snapshot.MarketContext, out string? gap)) return Unsupported(dataset, request, gap!);
         if (request.StrategyMode == SparrowStrategyMode.Classic && dataset.QualitySummary.HistoricalStCoverage != HistoricalFieldCoverage.Unknown && dataset.QualitySummary.HistoricalStCoverage != HistoricalFieldCoverage.Full)
-            return Unsupported(dataset, request, "Historical ST evidence is not complete for this dataset.");
+            return Unsupported(dataset, request, "该数据集的历史 ST 证据不完整，无法运行经典策略。");
         return request.StrategyMode == SparrowStrategyMode.Classic
             ? ReplayClassic(dataset, request, snapshot, warnings, cancellationToken)
             : ReplayV2(dataset, request, snapshot, warnings, cancellationToken);
@@ -94,7 +94,7 @@ public sealed class SparrowHistoricalReplayEngine
         SparrowClassicScanParameters parameters = request.ClassicParameters!.ToParameters();
         if (parameters.MacroDef && snapshot.MarketContext!.ClassicMarketRegime!.Defensive)
         {
-            warnings.Add("Classic market regime is defensive; no candidates were evaluated.");
+            warnings.Add("经典策略大盘状态为防守，本次未评估任何候选。");
             return Result(dataset, request, HistoricalReplaySupport.Supported, Array.Empty<SparrowReplaySelection>(), warnings);
         }
         var candidates = new List<(SparrowRankingFeatures Features, string ReasonCode, string Reason)>();
@@ -108,7 +108,7 @@ public sealed class SparrowHistoricalReplayEngine
             if (!eligibility.Eligible) continue;
             if (!HasRequiredQuoteFields(dataset, security.Quote, SparrowStrategyMode.Classic))
             {
-                warnings.Add($"{security.Security.Symbol}: required historical quote field is unavailable; skipped.");
+                warnings.Add($"{security.Security.Symbol}：缺少必需的行情字段，已跳过。");
                 continue;
             }
             SparrowQuoteData quote = SparrowQuoteDataContract.FromSnapshot(security.Quote);
@@ -129,7 +129,7 @@ public sealed class SparrowHistoricalReplayEngine
         double shPercent = snapshot.MarketContext?.V2ShanghaiDailyPercent ?? 0;
         if (parameters.MacroDef && shPercent <= -2.5)
         {
-            warnings.Add("V2 Shanghai daily change is defensive; no candidates were evaluated.");
+            warnings.Add("V2 沪指当日涨跌幅为防守，本次未评估任何候选。");
             return Result(dataset, request, HistoricalReplaySupport.Supported, Array.Empty<SparrowReplaySelection>(), warnings);
         }
         var candidates = new List<(SparrowRankingFeatures Features, string ReasonCode, string Reason)>();
@@ -138,7 +138,7 @@ public sealed class SparrowHistoricalReplayEngine
             ct.ThrowIfCancellationRequested();
             if (!HasRequiredQuoteFields(dataset, security.Quote, SparrowStrategyMode.V2))
             {
-                warnings.Add($"{security.Security.Symbol}: required historical quote field is unavailable; skipped.");
+                warnings.Add($"{security.Security.Symbol}：缺少必需的行情字段，已跳过。");
                 continue;
             }
             SparrowQuoteData quote = SparrowQuoteDataContract.FromSnapshot(security.Quote);
@@ -165,7 +165,7 @@ public sealed class SparrowHistoricalReplayEngine
             ? c.HasAmount && c.HasOuterVolume && c.HasInnerVolume && (r.StrategyMode != SparrowStrategyMode.V2 || c.HasTurnover)
             : RequiredFields(r.StrategyMode).All(field => HasDatasetField(dataset, field));
         bool market = r.StrategyMode == SparrowStrategyMode.Classic ? (!r.ClassicParameters!.MacroDef || c.HasClassicMarketRegime && context?.ClassicMarketRegime != null) : (!r.V2Parameters!.MacroDef || c.HasV2ShanghaiDailyPercent && context?.V2ShanghaiDailyPercent != null);
-        gap = common && market ? null : "HistoricalFieldUnavailable: required quote or market-regime fields are not present for this replay date."; return gap == null;
+        gap = common && market ? null : "HistoricalFieldUnavailable：本次回放所需的行情或大盘状态字段缺失。"; return gap == null;
     }
 
     private static IReadOnlyList<HistoricalField> RequiredFields(SparrowStrategyMode strategyMode) => strategyMode == SparrowStrategyMode.V2

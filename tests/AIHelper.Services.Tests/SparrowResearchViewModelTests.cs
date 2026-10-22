@@ -46,17 +46,17 @@ public sealed class SparrowResearchViewModelTests
         await vm.LoadDatasetFromPathAsync("unsupported.json");
         Assert.False(vm.IsStrategySupported); Assert.False(vm.RunReplayCommand.CanExecute(null));
         vm.TopN = 0;
-        Assert.Contains("required", vm.StrategySupportMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("缺少", vm.StrategySupportMessage, StringComparison.Ordinal);
 
         using SparrowResearchViewModel valid = ReadyViewModel();
         valid.ReplayDate = new DateTime(2026, 4, 1); await ((IAsyncRelayCommand)valid.RunReplayCommand).ExecuteAsync(null);
-        Assert.Contains("dataset trading date", valid.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("交易日", valid.Message, StringComparison.Ordinal);
         valid.ReplayDate = Dataset().TradingDates[^1].ToDateTime(TimeOnly.MinValue); valid.StartDate = valid.ReplayDate; valid.EndDate = Dataset().TradingDates[0].ToDateTime(TimeOnly.MinValue);
         await ((IAsyncRelayCommand)valid.RunBacktestCommand).ExecuteAsync(null);
-        Assert.Contains("Start", valid.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("开始日期", valid.Message, StringComparison.Ordinal);
         valid.EndDate = valid.ReplayDate; valid.RoundTripCostPercent = -1;
         await ((IAsyncRelayCommand)valid.RunReplayCommand).ExecuteAsync(null);
-        Assert.Contains("cannot be negative", valid.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("不能为负数", valid.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -65,11 +65,11 @@ public sealed class SparrowResearchViewModelTests
         using SparrowResearchViewModel vm = ReadyViewModel();
         await ((IAsyncRelayCommand)vm.RunReplayCommand).ExecuteAsync(null);
         Assert.Equal(SparrowResearchState.Completed, vm.State);
-        Assert.All(vm.Selections, selection => Assert.Equal("N/A", selection.Return1D));
+        Assert.All(vm.Selections, selection => Assert.Equal("无", selection.Return1D));
         await ((IAsyncRelayCommand)vm.RunBacktestCommand).ExecuteAsync(null);
         Assert.Equal(SparrowResearchState.Completed, vm.State);
         Assert.NotEmpty(vm.Metrics);
-        Assert.All(vm.Selections.Where(row => row.Return20D == "N/A"), row => Assert.NotEqual("0.00%", row.Return20D));
+        Assert.All(vm.Selections.Where(row => row.Return20D == "无"), row => Assert.NotEqual("0.00%", row.Return20D));
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public sealed class SparrowResearchViewModelTests
             new ProviderHealthSnapshot(DataSourceKind.LocalCache, ProviderHealthState.Unavailable, null, null, 0, null),
             new ProviderHealthSnapshot(DataSourceKind.Unknown, ProviderHealthState.Unknown, null, null, 0, null));
         using SparrowResearchViewModel vm = ViewModel(health: health);
-        Assert.Equal(new[] { "Degraded", "Healthy", "Unavailable", "Unknown" }, vm.ProviderHealth.Select(row => row.State).Order());
+        Assert.Equal(new[] { "降级", "正常", "不可用", "未探测" }.Order(StringComparer.Ordinal), vm.ProviderHealth.Select(row => row.State).Order(StringComparer.Ordinal));
         vm.Strategy = SparrowStrategyMode.Classic; Assert.Equal(SparrowStrategyVersions.Classic, vm.StrategyVersionDisplay);
         vm.Strategy = SparrowStrategyMode.V2; Assert.Equal(SparrowStrategyVersions.V2, vm.StrategyVersionDisplay);
     }

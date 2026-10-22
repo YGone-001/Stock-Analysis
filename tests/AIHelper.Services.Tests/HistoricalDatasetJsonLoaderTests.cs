@@ -22,7 +22,7 @@ public sealed class HistoricalDatasetJsonLoaderTests
     }
 
     [Theory]
-    [InlineData(3, "Unsupported")]
+    [InlineData(3, "不支持")]
     [InlineData(1, "datasetId")]
     public async Task LoadAsync_RejectsSchemaAndMissingIdentity(int version, string expected)
     {
@@ -40,7 +40,7 @@ public sealed class HistoricalDatasetJsonLoaderTests
         file.TradingDates = new List<DateOnly> { new(2026, 1, 2), new(2026, 1, 1), new(2026, 1, 1) };
         HistoricalDatasetLoadResult result = await Load(file);
         Assert.False(result.Success);
-        Assert.Contains(result.Errors, error => error.Contains("ascending", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Errors, error => error.Contains("升序", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -53,8 +53,8 @@ public sealed class HistoricalDatasetJsonLoaderTests
         bar.Low = 10;
         HistoricalDatasetLoadResult result = await Load(file);
         Assert.False(result.Success);
-        Assert.Contains(result.Errors, error => error.Contains("outside tradingDates", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(result.Errors, error => error.Contains("High below Low", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Errors, error => error.Contains("tradingDates 范围", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("最高价低于最低价", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public sealed class HistoricalDatasetJsonLoaderTests
     {
         HistoricalDatasetFile fingerprintMismatch = DatasetFile(); fingerprintMismatch.Fingerprint = "NOT_THE_DATASET";
         HistoricalDatasetLoadResult mismatch = await Load(fingerprintMismatch);
-        Assert.False(mismatch.Success); Assert.Contains(mismatch.Errors, error => error.Contains("fingerprint mismatch", StringComparison.OrdinalIgnoreCase));
+        Assert.False(mismatch.Success); Assert.Contains(mismatch.Errors, error => error.Contains("指纹不匹配", StringComparison.Ordinal));
         HistoricalDatasetFile noCapabilities = DatasetFile(); noCapabilities.Capabilities = null;
         HistoricalDatasetLoadResult missing = await Load(noCapabilities);
         Assert.False(missing.Success); Assert.Contains(missing.Errors, error => error.Contains("capabilities", StringComparison.OrdinalIgnoreCase));
