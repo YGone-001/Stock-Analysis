@@ -29,6 +29,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
     internal NumericUpDown NumMinAmount;
     internal CheckBox ChkMA60;
     internal CheckBox ChkAlpha;
+    internal CheckBox ChkStrictTurnover;
     internal CheckBox ChkUseCache;
     internal RangeSlider SldAdhesion;
     internal RangeSlider SldTurnover;
@@ -81,6 +82,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumMinAmount.SetBinding(NumericUpDown.ValueProperty, new Binding("Parameters.MinAmount") { Mode = BindingMode.TwoWay });
         ChkMA60.SetBinding(CheckBox.IsCheckedProperty, new Binding("Parameters.CheckMA60") { Mode = BindingMode.TwoWay });
         ChkAlpha.SetBinding(CheckBox.IsCheckedProperty, new Binding("V2Parameters.CheckAlpha") { Mode = BindingMode.TwoWay });
+        ChkStrictTurnover.SetBinding(CheckBox.IsCheckedProperty, new Binding("V2Parameters.StrictTurnover") { Mode = BindingMode.TwoWay });
         ChkUseCache.SetBinding(CheckBox.IsCheckedProperty, new Binding("SystemSettings.UseCache") { Mode = BindingMode.TwoWay });
         SldAdhesion.SetBinding(RangeSlider.ValueStartProperty, new Binding("Parameters.MinAdhesion") { Mode = BindingMode.TwoWay });
         SldAdhesion.SetBinding(RangeSlider.ValueEndProperty, new Binding("Parameters.MaxAdhesion") { Mode = BindingMode.TwoWay });
@@ -260,6 +262,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         ChkMacroDef = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
         ChkMA60 = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
         ChkAlpha = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
+        ChkStrictTurnover = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
         ChkUseCache = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
         NumMinRise = new NumericUpDown { Minimum = -20, Maximum = 20, Width = 65 };
         NumMaxRise = new NumericUpDown { Minimum = -20, Maximum = 20, Width = 65 };
@@ -364,6 +367,8 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
 
         ChkAlpha.Content = "Alpha 基准确认";
         ChkAlpha.ToolTip = "仅 V2：要求个股当日表现不弱于上证基准。";
+        ChkStrictTurnover.Content = "换手率缺失即淘汰";
+        ChkStrictTurnover.ToolTip = "仅 V2：换手率数据缺失或非正时直接淘汰；关闭则按历史策略放行。";
         NumMinTurnover.ToolTip = "最低当日换手率（%）；推荐 3.0%。";
         NumMaxTurnover.ToolTip = "最高当日换手率（%）；推荐 30.0%。";
         SldTurnover.ToolTip = "仅 V2：换手率范围（%）。";
@@ -380,6 +385,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
 
         var v2OtherPanel = new WrapPanel();
         v2OtherPanel.Children.Add(ChkAlpha);
+        v2OtherPanel.Children.Add(ChkStrictTurnover);
         var momentumPanel = new StackPanel
         {
             Orientation = Orientation.Horizontal,

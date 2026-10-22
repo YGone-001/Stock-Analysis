@@ -79,14 +79,22 @@ public static class SparrowComparisonRuleEvaluators
             return volume;
         }
 
-        // Deliberately preserves the current V2 fail-open semantics for missing/non-positive turnover.
-        if (quote.Turnover.HasValue
-            && quote.Turnover.Value > 0
-            && (quote.Turnover.Value < parameters.MinTurnover || quote.Turnover.Value > parameters.MaxTurnover))
+        // Turnover: an out-of-range value always rejects. A missing or non-positive value rejects
+        // only in strict mode (fail-open otherwise, preserving the legacy V2 behavior).
+        if (quote.Turnover.HasValue && quote.Turnover.Value > 0)
+        {
+            if (quote.Turnover.Value < parameters.MinTurnover || quote.Turnover.Value > parameters.MaxTurnover)
+            {
+                return SparrowRuleComparison.Reject(
+                    "P2", SparrowComparisonReasonCodes.P2Turnover,
+                    $"Turnover {quote.Turnover.Value:F4}% is outside [{parameters.MinTurnover:F4}%, {parameters.MaxTurnover:F4}%]");
+            }
+        }
+        else if (parameters.StrictTurnover)
         {
             return SparrowRuleComparison.Reject(
                 "P2", SparrowComparisonReasonCodes.P2Turnover,
-                $"Turnover {quote.Turnover.Value:F4}% is outside [{parameters.MinTurnover:F4}%, {parameters.MaxTurnover:F4}%]");
+                "Turnover is missing or non-positive");
         }
 
         return SparrowRuleComparison.Pass("P2");

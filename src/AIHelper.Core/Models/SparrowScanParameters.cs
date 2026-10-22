@@ -14,6 +14,10 @@ public class SparrowScanParameters
     public double MaxTurnover { get; set; }
     public double MomentumThreshold { get; set; }
     public bool CheckAlpha { get; set; }
+    /// <summary>
+    /// When true, a missing or non-positive turnover rejects the candidate instead of fail-open.
+    /// </summary>
+    public bool StrictTurnover { get; set; }
     public int MaxConcurrency { get; set; } = 8;
     public bool UseCache { get; set; }
 }

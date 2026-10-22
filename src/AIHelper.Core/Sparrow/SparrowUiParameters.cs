@@ -114,6 +114,7 @@ public sealed class SparrowV2UiParameters : SparrowStrategyUiParameters
     private double _maxTurnover;
     private double _momentumThreshold;
     private bool _checkAlpha;
+    private bool _strictTurnover;
 
     public double MinTurnover
     {
@@ -140,6 +141,7 @@ public sealed class SparrowV2UiParameters : SparrowStrategyUiParameters
     public string TurnoverRangeText => $"当前范围：{MinTurnover:F1}% ~ {MaxTurnover:F1}%";
     public double MomentumThreshold { get => _momentumThreshold; set => Set(ref _momentumThreshold, value); }
     public bool CheckAlpha { get => _checkAlpha; set => Set(ref _checkAlpha, value); }
+    public bool StrictTurnover { get => _strictTurnover; set => Set(ref _strictTurnover, value); }
 }
 
 public sealed class SparrowSystemSettings : INotifyPropertyChanged
@@ -186,6 +188,7 @@ public static class SparrowParameterDefaults
     public const double MaxTurnover = 30.0;
     public const double MomentumThreshold = 0.0;
     public const bool CheckAlpha = true;
+    public const bool StrictTurnover = false;
     public const int MaxConcurrency = 8;
     public const bool UseCache = true;
 
@@ -224,6 +227,7 @@ public static class SparrowParameterDefaults
         parameters.MaxTurnover = MaxTurnover;
         parameters.MomentumThreshold = MomentumThreshold;
         parameters.CheckAlpha = CheckAlpha;
+        parameters.StrictTurnover = StrictTurnover;
         parameters.MarkRecommended();
     }
 
@@ -234,13 +238,15 @@ public static class SparrowParameterDefaults
         parameters.MaxTurnover = MaxTurnover;
         parameters.MomentumThreshold = MomentumThreshold;
         parameters.CheckAlpha = CheckAlpha;
+        parameters.StrictTurnover = StrictTurnover;
     }
 
     public static bool AreV2EnhancementsRecommended(SparrowV2UiParameters parameters) =>
         parameters.MinTurnover == MinTurnover
         && parameters.MaxTurnover == MaxTurnover
         && parameters.MomentumThreshold == MomentumThreshold
-        && parameters.CheckAlpha == CheckAlpha;
+        && parameters.CheckAlpha == CheckAlpha
+        && parameters.StrictTurnover == StrictTurnover;
 
     private static void ApplyBase(SparrowStrategyUiParameters parameters)
     {
@@ -442,6 +448,7 @@ public static class SparrowParameterMapper
         MaxTurnover = enhancements.MaxTurnover,
         MomentumThreshold = enhancements.MomentumThreshold,
         CheckAlpha = enhancements.CheckAlpha,
+        StrictTurnover = enhancements.StrictTurnover,
         MaxConcurrency = system.MaxConcurrency,
         UseCache = system.UseCache
     };
