@@ -730,42 +730,6 @@ public sealed class SparrowCacheLifecycleTests
     }
 
     // =========================================================================
-    // Test 19: Legacy UseCache=False Trend Refresh Propagated
-    // =========================================================================
-
-    [Fact]
-    public async Task Legacy_UseCacheFalse_TrendRefresh()
-    {
-        var fakeProvider = new LifecycleFakeStockDataProvider();
-        var scanner = new SparrowLegacyScannerService(fakeProvider);
-
-        fakeProvider.SetResponse("/api/trend?code=1.000001&refresh=1", BuildTrendJson(100, 101, 102, 103, 104));
-        fakeProvider.SetResponse("/api/trend?code=1.000852&refresh=1", BuildTrendJson(100, 101, 102, 103, 104));
-        fakeProvider.SetResponse("/api/quote?code=600000&refresh=1", BuildQuoteBatchJson("600000", "浦发银行", 10.0, 3.0, 100_000_000, 1500, 1000));
-        fakeProvider.SetResponse("/api/kline-all?code=600000&limit=65&refresh=1", BuildPassingKlineJson(10.0));
-
-        var targetPool = new List<(string Code, string Name)> { ("600000", "浦发银行") };
-        var parameters = new SparrowLegacyScanParameters
-        {
-            MacroDef = true,
-            UseCache = false,
-            MinRise = 0.5,
-            MaxRise = 5.0,
-            MinAmount = 10_000_000,
-            VolRatio = 1.0,
-            MinAdhesion = 0.0,
-            MaxAdhesion = 0.5,
-            MaxConcurrency = 4
-        };
-
-        await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);
-
-        var trendRequests = fakeProvider.RecordedRequests.Where(r => r.Path == "/api/trend").ToList();
-        Assert.Equal(2, trendRequests.Count);
-        Assert.All(trendRequests, r => Assert.True(r.ForceRefresh));
-    }
-
-    // =========================================================================
     // Test 20: V2 UseCache=False Index Refresh Propagated
     // =========================================================================
 

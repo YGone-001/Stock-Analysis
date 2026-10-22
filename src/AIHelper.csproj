@@ -107,7 +107,6 @@
     <None Remove="mainwindow.baml" />
     <None Remove="views\proxywindow.baml" />
     <None Remove="assets\emoji.png" />
-    <None Remove="views\sparrowwindow.baml" />
     <None Remove="views\turtlewindowdc.baml" />
     <None Remove="assets\pic.png" />
     <None Remove="views\chatview.baml" />
@@ -201,7 +200,6 @@
     <Resource Include="mainwindow.baml" />
     <Resource Include="views\proxywindow.baml" />
     <Resource Include="assets\emoji.png" />
-    <Resource Include="views\sparrowwindow.baml" />
     <Resource Include="views\turtlewindowdc.baml" />
     <Resource Include="assets\pic.png" />
     <Resource Include="views\chatview.baml" />
