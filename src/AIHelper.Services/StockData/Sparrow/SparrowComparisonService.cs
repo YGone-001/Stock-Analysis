@@ -107,7 +107,7 @@ public sealed class SparrowComparisonService
                 p3Codes, v2Parameters, progress, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             EvaluateP3(rows.Values, klines, classicParameters, v2Parameters,
-                marketSnapshot.V2ShanghaiDailyPercent ?? 0);
+                marketSnapshot.V2ShanghaiDailyPercent);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -553,7 +553,7 @@ public sealed class SparrowComparisonService
         IReadOnlyDictionary<string, SparrowKlineSnapshot> klines,
         SparrowClassicScanParameters classicParameters,
         SparrowScanParameters v2Parameters,
-        double shIndexPctChg)
+        double? shIndexPctChg)
     {
         foreach (SparrowComparisonRow row in rows)
         {
@@ -574,8 +574,8 @@ public sealed class SparrowComparisonService
                 row.V2.P3 = technical.Rule;
                 row.V2.Adhesion = technical.Adhesion;
                 row.V2.Momentum = technical.Momentum;
-                row.V2.AlphaMargin = v2Parameters.CheckAlpha
-                    ? technical.LatestPercent - shIndexPctChg
+                row.V2.AlphaMargin = v2Parameters.CheckAlpha && shIndexPctChg.HasValue
+                    ? technical.LatestPercent - shIndexPctChg.Value
                     : null;
                 if (!technical.Rule.Passed)
                 {

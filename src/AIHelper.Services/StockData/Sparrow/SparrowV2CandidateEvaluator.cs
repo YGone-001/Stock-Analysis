@@ -23,7 +23,7 @@ public static class SparrowV2CandidateEvaluator
         string code,
         SparrowQuoteData quote,
         SparrowKlineSnapshot? snapshot,
-        double shIndexPctChg,
+        double? shIndexPctChg,
         SparrowScanParameters parameters)
     {
         SparrowRuleComparison p2 = EvaluateQuote(quote, parameters);

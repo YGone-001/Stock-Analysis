@@ -21,9 +21,12 @@ public sealed record SparrowTechnicalEvaluation(
 /// <summary>Pure V2 P3 evaluator. Formulas intentionally mirror SparrowScannerService.</summary>
 public static class SparrowV2RuleEvaluator
 {
+    /// <summary>The V2 rule version implemented by this evaluator.</summary>
+    public const string RuleVersion = SparrowStrategyVersions.V2;
+
     public static SparrowTechnicalEvaluation Evaluate(
         SparrowKlineSnapshot? snapshot,
-        double shIndexPctChg,
+        double? shIndexPctChg,
         SparrowScanParameters parameters)
     {
         ArgumentNullException.ThrowIfNull(parameters);
@@ -45,10 +48,10 @@ public static class SparrowV2RuleEvaluator
         double ma20 = Average(list, 0, 20);
         double ma60 = Average(list, 0, 60);
 
-        if (parameters.CheckAlpha && snapshot.LatestPercent < shIndexPctChg)
+        if (parameters.CheckAlpha && shIndexPctChg.HasValue && snapshot.LatestPercent < shIndexPctChg.Value)
         {
             return Reject(SparrowComparisonReasonCodes.P3Alpha,
-                $"Stock latest percent {snapshot.LatestPercent:F4}% is below Shanghai {shIndexPctChg:F4}%",
+                $"Stock latest percent {snapshot.LatestPercent:F4}% is below Shanghai {shIndexPctChg.Value:F4}%",
                 ma5, ma10, ma20, ma60, latestPercent: snapshot.LatestPercent);
         }
 

@@ -69,7 +69,7 @@ public class SparrowScannerService
 
         ReportLog(progress, $"🦅 [麻雀-全景高速版] 引擎点火！初始标的: {targetPool.Count} 只");
 
-        double shIndexPctChg = 0;
+        double? shIndexPctChg = null;
         if (parameters.MacroDef)
         {
             // P1 熔断：双指数分时弱势（与 Classic 对齐），数据缺失按历史策略 fail-open。
@@ -80,9 +80,9 @@ public class SparrowScannerService
                 return new List<SparrowV2Candidate>();
             }
 
-            // Alpha 基准：上证日涨跌幅，独立于熔断取数。
+            // Alpha 基准：上证日涨跌幅，独立于熔断取数；缺失时显式记为 null（跳过 Alpha、AlphaMargin 置空）。
             shIndexPctChg = await GetShanghaiDailyPercentAsync(!parameters.UseCache, ct);
-            ReportLog(progress, $"✅ [第一阶段通过] 大盘环境正常；上证今日涨幅: {shIndexPctChg:F2}%, 已设为 Alpha 参照基准。");
+            ReportLog(progress, $"✅ [第一阶段通过] 大盘环境正常；上证今日涨幅: {(shIndexPctChg.HasValue ? shIndexPctChg.Value.ToString("F2") + "%" : "N/A")}, 已设为 Alpha 参照基准。");
         }
 
         if (targetPool.Count >= SparrowConstants.FullMarketQuoteThreshold)
@@ -376,8 +376,8 @@ public class SparrowScannerService
                         Adhesion = technical.Adhesion,
                         Turnover = quote.Turnover,
                         Momentum = technical.Momentum,
-                        AlphaMargin = parameters.CheckAlpha
-                            ? technical.LatestPercent - shIndexPctChg
+                        AlphaMargin = parameters.CheckAlpha && shIndexPctChg.HasValue
+                            ? technical.LatestPercent - shIndexPctChg.Value
                             : null
                     }
                 };
@@ -460,9 +460,9 @@ public class SparrowScannerService
         }
     }
 
-    private async Task<double> GetShanghaiDailyPercentAsync(bool forceRefresh, CancellationToken cancellationToken)
+    private async Task<double?> GetShanghaiDailyPercentAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
-        double shIndexPctChg = 0.0;
+        double? shIndexPctChg = null;
         try
         {
             string url = SparrowEndpoints.Index(SparrowConstants.ShanghaiIndexCode, 2, forceRefresh);

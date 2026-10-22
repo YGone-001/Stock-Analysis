@@ -1,3 +1,4 @@
+using AIHelper.Core.Sparrow;
 using AIHelper.Models;
 
 namespace AIHelper.Services.StockData.Sparrow;
@@ -8,6 +9,13 @@ namespace AIHelper.Services.StockData.Sparrow;
 /// </summary>
 public static class SparrowClassicRuleEvaluator
 {
+    /// <summary>
+    /// The frozen Classic rule snapshot implemented by this evaluator. Classic is a historical
+    /// control group; evolve these rules by publishing a new version (e.g. classic-v2) instead of
+    /// editing this v1 implementation in place, so historical replays stay reproducible.
+    /// </summary>
+    public const string RuleVersion = SparrowStrategyVersions.Classic;
+
     public static SparrowClassicTechnicalResult Evaluate(
         IReadOnlyList<double> closesNewestFirst,
         double latestPrice,

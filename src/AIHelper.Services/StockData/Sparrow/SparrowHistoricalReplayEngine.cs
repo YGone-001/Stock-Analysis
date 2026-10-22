@@ -126,7 +126,7 @@ public sealed class SparrowHistoricalReplayEngine
     private SparrowReplayResult ReplayV2(HistoricalMarketDataset dataset, SparrowReplayRequest request, HistoricalMarketSnapshot snapshot, List<string> warnings, CancellationToken ct)
     {
         SparrowScanParameters parameters = request.V2Parameters!.ToParameters();
-        double shPercent = snapshot.MarketContext?.V2ShanghaiDailyPercent ?? 0;
+        double? shPercent = snapshot.MarketContext?.V2ShanghaiDailyPercent;
         if (parameters.MacroDef && snapshot.MarketContext?.ClassicMarketRegime?.Defensive == true)
         {
             warnings.Add("V2 双指数弱势，本次未评估任何候选。");
@@ -146,7 +146,7 @@ public sealed class SparrowHistoricalReplayEngine
             SparrowV2CandidateEvaluation evaluation = SparrowV2CandidateEvaluator.Evaluate(security.Quote.Symbol, quote, kline, shPercent, parameters);
             if (!evaluation.Passed) continue;
             SparrowTechnicalEvaluation technical = SparrowV2RuleEvaluator.Evaluate(kline, shPercent, parameters);
-            candidates.Add((Features(security.Quote, quote, technical, parameters.CheckAlpha ? technical.LatestPercent - shPercent : null), evaluation.P3.ReasonCode, evaluation.P3.Reason));
+            candidates.Add((Features(security.Quote, quote, technical, parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null), evaluation.P3.ReasonCode, evaluation.P3.Reason));
         }
         IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha);
         return Result(dataset, request, HistoricalReplaySupport.Supported, ToSelections(ranked, candidates, request.TopN), warnings);
