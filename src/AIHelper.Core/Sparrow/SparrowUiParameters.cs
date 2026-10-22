@@ -35,7 +35,7 @@ public interface ISparrowStrategyUiParameters : INotifyPropertyChanged
     void MarkRecommended();
 }
 
-public abstract class SparrowStrategyUiParameters : ISparrowStrategyUiParameters
+public class SparrowStrategyUiParameters : ISparrowStrategyUiParameters
 {
     private bool _macroDef;
     private double _minRise;
@@ -102,10 +102,6 @@ public abstract class SparrowStrategyUiParameters : ISparrowStrategyUiParameters
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-}
-
-public sealed class SparrowClassicUiParameters : SparrowStrategyUiParameters
-{
 }
 
 public sealed class SparrowV2UiParameters : SparrowStrategyUiParameters
@@ -192,9 +188,9 @@ public static class SparrowParameterDefaults
     public const int MaxConcurrency = 8;
     public const bool UseCache = true;
 
-    public static SparrowClassicUiParameters CreateClassic()
+    public static SparrowStrategyUiParameters CreateClassic()
     {
-        var parameters = new SparrowClassicUiParameters();
+        var parameters = new SparrowStrategyUiParameters();
         ResetClassic(parameters);
         return parameters;
     }
@@ -212,7 +208,7 @@ public static class SparrowParameterDefaults
         UseCache = UseCache
     };
 
-    public static void ResetClassic(SparrowClassicUiParameters parameters)
+    public static void ResetClassic(SparrowStrategyUiParameters parameters)
     {
         ArgumentNullException.ThrowIfNull(parameters);
         ApplyBase(parameters);
@@ -274,7 +270,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public SparrowClassicUiParameters ClassicParameters { get; } = SparrowParameterDefaults.CreateClassic();
+    public SparrowStrategyUiParameters ClassicParameters { get; } = SparrowParameterDefaults.CreateClassic();
     public SparrowV2UiParameters V2Parameters { get; } = SparrowParameterDefaults.CreateV2();
     public SparrowSystemSettings SystemSettings { get; } = SparrowParameterDefaults.CreateSystemSettings();
 
@@ -402,7 +398,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
 public static class SparrowParameterMapper
 {
     public static SparrowClassicScanParameters ToClassic(
-        SparrowClassicUiParameters parameters,
+        SparrowStrategyUiParameters parameters,
         SparrowSystemSettings system) => new()
     {
         MacroDef = parameters.MacroDef,
@@ -426,7 +422,7 @@ public static class SparrowParameterMapper
     /// V2 state only for enhancement fields. Neither saved strategy state is mutated.
     /// </summary>
     public static (SparrowClassicScanParameters Classic, SparrowScanParameters V2) ToComparison(
-        SparrowClassicUiParameters commonParameters,
+        SparrowStrategyUiParameters commonParameters,
         SparrowV2UiParameters v2Enhancements,
         SparrowSystemSettings system) =>
         (ToClassic(commonParameters, system), ToV2(commonParameters, v2Enhancements, system));
@@ -463,7 +459,7 @@ public static class SparrowParameterValidator
 {
     public static SparrowParameterValidationResult Validate(
         SparrowStrategyMode mode,
-        SparrowClassicUiParameters classic,
+        SparrowStrategyUiParameters classic,
         SparrowV2UiParameters v2,
         SparrowSystemSettings system)
     {

@@ -146,7 +146,7 @@ public sealed class SparrowWindowRealUiTests
             vm.TopN = 20;
             window.UpdateLayout();
             Assert.Equal(20.0, window.NumTopN.Value);
-            Assert.IsNotType<SparrowClassicUiParameters>(vm.RankingSettings);
+            Assert.IsNotType<SparrowStrategyUiParameters>(vm.RankingSettings);
             Assert.IsNotType<SparrowV2UiParameters>(vm.RankingSettings);
         });
     }

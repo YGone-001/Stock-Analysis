@@ -57,7 +57,7 @@ public partial class SparrowViewModel : ObservableObject
     }
 
     public ISparrowStrategyUiParameters Parameters => _parameterState.ActiveParameters;
-    public SparrowClassicUiParameters ClassicParameters => _parameterState.ClassicParameters;
+    public SparrowStrategyUiParameters ClassicParameters => _parameterState.ClassicParameters;
     public SparrowV2UiParameters V2Parameters => _parameterState.V2Parameters;
     public SparrowSystemSettings SystemSettings => _parameterState.SystemSettings;
     public SparrowRankingSettings RankingSettings => _rankingSettings;

@@ -28,7 +28,7 @@ public sealed class SparrowUiParametersTests
     [Fact]
     public void ClassicMapping_ConvertsUiUnitsAndCannotCarryV2Enhancements()
     {
-        SparrowClassicUiParameters ui = SparrowParameterDefaults.CreateClassic();
+        SparrowStrategyUiParameters ui = SparrowParameterDefaults.CreateClassic();
         SparrowSystemSettings system = SparrowParameterDefaults.CreateSystemSettings();
 
         SparrowClassicScanParameters mapped = SparrowParameterMapper.ToClassic(ui, system);
