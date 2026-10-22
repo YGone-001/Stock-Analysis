@@ -1,4 +1,5 @@
 using AIHelper.Models;
+using AIHelper.Core.Sparrow;
 
 namespace AIHelper.Services.StockData.Sparrow;
 
@@ -65,8 +66,8 @@ public static class SparrowV2RuleEvaluator
                 ma5, ma10, ma20, ma60, latestPercent: snapshot.LatestPercent);
         }
 
-        double prevMa5 = Average(list, 3, 5);
-        double momentum = (ma5 - prevMa5) / prevMa5;
+        double prevMa5 = Average(list, SparrowConstants.MomentumLookbackOffset, 5);
+        double momentum = prevMa5 > 0 ? (ma5 - prevMa5) / prevMa5 : double.NaN;
         if (!(momentum > parameters.MomentumThreshold))
         {
             return Reject(SparrowComparisonReasonCodes.P3Momentum,
@@ -76,6 +77,13 @@ public static class SparrowV2RuleEvaluator
 
         double maxMa = Math.Max(ma5, Math.Max(ma10, ma20));
         double minMa = Math.Min(ma5, Math.Min(ma10, ma20));
+        if (minMa <= 0)
+        {
+            return Reject(SparrowComparisonReasonCodes.P3MaInvalid,
+                $"Minimum MA {minMa:F6} is non-positive; adhesion is undefined",
+                ma5, ma10, ma20, ma60, latestPercent: snapshot.LatestPercent);
+        }
+
         double adhesion = (maxMa - minMa) / minMa;
         if (adhesion < parameters.MinAdhesion)
         {

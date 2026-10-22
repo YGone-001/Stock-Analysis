@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Models;
+using AIHelper.Core.Sparrow;
 using Serilog;
 
 namespace AIHelper.Services.StockData.Sparrow;
@@ -16,8 +17,8 @@ namespace AIHelper.Services.StockData.Sparrow;
 /// </summary>
 public sealed class SparrowMarketRegimeService
 {
-    public const string DefaultShanghaiCode = "1.000001";
-    public const string DefaultCsi1000Code = "1.000852";
+    public const string DefaultShanghaiCode = SparrowConstants.ShanghaiIndexTrendCode;
+    public const string DefaultCsi1000Code = SparrowConstants.Csi1000IndexTrendCode;
     public const int MinTrendSamples = 5;
 
     private readonly IStockDataProvider _dataProvider;

@@ -37,6 +37,7 @@ public static class SparrowComparisonReasonCodes
     public const string P3MaOrder = "P3_MA_ORDER";
     public const string P3Ma60 = "P3_MA60";
     public const string P3Momentum = "P3_MOMENTUM";
+    public const string P3MaInvalid = "P3_MA_INVALID";
     public const string P3AdhesionLow = "P3_ADHESION_LOW";
     public const string P3AdhesionHigh = "P3_ADHESION_HIGH";
 }
