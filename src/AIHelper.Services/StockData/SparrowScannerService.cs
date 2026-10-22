@@ -83,7 +83,7 @@ public class SparrowScannerService
             ReportLog(progress, $"✅ [第一阶段通过] 上证今日涨幅: {shIndexPctChg:F2}%, 已设为 RPS 参照基准。");
         }
 
-        if (targetPool.Count >= 500)
+        if (targetPool.Count >= SparrowConstants.FullMarketQuoteThreshold)
         {
             ReportLog(progress, "\n🌐 [阶段2] 优先加载全市场盘口快照...");
             try
@@ -128,16 +128,18 @@ public class SparrowScannerService
             ReportLog(progress, $"\n🌪️ [阶段2] 极速网关并发拉取盘口快照 (待下载:{p2Missing.Count} 只)...");
             int p2Downloaded = 0;
             int p2FailedBatches = 0;
+            int p2FailedStocks = 0;
+            var p2FailedCodes = new ConcurrentQueue<string>();
             progress?.Report(new SparrowScanReport { ProgressMax = p2Missing.Count, ProgressValue = 0 });
             
             var batches = p2Missing.Select((x, i) => new { Index = i, Value = x })
-                .GroupBy(x => x.Index / 50)
+                .GroupBy(x => x.Index / SparrowConstants.QuoteBatchSize)
                 .Select(x => x.Select(v => v.Value).ToList())
                 .ToList();
 
             string refreshQuery = parameters.UseCache ? "" : "&refresh=1";
             int p2Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
-            using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(8, p2Concurrency)));
+            using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(SparrowConstants.MaxP2Concurrency, p2Concurrency)));
             await Task.WhenAll(batches.Select(async batch =>
             {
                 await semaphore.WaitAsync(ct);
@@ -145,46 +147,32 @@ public class SparrowScannerService
                 {
                     if (ct.IsCancellationRequested) return;
                     string[] codes = batch.Select(x => x.Code).ToArray();
-                    if (_quoteService != null)
+
+                    SparrowRetryOutcome retry = await SparrowRetryPolicy.RetryAsync(
+                        token => AttemptQuoteBatchAsync(codes, refreshQuery, parameters, quoteCache, token),
+                        SparrowRetryPolicy.DefaultMaxAttempts,
+                        i => SparrowRetryPolicy.ExponentialBackoff(i),
+                        ct);
+
+                    if (!retry.Success)
                     {
-                        MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
-                            codes, forceRefresh: !parameters.UseCache, cancellationToken: ct);
-                        if (response.Success)
+                        Interlocked.Increment(ref p2FailedBatches);
+                        Interlocked.Add(ref p2FailedStocks, batch.Count);
+                        foreach ((string code, _) in batch)
                         {
-                            AddQuotesToCache(response.Data, quoteCache);
-                        }
-                        else
-                        {
-                            Interlocked.Increment(ref p2FailedBatches);
+                            p2FailedCodes.Enqueue(code);
                         }
                     }
-					else
-					{
-                        string codesStr = string.Join(",", codes);
-                        var req = StockDataRequest.Parse("/api/quote?code=" + codesStr + refreshQuery);
-                        var res = await _dataProvider.GetDataAsync(req, ct);
-                        if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
-                        {
-                            try
-                            {
-                                AddQuotesToCache(res.Json, quoteCache);
-                            }
-                            catch (Exception ex) { Log.Error(ex, "Failed to parse batch quote JSON"); }
-                        }
-                        else
-                        {
-                            Interlocked.Increment(ref p2FailedBatches);
-                        }
-					}
                 }
-				catch (OperationCanceledException) when (ct.IsCancellationRequested)
-				{
-					throw;
-				}
-				catch (Exception ex)
-				{
-					Interlocked.Increment(ref p2FailedBatches);
-					Log.Warning(ex, "Sparrow V2 P2 quote batch failed; continuing with remaining batches");
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref p2FailedBatches);
+                    Interlocked.Add(ref p2FailedStocks, batch.Count);
+                    Log.Warning(ex, "Sparrow V2 P2 quote batch failed; continuing with remaining batches");
                 }
                 finally
                 {
@@ -197,7 +185,8 @@ public class SparrowScannerService
 			if (p2FailedBatches > 0)
 			{
 				ReportLog(progress,
-					$"⚠️ [阶段2网络] 批次失败: {p2FailedBatches}/{batches.Count}；已隔离故障并继续处理其余批次。",
+					$"⚠️ [阶段2网络] 批次失败: {p2FailedBatches}/{batches.Count}，涉及 {p2FailedStocks} 只（每批重试最多 {SparrowRetryPolicy.DefaultMaxAttempts} 次）；" +
+					$"失败示例: {string.Join(", ", p2FailedCodes.Take(5))}；已隔离故障并继续处理其余批次。",
 					true);
 			}
         }
@@ -272,7 +261,7 @@ public class SparrowScannerService
         var p3Missing = new List<(string Code, string Name)>();
         foreach (var stock in p2List)
         {
-            string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, 120, "day");
+            string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, SparrowConstants.V2KlineLimit, "day");
             if (parameters.UseCache
                 && _klineCache.TryGet(cacheKey, true, out var cachedJson)
                 && !string.IsNullOrWhiteSpace(cachedJson)
@@ -303,7 +292,7 @@ public class SparrowScannerService
 
             string refreshParam = parameters.UseCache ? "" : "&refresh=1";
             int p3Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
-            using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(32, p3Concurrency * 4)));
+            using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(SparrowConstants.MaxP3Concurrency, p3Concurrency * SparrowConstants.P3ConcurrencyMultiplier)));
             await Task.WhenAll(p3Missing.Select(async stock =>
             {
                 await semaphore.WaitAsync(ct);
@@ -313,12 +302,12 @@ public class SparrowScannerService
                     if (_klineService != null)
                     {
                         outcome = await SparrowKlineFetchHelper.FetchDailyAsync(
-                            _klineService, stock.Code, 120, !parameters.UseCache, ct);
+                            _klineService, stock.Code, SparrowConstants.V2KlineLimit, !parameters.UseCache, ct);
                     }
                     else
                     {
                         StockDataRequest request = StockDataRequest.Parse(
-                            "/api/kline-all?code=" + stock.Code + "&limit=120" + refreshParam);
+                            "/api/kline-all?code=" + stock.Code + "&limit=" + SparrowConstants.V2KlineLimit + refreshParam);
                         outcome = await SparrowKlineFetchHelper.FetchAsync(
                             _dataProvider, stock.Code, request, SparrowKlineFetchHelper.IsUsableKlineJson, ct);
                     }
@@ -334,7 +323,7 @@ public class SparrowScannerService
                             throw new InvalidOperationException("Usable Sparrow Kline response produced no snapshot.");
                         }
                         klineData[stock.Code] = snapshot;
-                        string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, 120, "day");
+                        string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, SparrowConstants.V2KlineLimit, "day");
                         _klineCache.Set(cacheKey, json, SparrowDataCachePolicy.DefaultKlineTtl);
                     }
                 }
@@ -424,6 +413,45 @@ public class SparrowScannerService
         progress?.Report(new SparrowScanReport { LogMessage = msg, IsHighlight = isHighlight });
     }
 
+    private async Task<bool> AttemptQuoteBatchAsync(
+        string[] codes,
+        string refreshQuery,
+        SparrowScanParameters parameters,
+        ConcurrentDictionary<string, SparrowQuoteData> quoteCache,
+        CancellationToken ct)
+    {
+        if (_quoteService != null)
+        {
+            MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
+                codes, forceRefresh: !parameters.UseCache, cancellationToken: ct);
+            if (!response.Success)
+            {
+                return false;
+            }
+            AddQuotesToCache(response.Data, quoteCache);
+            return true;
+        }
+
+        string codesStr = string.Join(",", codes);
+        var req = StockDataRequest.Parse("/api/quote?code=" + codesStr + refreshQuery);
+        var res = await _dataProvider.GetDataAsync(req, ct);
+        if (!res.Success || string.IsNullOrWhiteSpace(res.Json))
+        {
+            return false;
+        }
+
+        try
+        {
+            AddQuotesToCache(res.Json, quoteCache);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to parse batch quote JSON");
+            return false;
+        }
+    }
+
     private static void AddQuotesToCache(
         string json,
         ConcurrentDictionary<string, SparrowQuoteData> quoteCache)
@@ -476,7 +504,9 @@ public class SparrowScannerService
         double shIndexPctChg = 0.0;
         try
         {
-            string url = forceRefresh ? "/api/index?code=sh000001&limit=2&refresh=1" : "/api/index?code=sh000001&limit=2";
+            string url = forceRefresh
+                ? "/api/index?code=" + SparrowConstants.ShanghaiIndexCode + "&limit=2&refresh=1"
+                : "/api/index?code=" + SparrowConstants.ShanghaiIndexCode + "&limit=2";
             var req = StockDataRequest.Parse(url);
             var res = await _dataProvider.GetDataAsync(req, cancellationToken);
             if (res.Success && !string.IsNullOrWhiteSpace(res.Json))
@@ -492,7 +522,7 @@ public class SparrowScannerService
                         if (prevClose > 0)
                         {
                             shIndexPctChg = (close - prevClose) / prevClose * 100.0;
-                            return (shIndexPctChg <= -2.5, shIndexPctChg);
+                            return (shIndexPctChg <= SparrowConstants.V2MarketDefensivePercent, shIndexPctChg);
                         }
                     }
                 }

@@ -18,7 +18,6 @@ namespace AIHelper.Services.StockData.Sparrow;
 public sealed class SparrowComparisonService
 {
     private static readonly TimeSpan BeijingOffset = TimeSpan.FromHours(8);
-    private const int FullMarketQuoteThreshold = 500;
 
     private readonly IStockDataProvider _dataProvider;
 	private readonly IKlineService? _klineService;
@@ -220,7 +219,7 @@ public sealed class SparrowComparisonService
         {
             string refresh = forceRefresh ? "&refresh=1" : "";
             StockDataResult result = await _dataProvider.GetDataAsync(
-                StockDataRequest.Parse("/api/index?code=sh000001&limit=2" + refresh), cancellationToken);
+                StockDataRequest.Parse("/api/index?code=" + SparrowConstants.ShanghaiIndexCode + "&limit=2" + refresh), cancellationToken);
             if (!result.Success || string.IsNullOrWhiteSpace(result.Json))
             {
                 return null;
@@ -268,7 +267,7 @@ public sealed class SparrowComparisonService
         var quotes = new ConcurrentDictionary<string, SparrowQuoteData>(StringComparer.Ordinal);
         var universeCodes = universe.Select(stock => stock.Code).ToHashSet(StringComparer.Ordinal);
 
-        if (universe.Count >= FullMarketQuoteThreshold)
+        if (universe.Count >= SparrowConstants.FullMarketQuoteThreshold)
         {
             Report(progress, "[P2] Loading one full-market quote snapshot...");
             try
@@ -307,7 +306,7 @@ public sealed class SparrowComparisonService
 
         var missingUniverse = universe.Where(stock => !quotes.ContainsKey(stock.Code)).ToArray();
         var batches = missingUniverse.Select((stock, index) => (stock, index))
-            .GroupBy(item => item.index / 50)
+            .GroupBy(item => item.index / SparrowConstants.QuoteBatchSize)
             .Select(group => group.Select(item => item.stock).ToArray())
             .ToArray();
         int completed = universe.Count - missingUniverse.Length;
@@ -317,34 +316,20 @@ public sealed class SparrowComparisonService
             ProgressValue = completed
         });
         int concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
-        using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(8, concurrency)));
+        using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(SparrowConstants.MaxP2Concurrency, concurrency)));
         await Task.WhenAll(batches.Select(async batch =>
         {
             await semaphore.WaitAsync(cancellationToken);
             try
             {
-                if (_quoteService is not null)
+                SparrowRetryOutcome retry = await SparrowRetryPolicy.RetryAsync(
+                    token => AttemptQuoteBatchAsync(batch, parameters, quotes, universeCodes, token),
+                    SparrowRetryPolicy.DefaultMaxAttempts,
+                    i => SparrowRetryPolicy.ExponentialBackoff(i),
+                    cancellationToken);
+                if (!retry.Success)
                 {
-                    MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
-                        batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
-                    if (!response.Success)
-                    {
-                        return;
-                    }
-                    AddQuotes(response.Data, quotes, universeCodes);
-                }
-                else
-                {
-                    string refresh = parameters.UseCache ? "" : "&refresh=1";
-                    string codes = string.Join(',', batch.Select(stock => stock.Code));
-                    StockDataResult response = await _dataProvider.GetDataAsync(
-                        StockDataRequest.Parse("/api/quote?code=" + codes + refresh), cancellationToken);
-                    if (!response.Success || string.IsNullOrWhiteSpace(response.Json))
-                    {
-                        return;
-                    }
-
-                    AddQuotesFromJson(response.Json, quotes, universeCodes);
+                    Log.Warning("Sparrow Compare P2 quote batch failed after {Attempts} attempts", retry.Attempts);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -372,6 +357,37 @@ public sealed class SparrowComparisonService
             : $"[P2] ⚠ Shared quote snapshot incomplete: {quotes.Count}/{universe.Count}; " +
               $"{missingCount} stocks will be marked as data unavailable, not rule rejects.");
         return quotes;
+    }
+
+    private async Task<bool> AttemptQuoteBatchAsync(
+        (string Code, string Name)[] batch,
+        SparrowScanParameters parameters,
+        ConcurrentDictionary<string, SparrowQuoteData> quotes,
+        IReadOnlySet<string> universeCodes,
+        CancellationToken cancellationToken)
+    {
+        if (_quoteService is not null)
+        {
+            MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
+                batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
+            if (!response.Success)
+            {
+                return false;
+            }
+            AddQuotes(response.Data, quotes, universeCodes);
+            return true;
+        }
+
+        string refresh = parameters.UseCache ? "" : "&refresh=1";
+        string codes = string.Join(',', batch.Select(stock => stock.Code));
+        StockDataResult result = await _dataProvider.GetDataAsync(
+            StockDataRequest.Parse("/api/quote?code=" + codes + refresh), cancellationToken);
+        if (!result.Success || string.IsNullOrWhiteSpace(result.Json))
+        {
+            return false;
+        }
+        AddQuotesFromJson(result.Json, quotes, universeCodes);
+        return true;
     }
 
     private static void AddQuotesFromJson(
@@ -479,13 +495,13 @@ public sealed class SparrowComparisonService
         int cacheHits = 0;
         int networkRequested = 0;
         int concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
-        using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(32, concurrency * 4)));
+        using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(SparrowConstants.MaxP3Concurrency, concurrency * SparrowConstants.P3ConcurrencyMultiplier)));
         await Task.WhenAll(codes.Select(async code =>
         {
             await semaphore.WaitAsync(cancellationToken);
             try
             {
-                string cacheKey = SparrowDataCachePolicy.GetKlineKey(code, 120, "day");
+                string cacheKey = SparrowDataCachePolicy.GetKlineKey(code, SparrowConstants.V2KlineLimit, "day");
                 string? json = null;
                 bool validCacheHit = _klineCache.TryGet(cacheKey, parameters.UseCache, out json)
                     && !string.IsNullOrWhiteSpace(json)
@@ -499,10 +515,10 @@ public sealed class SparrowComparisonService
                     Interlocked.Increment(ref networkRequested);
                     string refresh = parameters.UseCache ? "" : "&refresh=1";
                     StockDataRequest request = StockDataRequest.Parse(
-                        $"/api/kline-all?code={code}&type=day&limit=120{refresh}");
+                        $"/api/kline-all?code={code}&type=day&limit={SparrowConstants.V2KlineLimit}{refresh}");
 					SparrowKlineFetchOutcome outcome = _klineService != null
 						? await SparrowKlineFetchHelper.FetchDailyAsync(
-							_klineService, code, 120, !parameters.UseCache, cancellationToken)
+							_klineService, code, SparrowConstants.V2KlineLimit, !parameters.UseCache, cancellationToken)
 						: await SparrowKlineFetchHelper.FetchAsync(
 							_dataProvider, code, request, SparrowKlineFetchHelper.IsUsableKlineJson, cancellationToken);
                     statistics.Record(outcome);
@@ -710,7 +726,7 @@ public sealed class SparrowComparisonService
                 "P1", SparrowComparisonReasonCodes.P1MarketDataUnknown,
                 "V2 Shanghai daily data is unavailable; current fail-open applies", failOpen: true);
         }
-        return dailyPercent.Value <= -2.5
+        return dailyPercent.Value <= SparrowConstants.V2MarketDefensivePercent
             ? SparrowRuleComparison.Reject("P1", SparrowComparisonReasonCodes.P1MarketDefensive,
                 $"Shanghai daily percent {dailyPercent.Value:F4}% <= -2.5%")
             : SparrowRuleComparison.Pass("P1", $"Shanghai daily percent {dailyPercent.Value:F4}%");

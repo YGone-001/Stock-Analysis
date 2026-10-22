@@ -11,7 +11,7 @@ using Serilog;
 namespace AIHelper.Services.StockData.Sparrow;
 
 /// <summary>
-/// Historical control-group implementation restored from main's SparrowWindow.
+/// Historical control-group implementation of the original Sparrow strategy.
 /// Do not add V2 scoring or additional technical indicators to this scanner.
 /// </summary>
 public sealed class SparrowClassicScanner
@@ -108,6 +108,8 @@ public sealed class SparrowClassicScanner
 
         int batchQuoteLoaded = 0;
         int quoteDataUnavailable = 0;
+        int p2FailedBatches = 0;
+        int p2FailedStocks = 0;
         int coarseSurvivors = 0;
         int outerInnerValid = 0;
         int outerInnerUnavailable = 0;
@@ -120,13 +122,13 @@ public sealed class SparrowClassicScanner
             progress?.Report(new SparrowClassicScanReport { ProgressMax = classicPool.Count, ProgressValue = p2Processed.Count });
 
             var batches = p2Pending.Select((stock, index) => new { stock, index })
-                .GroupBy(item => item.index / 50)
+                .GroupBy(item => item.index / SparrowConstants.QuoteBatchSize)
                 .Select(group => group.Select(item => item.stock).ToList())
                 .ToList();
 
             string refreshQuery = parameters.UseCache ? "" : "&refresh=1";
             int p2Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
-            using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(8, p2Concurrency)));
+            using var semaphore = new SemaphoreSlim(Math.Max(1, Math.Min(SparrowConstants.MaxP2Concurrency, p2Concurrency)));
             await Task.WhenAll(batches.Select(async batch =>
             {
                 bool entered = false;
@@ -134,37 +136,22 @@ public sealed class SparrowClassicScanner
                 {
                     await semaphore.WaitAsync(cancellationToken);
                     entered = true;
-                    var quoteRows = new List<(string Code, SparrowQuoteData Quote)>();
-                    if (_quoteService is not null)
-                    {
-                        MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
-                            batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
-                        if (!response.Success)
+                    List<(string Code, SparrowQuoteData Quote)>? quoteRows = null;
+                    SparrowRetryOutcome retry = await SparrowRetryPolicy.RetryAsync(
+                        async token =>
                         {
-                            return;
-                        }
-                        quoteRows.AddRange(response.Data.Select(quote =>
-                            (NormalizeCode(quote.Symbol), SparrowQuoteDataContract.FromSnapshot(quote))));
-                    }
-                    else
-                    {
-                        string codes = string.Join(",", batch.Select(stock => stock.Code));
-                        StockDataResult response = await _dataProvider.GetDataAsync(
-                            StockDataRequest.Parse("/api/quote?code=" + codes + refreshQuery), cancellationToken);
-                        if (!response.Success || string.IsNullOrWhiteSpace(response.Json))
-                        {
-                            return;
-                        }
+                            quoteRows = await AttemptQuoteBatchAsync(batch, refreshQuery, parameters, token);
+                            return quoteRows is not null;
+                        },
+                        SparrowRetryPolicy.DefaultMaxAttempts,
+                        i => SparrowRetryPolicy.ExponentialBackoff(i),
+                        cancellationToken);
 
-                        foreach (JsonElement item in EnumerateDataArray(response.Json))
-                        {
-                            string code = NormalizeCode(GetString(item, "Code"));
-                            if (code.Length > 0)
-                            {
-                                SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote);
-                                quoteRows.Add((code, quote));
-                            }
-                        }
+                    if (retry.Success is false || quoteRows is null)
+                    {
+                        Interlocked.Increment(ref p2FailedBatches);
+                        Interlocked.Add(ref p2FailedStocks, batch.Count);
+                        return;
                     }
 
                     foreach ((string code, SparrowQuoteData quote) in quoteRows)
@@ -234,6 +221,7 @@ public sealed class SparrowClassicScanner
             int missingResponses = Math.Max(0, p2Pending.Count - batchQuoteLoaded);
             ReportLog(progress,
                 $"📊 [Sparrow Classic][P2数据] Batch quote loaded: {batchQuoteLoaded}; " +
+                $"Failed batches: {p2FailedBatches} ({p2FailedStocks} stocks); " +
                 $"Quote data unavailable: {quoteDataUnavailable + missingResponses}; " +
                 $"Coarse P2 survivors: {coarseSurvivors}; Detail quote requested: 0; " +
                 $"Outer/inner valid: {outerInnerValid}; Outer/inner unavailable: {outerInnerUnavailable}; " +
@@ -276,7 +264,7 @@ public sealed class SparrowClassicScanner
         int klineAvailable = 0;
 
         int p3Concurrency = parameters.MaxConcurrency > 0 ? parameters.MaxConcurrency : 8;
-        using var klineSemaphore = new SemaphoreSlim(Math.Max(1, Math.Min(32, p3Concurrency * 4)));
+        using var klineSemaphore = new SemaphoreSlim(Math.Max(1, Math.Min(SparrowConstants.MaxP3Concurrency, p3Concurrency * SparrowConstants.P3ConcurrencyMultiplier)));
         await Task.WhenAll(p2List.Select(async stock =>
         {
             bool entered = false;
@@ -284,7 +272,7 @@ public sealed class SparrowClassicScanner
             {
                 await klineSemaphore.WaitAsync(cancellationToken);
                 entered = true;
-                string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, 65, "day");
+                string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, SparrowConstants.ClassicKlineLimit, "day");
                 bool validCacheHit = _klineCache.TryGet(cacheKey, parameters.UseCache, out string? klineJson)
                     && !string.IsNullOrWhiteSpace(klineJson)
                     && SparrowKlineFetchHelper.IsUsableKlineJson(klineJson);
@@ -297,10 +285,10 @@ public sealed class SparrowClassicScanner
                     Interlocked.Increment(ref klineNetworkRequested);
                     string refreshParam = parameters.UseCache ? "" : "&refresh=1";
                     StockDataRequest request = StockDataRequest.Parse(
-                        "/api/kline-all?code=" + stock.Code + "&type=day&limit=65" + refreshParam);
+                        "/api/kline-all?code=" + stock.Code + "&type=day&limit=" + SparrowConstants.ClassicKlineLimit + refreshParam);
 					SparrowKlineFetchOutcome outcome = _klineService != null
 						? await SparrowKlineFetchHelper.FetchDailyAsync(
-							_klineService, stock.Code, 65, !parameters.UseCache, cancellationToken)
+							_klineService, stock.Code, SparrowConstants.ClassicKlineLimit, !parameters.UseCache, cancellationToken)
 						: await SparrowKlineFetchHelper.FetchAsync(
 							_dataProvider, stock.Code, request, SparrowKlineFetchHelper.IsUsableKlineJson, cancellationToken);
                     klineStatistics.Record(outcome);
@@ -591,6 +579,45 @@ public sealed class SparrowClassicScanner
     private static void ReportLog(IProgress<SparrowClassicScanReport>? progress, string message, bool isHighlight = false)
     {
         progress?.Report(new SparrowClassicScanReport { LogMessage = message, IsHighlight = isHighlight });
+    }
+
+    private async Task<List<(string Code, SparrowQuoteData Quote)>?> AttemptQuoteBatchAsync(
+        List<(string Code, string Name)> batch,
+        string refreshQuery,
+        SparrowClassicScanParameters parameters,
+        CancellationToken cancellationToken)
+    {
+        if (_quoteService is not null)
+        {
+            MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
+                batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
+            if (!response.Success)
+            {
+                return null;
+            }
+            return response.Data.Select(quote =>
+                (NormalizeCode(quote.Symbol), SparrowQuoteDataContract.FromSnapshot(quote))).ToList();
+        }
+
+        string codes = string.Join(",", batch.Select(stock => stock.Code));
+        StockDataResult result = await _dataProvider.GetDataAsync(
+            StockDataRequest.Parse("/api/quote?code=" + codes + refreshQuery), cancellationToken);
+        if (!result.Success || string.IsNullOrWhiteSpace(result.Json))
+        {
+            return null;
+        }
+
+        var rows = new List<(string Code, SparrowQuoteData Quote)>();
+        foreach (JsonElement item in EnumerateDataArray(result.Json))
+        {
+            string code = NormalizeCode(GetString(item, "Code"));
+            if (code.Length > 0)
+            {
+                SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote);
+                rows.Add((code, quote));
+            }
+        }
+        return rows;
     }
 
     private static async Task OutputResultsAsync(

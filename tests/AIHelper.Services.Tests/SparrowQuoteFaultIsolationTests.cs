@@ -71,8 +71,6 @@ public sealed class SparrowQuoteFaultIsolationTests
 
 	private sealed class QuoteBatchFaultProvider : IStockDataProvider
 	{
-		private int _quoteBatch;
-
 		public bool CanHandle(StockDataRequest request) => true;
 
 		public Task<StockDataResult> GetDataAsync(
@@ -81,12 +79,14 @@ public sealed class SparrowQuoteFaultIsolationTests
 		{
 			if (request.Path == "/api/quote")
 			{
-				if (Interlocked.Increment(ref _quoteBatch) == 1)
+				string[] codes = request.Get("code").Split(',', StringSplitOptions.RemoveEmptyEntries);
+				// The first batch (codes below 600050) fails persistently, including across retries,
+				// so the batch stays isolated instead of being rescued by the retry policy.
+				if (codes.Length > 0 && string.CompareOrdinal(codes[0], "600050") < 0)
 				{
 					throw new TaskCanceledException("simulated quote request timeout");
 				}
-				return Task.FromResult(Success(request,
-					QuoteJson(request.Get("code").Split(',', StringSplitOptions.RemoveEmptyEntries))));
+				return Task.FromResult(Success(request, QuoteJson(codes)));
 			}
 
 			if (request.Path == "/api/kline-all")

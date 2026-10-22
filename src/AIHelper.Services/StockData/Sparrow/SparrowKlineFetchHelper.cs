@@ -110,6 +110,26 @@ internal static class SparrowKlineFetchHelper
 		CancellationToken callerToken)
 	{
 		ArgumentNullException.ThrowIfNull(klineService);
+		SparrowKlineFetchOutcome? last = null;
+		await SparrowRetryPolicy.RetryAsync(
+			async token =>
+			{
+				last = await AttemptFetchDailyAsync(klineService, code, limit, forceRefresh, token);
+				return last.Success;
+			},
+			SparrowRetryPolicy.DefaultMaxAttempts,
+			i => SparrowRetryPolicy.ExponentialBackoff(i),
+			callerToken).ConfigureAwait(false);
+		return last!;
+	}
+
+	private static async Task<SparrowKlineFetchOutcome> AttemptFetchDailyAsync(
+		IKlineService klineService,
+		string code,
+		int limit,
+		bool forceRefresh,
+		CancellationToken callerToken)
+	{
 		try
 		{
 			callerToken.ThrowIfCancellationRequested();
@@ -160,6 +180,26 @@ internal static class SparrowKlineFetchHelper
         ArgumentNullException.ThrowIfNull(dataProvider);
         ArgumentNullException.ThrowIfNull(isUsableResponse);
 
+        SparrowKlineFetchOutcome? last = null;
+        await SparrowRetryPolicy.RetryAsync(
+            async token =>
+            {
+                last = await AttemptFetchAsync(dataProvider, code, request, isUsableResponse, token);
+                return last.Success;
+            },
+            SparrowRetryPolicy.DefaultMaxAttempts,
+            i => SparrowRetryPolicy.ExponentialBackoff(i),
+            callerToken).ConfigureAwait(false);
+        return last!;
+    }
+
+    private static async Task<SparrowKlineFetchOutcome> AttemptFetchAsync(
+        IStockDataProvider dataProvider,
+        string code,
+        StockDataRequest request,
+        Func<string, bool> isUsableResponse,
+        CancellationToken callerToken)
+    {
         try
         {
             callerToken.ThrowIfCancellationRequested();

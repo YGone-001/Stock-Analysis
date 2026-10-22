@@ -25,8 +25,8 @@ public sealed class SparrowKlineFaultIsolationTests
             Pool(3), V2(), progress, CancellationToken.None);
 
         Assert.Equal(new[] { "600000", "600002" }, results.Select(candidate => candidate.Code));
-        Assert.Equal(3, provider.KlineRequestCount);
-        Assert.Equal(1, provider.CountForCode("600001"));
+        Assert.Equal(5, provider.KlineRequestCount);
+        Assert.Equal(3, provider.CountForCode("600001"));
         Assert.Contains("Timeout:            1", progress.Log);
         Assert.Contains("Unavailable:        1", progress.Log);
         Assert.Contains("Usable Kline:       2", progress.Log);
@@ -45,7 +45,7 @@ public sealed class SparrowKlineFaultIsolationTests
 
         Assert.Equal(2, results.Count);
         Assert.DoesNotContain(results, candidate => candidate.Code == "600001");
-        Assert.Equal(3, provider.KlineRequestCount);
+        Assert.Equal(5, provider.KlineRequestCount);
     }
 
     [Fact]
@@ -78,8 +78,10 @@ public sealed class SparrowKlineFaultIsolationTests
             Pool(5), V2(), progress, CancellationToken.None);
 
         Assert.Equal("600000", Assert.Single(results).Code);
-        Assert.Equal(5, provider.KlineRequestCount);
-        Assert.All(Pool(5), stock => Assert.Equal(1, provider.CountForCode(stock.Code)));
+        Assert.Equal(13, provider.KlineRequestCount);
+        Assert.Equal(1, provider.CountForCode("600000"));
+        Assert.All(new[] { "600001", "600002", "600003", "600004" },
+            code => Assert.Equal(3, provider.CountForCode(code)));
         Assert.Contains("Downloaded:         1", progress.Log);
         Assert.Contains("Request failed:     3", progress.Log);
         Assert.Contains("Empty response:     1", progress.Log);
@@ -102,7 +104,7 @@ public sealed class SparrowKlineFaultIsolationTests
 
         Assert.Empty(candidates);
         Assert.Empty(ranking);
-        Assert.Equal(3, provider.KlineRequestCount);
+        Assert.Equal(9, provider.KlineRequestCount);
         Assert.Contains("Usable Kline:       0", progress.Log);
         Assert.Contains("Unavailable:        3", progress.Log);
     }
@@ -132,7 +134,7 @@ public sealed class SparrowKlineFaultIsolationTests
         Assert.True(klineStage >= 0);
         Assert.True(networkStart >= 0);
         Assert.True(networkComplete > networkStart);
-        Assert.Equal(10, provider.KlineRequestCount);
+        Assert.Equal(14, provider.KlineRequestCount);
     }
 
     [Fact]
@@ -152,7 +154,7 @@ public sealed class SparrowKlineFaultIsolationTests
             Pool(5), V2(), progress, CancellationToken.None);
 
         Assert.Equal(4, results.Count);
-        Assert.Equal(3, provider.KlineRequestCount);
+        Assert.Equal(5, provider.KlineRequestCount);
         Assert.Contains("Cache hit:          2", progress.Log);
         Assert.Contains("Network requested:  3", progress.Log);
         Assert.Contains("Downloaded:         2", progress.Log);
@@ -196,7 +198,7 @@ public sealed class SparrowKlineFaultIsolationTests
             Pool(3), parameters, progress, CancellationToken.None);
 
         Assert.Empty(results);
-        Assert.Equal(3, provider.KlineRequestCount);
+        Assert.Equal(5, provider.KlineRequestCount);
         Assert.Contains("Sparrow Classic Kline Fetch", progress.Log);
         Assert.Contains("Timeout:            1", progress.Log);
         Assert.Contains("P3 K线有效:            2", progress.Log);
@@ -221,8 +223,10 @@ public sealed class SparrowKlineFaultIsolationTests
         Assert.Equal(SparrowComparisonReasonCodes.P3KlineMissing, failed.V2.P3.ReasonCode);
         Assert.Equal(SparrowComparisonCategory.Neither, failed.Category);
         Assert.Equal(2, result.Metrics.IntersectionCount);
-        Assert.Equal(3, provider.KlineRequestCount);
-        Assert.All(Pool(3), stock => Assert.Equal(1, provider.CountForCode(stock.Code)));
+        Assert.Equal(5, provider.KlineRequestCount);
+        Assert.Equal(1, provider.CountForCode("600000"));
+        Assert.Equal(3, provider.CountForCode("600001"));
+        Assert.Equal(1, provider.CountForCode("600002"));
         Assert.Contains("Sparrow Compare Kline Fetch", progress.Log);
     }
 
