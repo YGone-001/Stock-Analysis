@@ -364,26 +364,19 @@ public sealed class SparrowComparisonService
         IReadOnlySet<string> universeCodes,
         CancellationToken cancellationToken)
     {
-        if (_quoteService is not null)
-        {
-            MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
-                batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
-            if (!response.Success)
-            {
-                return false;
-            }
-            AddQuotes(response.Data, quotes, universeCodes);
-            return true;
-        }
-
-        string codes = string.Join(',', batch.Select(stock => stock.Code));
-        StockDataResult result = await _dataProvider.GetDataAsync(
-            StockDataRequest.Parse(SparrowEndpoints.Quote(codes, !parameters.UseCache)), cancellationToken);
-        if (!result.Success || string.IsNullOrWhiteSpace(result.Json))
+        IReadOnlyList<(string Code, SparrowQuoteData Quote)>? rows = await SparrowMarketDataFetcher.FetchQuoteBatchAsync(
+            _dataProvider, _quoteService, batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
+        if (rows == null)
         {
             return false;
         }
-        AddQuotesFromJson(result.Json, quotes, universeCodes);
+        foreach ((string code, SparrowQuoteData quote) in rows)
+        {
+            if (code.Length > 0 && universeCodes.Contains(code) && quote.Price.HasValue)
+            {
+                quotes[code] = quote;
+            }
+        }
         return true;
     }
 
@@ -510,18 +503,12 @@ public sealed class SparrowComparisonService
                 else
                 {
                     Interlocked.Increment(ref networkRequested);
-                    StockDataRequest request = StockDataRequest.Parse(
-                        SparrowEndpoints.KlineAll(code, SparrowConstants.V2KlineLimit, !parameters.UseCache));
-					SparrowKlineFetchOutcome outcome = _klineService != null
-						? await SparrowKlineFetchHelper.FetchDailyAsync(
-							_klineService, code, SparrowConstants.V2KlineLimit, !parameters.UseCache, cancellationToken)
-						: await SparrowKlineFetchHelper.FetchAsync(
-							_dataProvider, code, request, SparrowKlineFetchHelper.IsUsableKlineJson, cancellationToken);
-                    statistics.Record(outcome);
+                    SparrowKlineFetchOutcome outcome = await SparrowMarketDataFetcher.FetchKlineAsync(
+                        _dataProvider, _klineService, _klineCache, statistics,
+                        code, SparrowConstants.V2KlineLimit, type: "day", parameters.UseCache, cancellationToken);
                     if (outcome.Success)
                     {
                         json = outcome.Json!;
-                        _klineCache.Set(cacheKey, json, SparrowDataCachePolicy.DefaultKlineTtl);
                     }
                 }
 

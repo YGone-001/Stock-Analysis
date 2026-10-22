@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Text.Json;
 using AIHelper.Core.Sparrow;
 using AIHelper.Models;
 using Serilog;
@@ -279,18 +278,12 @@ public sealed class SparrowClassicScanner
                 else
                 {
                     Interlocked.Increment(ref klineNetworkRequested);
-                    StockDataRequest request = StockDataRequest.Parse(
-                        SparrowEndpoints.KlineAll(stock.Code, SparrowConstants.ClassicKlineLimit, !parameters.UseCache));
-					SparrowKlineFetchOutcome outcome = _klineService != null
-						? await SparrowKlineFetchHelper.FetchDailyAsync(
-							_klineService, stock.Code, SparrowConstants.ClassicKlineLimit, !parameters.UseCache, cancellationToken)
-						: await SparrowKlineFetchHelper.FetchAsync(
-							_dataProvider, stock.Code, request, SparrowKlineFetchHelper.IsUsableKlineJson, cancellationToken);
-                    klineStatistics.Record(outcome);
+                    SparrowKlineFetchOutcome outcome = await SparrowMarketDataFetcher.FetchKlineAsync(
+                        _dataProvider, _klineService, _klineCache, klineStatistics,
+                        stock.Code, SparrowConstants.ClassicKlineLimit, type: "day", parameters.UseCache, cancellationToken);
                     if (outcome.Success)
                     {
                         klineJson = outcome.Json!;
-                        _klineCache.Set(cacheKey, klineJson, SparrowDataCachePolicy.DefaultKlineTtl);
                     }
                 }
 
@@ -483,37 +476,9 @@ public sealed class SparrowClassicScanner
         SparrowClassicScanParameters parameters,
         CancellationToken cancellationToken)
     {
-        if (_quoteService is not null)
-        {
-            MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
-                batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
-            if (!response.Success)
-            {
-                return null;
-            }
-            return response.Data.Select(quote =>
-                (SparrowSymbolNormalizer.Normalize(quote.Symbol), SparrowQuoteDataContract.FromSnapshot(quote))).ToList();
-        }
-
-        string codes = string.Join(",", batch.Select(stock => stock.Code));
-        StockDataResult result = await _dataProvider.GetDataAsync(
-            StockDataRequest.Parse(SparrowEndpoints.Quote(codes, !parameters.UseCache)), cancellationToken);
-        if (!result.Success || string.IsNullOrWhiteSpace(result.Json))
-        {
-            return null;
-        }
-
-        var rows = new List<(string Code, SparrowQuoteData Quote)>();
-        foreach (JsonElement item in SparrowJsonElement.EnumerateDataArray(result.Json))
-        {
-            string code = SparrowSymbolNormalizer.Normalize(SparrowJsonElement.GetString(item, "Code"));
-            if (code.Length > 0)
-            {
-                SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote);
-                rows.Add((code, quote));
-            }
-        }
-        return rows;
+        IReadOnlyList<(string Code, SparrowQuoteData Quote)>? rows = await SparrowMarketDataFetcher.FetchQuoteBatchAsync(
+            _dataProvider, _quoteService, batch.Select(stock => stock.Code).ToArray(), !parameters.UseCache, cancellationToken);
+        return rows?.ToList();
     }
 
     private static async Task OutputResultsAsync(

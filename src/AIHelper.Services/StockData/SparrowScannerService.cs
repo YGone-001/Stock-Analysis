@@ -292,33 +292,19 @@ public class SparrowScannerService
                 await semaphore.WaitAsync(ct);
                 try
                 {
-                    SparrowKlineFetchOutcome outcome;
-                    if (_klineService != null)
-                    {
-                        outcome = await SparrowKlineFetchHelper.FetchDailyAsync(
-                            _klineService, stock.Code, SparrowConstants.V2KlineLimit, !parameters.UseCache, ct);
-                    }
-                    else
-                    {
-                        StockDataRequest request = StockDataRequest.Parse(
-                            SparrowEndpoints.KlineAll(stock.Code, SparrowConstants.V2KlineLimit, !parameters.UseCache, type: null));
-                        outcome = await SparrowKlineFetchHelper.FetchAsync(
-                            _dataProvider, stock.Code, request, SparrowKlineFetchHelper.IsUsableKlineJson, ct);
-                    }
-                    klineStatistics.Record(outcome);
+                    SparrowKlineFetchOutcome outcome = await SparrowMarketDataFetcher.FetchKlineAsync(
+                        _dataProvider, _klineService, _klineCache, klineStatistics,
+                        stock.Code, SparrowConstants.V2KlineLimit, type: null, parameters.UseCache, ct);
                     if (outcome.Success)
                     {
-                        string json = outcome.Json!;
                         SparrowKlineSnapshot? snapshot = outcome.Series != null
                             ? SparrowKlineSnapshotFactory.FromSeries(outcome.Series)
-                            : SparrowKlineSnapshotFactory.FromLegacyJson(json);
+                            : SparrowKlineSnapshotFactory.FromLegacyJson(outcome.Json!);
                         if (snapshot == null)
                         {
                             throw new InvalidOperationException("Usable Sparrow Kline response produced no snapshot.");
                         }
                         klineData[stock.Code] = snapshot;
-                        string cacheKey = SparrowDataCachePolicy.GetKlineKey(stock.Code, SparrowConstants.V2KlineLimit, "day");
-                        _klineCache.Set(cacheKey, json, SparrowDataCachePolicy.DefaultKlineTtl);
                     }
                 }
                 finally
@@ -416,36 +402,20 @@ public class SparrowScannerService
         ConcurrentDictionary<string, SparrowQuoteData> quoteCache,
         CancellationToken ct)
     {
-        if (_quoteService != null)
+        IReadOnlyList<(string Code, SparrowQuoteData Quote)>? rows = await SparrowMarketDataFetcher.FetchQuoteBatchAsync(
+            _dataProvider, _quoteService, codes, !parameters.UseCache, ct);
+        if (rows == null)
         {
-            MarketDataResult<IReadOnlyList<QuoteSnapshot>> response = await _quoteService.GetQuotesAsync(
-                codes, forceRefresh: !parameters.UseCache, cancellationToken: ct);
-            if (!response.Success)
+            return false;
+        }
+        foreach ((string code, SparrowQuoteData quote) in rows)
+        {
+            if (!string.IsNullOrEmpty(code) && quote.Price.HasValue)
             {
-                return false;
+                quoteCache.TryAdd(code, quote);
             }
-            AddQuotesToCache(response.Data, quoteCache);
-            return true;
         }
-
-        string codesStr = string.Join(",", codes);
-        var req = StockDataRequest.Parse(SparrowEndpoints.Quote(codesStr, !parameters.UseCache));
-        var res = await _dataProvider.GetDataAsync(req, ct);
-        if (!res.Success || string.IsNullOrWhiteSpace(res.Json))
-        {
-            return false;
-        }
-
-        try
-        {
-            AddQuotesToCache(res.Json, quoteCache);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Failed to parse batch quote JSON");
-            return false;
-        }
+        return true;
     }
 
     private static void AddQuotesToCache(
