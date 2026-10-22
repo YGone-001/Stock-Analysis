@@ -140,7 +140,7 @@ public sealed class SparrowComparisonServiceTests
     }
 
     [Fact]
-    public async Task Compare_ClassicDefensive_DoesNotStopV2()
+    public async Task Compare_DualIndexWeak_DefendsBothStrategies()
     {
         var provider = ProviderForSingle(Quote("600000", turnover: 10), PassingCloses(120));
         provider.Set("/api/trend?code=1.000001", TrendJson(100, 99, 98, 97, 95));
@@ -156,13 +156,12 @@ public sealed class SparrowComparisonServiceTests
         SparrowComparisonRow row = Assert.Single(result.Rows);
 
         Assert.Equal(SparrowComparisonReasonCodes.P1MarketDefensive, row.Classic.RejectReasonCode);
-        Assert.True(row.V2.FinalPassed);
-        Assert.Equal(SparrowComparisonCategory.V2Only, row.Category);
-        Assert.Equal(1, result.Metrics.V2OnlyClassicRejectReasons[SparrowComparisonReasonCodes.P1MarketDefensive]);
+        Assert.Equal(SparrowComparisonReasonCodes.P1MarketDefensive, row.V2.RejectReasonCode);
+        Assert.Equal(SparrowComparisonCategory.Neither, row.Category);
     }
 
     [Fact]
-    public async Task Compare_V2Defensive_DoesNotStopClassic()
+    public async Task Compare_DualIndexStrong_AllowsBothStrategies()
     {
         var provider = ProviderForSingle(Quote("600000", turnover: 10), PassingCloses(120));
         provider.Set("/api/trend?code=1.000001", TrendJson(100, 101, 102, 103, 104));
@@ -177,8 +176,8 @@ public sealed class SparrowComparisonServiceTests
             new[] { ("600000", "A") }, classic, v2, null, CancellationToken.None, false)).Rows);
 
         Assert.True(row.Classic.FinalPassed);
-        Assert.Equal(SparrowComparisonReasonCodes.P1MarketDefensive, row.V2.RejectReasonCode);
-        Assert.Equal(SparrowComparisonCategory.ClassicOnly, row.Category);
+        Assert.True(row.V2.FinalPassed);
+        Assert.Equal(SparrowComparisonCategory.Both, row.Category);
     }
 
     [Fact]

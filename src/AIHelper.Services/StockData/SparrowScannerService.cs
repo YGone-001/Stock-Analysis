@@ -29,6 +29,7 @@ public class SparrowScannerService
     private readonly IKlineService? _klineService;
     private readonly IQuoteService? _quoteService;
     private readonly SparrowMarketDataCache _klineCache;
+    private readonly SparrowMarketRegimeService _marketRegimeService;
 
     public SparrowMarketDataCache KlineCache => _klineCache;
 
@@ -36,12 +37,14 @@ public class SparrowScannerService
         IStockDataProvider dataProvider,
         SparrowMarketDataCache? klineCache = null,
         IKlineService? klineService = null,
-        IQuoteService? quoteService = null)
+        IQuoteService? quoteService = null,
+        SparrowMarketRegimeService? marketRegimeService = null)
     {
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
         _klineCache = klineCache ?? new SparrowMarketDataCache();
         _klineService = klineService;
         _quoteService = quoteService;
+        _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
     }
 
     public async Task<List<(string Code, string Name, string Reason)>> ScanAsync(
@@ -69,15 +72,17 @@ public class SparrowScannerService
         double shIndexPctChg = 0;
         if (parameters.MacroDef)
         {
-            var indexResult = await CheckIndexWeakness(forceRefresh: !parameters.UseCache, ct);
-            if (ct.IsCancellationRequested) return new List<SparrowV2Candidate>();
-            shIndexPctChg = indexResult.ShIndexPctChg;
-            if (indexResult.IsWeak)
+            // P1 熔断：双指数分时弱势（与 Classic 对齐），数据缺失按历史策略 fail-open。
+            SparrowMarketRegime regime = await _marketRegimeService.EvaluateAsync(forceRefresh: !parameters.UseCache, ct);
+            if (regime.Defensive)
             {
-                ReportLog(progress, "❌ [熔断] 大盘环境恶化，空仓防御！", true);
+                ReportLog(progress, "❌ [熔断] 大盘环境恶化（双指数弱势），空仓防御！", true);
                 return new List<SparrowV2Candidate>();
             }
-            ReportLog(progress, $"✅ [第一阶段通过] 上证今日涨幅: {shIndexPctChg:F2}%, 已设为 RPS 参照基准。");
+
+            // Alpha 基准：上证日涨跌幅，独立于熔断取数。
+            shIndexPctChg = await GetShanghaiDailyPercentAsync(!parameters.UseCache, ct);
+            ReportLog(progress, $"✅ [第一阶段通过] 大盘环境正常；上证今日涨幅: {shIndexPctChg:F2}%, 已设为 Alpha 参照基准。");
         }
 
         if (targetPool.Count >= SparrowConstants.FullMarketQuoteThreshold)
@@ -362,7 +367,7 @@ public class SparrowScannerService
                     {
                         Code = item.Code,
                         Name = item.Name,
-                        RisePercent = quote.Percent,
+                        RisePercent = quote.PriceDerivedPercent,
                         Amount = quote.Amount,
                         OuterVolume = quote.OuterVolume,
                         InnerVolume = quote.InnerVolume,
@@ -455,7 +460,7 @@ public class SparrowScannerService
         }
     }
 
-    private async Task<(bool IsWeak, double ShIndexPctChg)> CheckIndexWeakness(bool forceRefresh, CancellationToken cancellationToken)
+    private async Task<double> GetShanghaiDailyPercentAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         double shIndexPctChg = 0.0;
         try
@@ -476,7 +481,6 @@ public class SparrowScannerService
                         if (prevClose > 0)
                         {
                             shIndexPctChg = (close - prevClose) / prevClose * 100.0;
-                            return (shIndexPctChg <= SparrowConstants.V2MarketDefensivePercent, shIndexPctChg);
                         }
                     }
                 }
@@ -484,10 +488,10 @@ public class SparrowScannerService
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return (false, 0.0);
+            throw;
         }
         catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
-        return (false, 0.0);
+        return shIndexPctChg;
     }
 }
 

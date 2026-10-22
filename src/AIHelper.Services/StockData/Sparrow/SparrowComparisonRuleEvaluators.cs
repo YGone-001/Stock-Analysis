@@ -45,25 +45,26 @@ public static class SparrowComparisonRuleEvaluators
         SparrowQuoteData quote,
         SparrowScanParameters parameters)
     {
-        if (quote.Price is not > 0.001 || !quote.Percent.HasValue || !quote.Amount.HasValue)
+        double? rise = quote.PriceDerivedPercent;
+        if (!rise.HasValue || !quote.Amount.HasValue)
         {
             return SparrowRuleComparison.Unavailable(
                 "P2", SparrowComparisonReasonCodes.P2QuoteDataMissing,
-                "Price, percent or amount is unavailable");
+                "Price-derived rise or amount is unavailable");
         }
 
-        if (quote.Percent.Value < parameters.MinRise)
+        if (rise.Value < parameters.MinRise)
         {
             return SparrowRuleComparison.Reject(
                 "P2", SparrowComparisonReasonCodes.P2RiseBelowMin,
-                $"Quote percent {quote.Percent.Value:F4}% is below {parameters.MinRise:F4}%");
+                $"Price-derived rise {rise.Value:F4}% is below {parameters.MinRise:F4}%");
         }
 
-        if (quote.Percent.Value > parameters.MaxRise)
+        if (rise.Value > parameters.MaxRise)
         {
             return SparrowRuleComparison.Reject(
                 "P2", SparrowComparisonReasonCodes.P2RiseAboveMax,
-                $"Quote percent {quote.Percent.Value:F4}% is above {parameters.MaxRise:F4}%");
+                $"Price-derived rise {rise.Value:F4}% is above {parameters.MaxRise:F4}%");
         }
 
         if (quote.Amount.Value < parameters.MinAmount)

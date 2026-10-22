@@ -801,9 +801,8 @@ public sealed class SparrowCacheLifecycleTests
         // Cancel after 20 milliseconds while GetDataAsync is waiting on /api/index
         cts.CancelAfter(20);
 
-        var results = await scanner.ScanAsync(targetPool, parameters, null, cts.Token);
-
-        Assert.Empty(results);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            scanner.ScanAsync(targetPool, parameters, null, cts.Token));
         Assert.True(fakeProvider.WasCancelled);
     }
 

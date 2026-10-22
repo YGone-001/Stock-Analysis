@@ -127,9 +127,9 @@ public sealed class SparrowHistoricalReplayEngine
     {
         SparrowScanParameters parameters = request.V2Parameters!.ToParameters();
         double shPercent = snapshot.MarketContext?.V2ShanghaiDailyPercent ?? 0;
-        if (parameters.MacroDef && shPercent <= -2.5)
+        if (parameters.MacroDef && snapshot.MarketContext?.ClassicMarketRegime?.Defensive == true)
         {
-            warnings.Add("V2 沪指当日涨跌幅为防守，本次未评估任何候选。");
+            warnings.Add("V2 双指数弱势，本次未评估任何候选。");
             return Result(dataset, request, HistoricalReplaySupport.Supported, Array.Empty<SparrowReplaySelection>(), warnings);
         }
         var candidates = new List<(SparrowRankingFeatures Features, string ReasonCode, string Reason)>();
@@ -153,7 +153,7 @@ public sealed class SparrowHistoricalReplayEngine
     }
 
     private static SparrowRankingFeatures Features(QuoteSnapshot source, SparrowQuoteData quote, SparrowTechnicalEvaluation technical, double? alpha = null) => new()
-    { Code = source.Symbol, Name = source.Name, RisePercent = quote.Percent ?? quote.PriceDerivedPercent, Amount = quote.Amount, OuterVolume = quote.OuterVolume, InnerVolume = quote.InnerVolume, BuyPressureRatio = SparrowRankingFeatures.CalculateBuyPressureRatio(quote.OuterVolume, quote.InnerVolume), Adhesion = technical.Adhesion, Turnover = quote.Turnover, Momentum = technical.Momentum, AlphaMargin = alpha };
+    { Code = source.Symbol, Name = source.Name, RisePercent = quote.PriceDerivedPercent ?? quote.Percent, Amount = quote.Amount, OuterVolume = quote.OuterVolume, InnerVolume = quote.InnerVolume, BuyPressureRatio = SparrowRankingFeatures.CalculateBuyPressureRatio(quote.OuterVolume, quote.InnerVolume), Adhesion = technical.Adhesion, Turnover = quote.Turnover, Momentum = technical.Momentum, AlphaMargin = alpha };
     private static IReadOnlyList<SparrowReplaySelection> ToSelections(IReadOnlyList<SparrowRankedCandidate> ranked, IEnumerable<(SparrowRankingFeatures Features, string ReasonCode, string Reason)> evidence, int topN)
     { var map = evidence.ToDictionary(item => item.Features.Code, StringComparer.Ordinal); return ranked.Take(Math.Clamp(topN, 1, 20)).Select(candidate => new SparrowReplaySelection(candidate.Code, candidate.Name, candidate, map[candidate.Code].ReasonCode, map[candidate.Code].Reason)).ToArray(); }
     private static SparrowReplayResult Result(HistoricalMarketDataset d, SparrowReplayRequest r, HistoricalReplaySupport s, IReadOnlyList<SparrowReplaySelection> selections, IReadOnlyList<string> warnings) => new(r, SparrowHistoricalFingerprint.Parameters(r), d.DatasetId, d.Fingerprint, s, selections, warnings);
@@ -164,7 +164,7 @@ public sealed class SparrowHistoricalReplayEngine
         bool common = dataset.SchemaVersion <= 1
             ? c.HasAmount && c.HasOuterVolume && c.HasInnerVolume && (r.StrategyMode != SparrowStrategyMode.V2 || c.HasTurnover)
             : RequiredFields(r.StrategyMode).All(field => HasDatasetField(dataset, field));
-        bool market = r.StrategyMode == SparrowStrategyMode.Classic ? (!r.ClassicParameters!.MacroDef || c.HasClassicMarketRegime && context?.ClassicMarketRegime != null) : (!r.V2Parameters!.MacroDef || c.HasV2ShanghaiDailyPercent && context?.V2ShanghaiDailyPercent != null);
+        bool market = r.StrategyMode == SparrowStrategyMode.Classic ? (!r.ClassicParameters!.MacroDef || c.HasClassicMarketRegime && context?.ClassicMarketRegime != null) : (!r.V2Parameters!.MacroDef || c.HasClassicMarketRegime && context?.ClassicMarketRegime != null);
         gap = common && market ? null : "HistoricalFieldUnavailable：本次回放所需的行情或大盘状态字段缺失。"; return gap == null;
     }
 

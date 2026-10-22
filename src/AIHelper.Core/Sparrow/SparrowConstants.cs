@@ -10,9 +10,6 @@ namespace AIHelper.Core.Sparrow;
 /// </summary>
 public static class SparrowConstants
 {
-    /// <summary>V2 P1 defensive threshold: Shanghai daily percent at or below this value blocks the scan.</summary>
-    public const double V2MarketDefensivePercent = -2.5;
-
     /// <summary>V2 momentum lookback offset: MA5 is compared against MA5 this many bars earlier.</summary>
     public const int MomentumLookbackOffset = 3;
 
@@ -37,7 +34,7 @@ public static class SparrowConstants
     /// <summary>P3 concurrency multiplier applied to the user-facing MaxConcurrency.</summary>
     public const int P3ConcurrencyMultiplier = 4;
 
-    /// <summary>Shanghai index code used by V2 P1 (EastMoney daily index endpoint).</summary>
+    /// <summary>Shanghai index code used for the V2 Alpha benchmark (EastMoney daily index endpoint).</summary>
     public const string ShanghaiIndexCode = "sh000001";
 
     /// <summary>Shanghai index code used by Classic market-regime intraday trend.</summary>

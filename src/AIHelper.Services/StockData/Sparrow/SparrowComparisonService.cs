@@ -153,7 +153,7 @@ public sealed class SparrowComparisonService
     {
         SparrowRuleComparison classicP1;
         SparrowRuleComparison v2P1;
-        SparrowMarketRegime? classicMarket = null;
+        SparrowMarketRegime? market = null;
         double? v2DailyPercent = null;
 
         if (!classicParameters.MacroDef && !v2Parameters.MacroDef)
@@ -163,22 +163,20 @@ public sealed class SparrowComparisonService
         }
         else
         {
-            Task<SparrowMarketRegime?> classicTask = classicParameters.MacroDef
-                ? LoadClassicMarketAsync(!v2Parameters.UseCache, cancellationToken)
-                : Task.FromResult<SparrowMarketRegime?>(null);
+            Task<SparrowMarketRegime?> regimeTask = LoadClassicMarketAsync(!v2Parameters.UseCache, cancellationToken);
             Task<double?> v2Task = v2Parameters.MacroDef
                 ? LoadV2MarketPercentAsync(!v2Parameters.UseCache, cancellationToken)
                 : Task.FromResult<double?>(null);
-            await Task.WhenAll(classicTask, v2Task);
+            await Task.WhenAll(regimeTask, v2Task);
 
-            classicMarket = await classicTask;
+            market = await regimeTask;
             v2DailyPercent = await v2Task;
             classicP1 = !classicParameters.MacroDef
                 ? SparrowRuleComparison.Bypass("P1", "MacroDef is disabled")
-                : EvaluateClassicMarket(classicMarket);
+                : EvaluateClassicMarket(market);
             v2P1 = !v2Parameters.MacroDef
                 ? SparrowRuleComparison.Bypass("P1", "MacroDef is disabled")
-                : EvaluateV2Market(v2DailyPercent);
+                : EvaluateV2Market(market);
         }
 
         foreach (SparrowComparisonRow row in rows)
@@ -199,7 +197,7 @@ public sealed class SparrowComparisonService
             $"[P1] Classic: {FormatRule(classicP1)}; V2: {FormatRule(v2P1)}");
         return new SparrowComparisonMarketSnapshot
         {
-            Classic = classicMarket,
+            Classic = market,
             V2ShanghaiDailyPercent = v2DailyPercent
         };
     }
@@ -447,7 +445,7 @@ public sealed class SparrowComparisonService
             }
 
             row.Classic.Rise = quote.PriceDerivedPercent;
-            row.V2.Rise = quote.Percent;
+            row.V2.Rise = quote.PriceDerivedPercent;
             row.Amount = quote.Amount;
             row.Turnover = quote.Turnover;
             row.OuterVolume = quote.OuterVolume;
@@ -701,18 +699,19 @@ public sealed class SparrowComparisonService
             : SparrowRuleComparison.Pass("P1", market.Reason);
     }
 
-    private static SparrowRuleComparison EvaluateV2Market(double? dailyPercent)
+    private static SparrowRuleComparison EvaluateV2Market(SparrowMarketRegime? market)
     {
-        if (!dailyPercent.HasValue)
+        if (market == null
+            || market.Shanghai == SparrowMarketState.Unknown
+            || market.Csi1000 == SparrowMarketState.Unknown)
         {
             return SparrowRuleComparison.Unavailable(
                 "P1", SparrowComparisonReasonCodes.P1MarketDataUnknown,
-                "V2 Shanghai daily data is unavailable; current fail-open applies", failOpen: true);
+                "V2 market trend data is unavailable; historical fail-open applies", failOpen: true);
         }
-        return dailyPercent.Value <= SparrowConstants.V2MarketDefensivePercent
-            ? SparrowRuleComparison.Reject("P1", SparrowComparisonReasonCodes.P1MarketDefensive,
-                $"Shanghai daily percent {dailyPercent.Value:F4}% <= -2.5%")
-            : SparrowRuleComparison.Pass("P1", $"Shanghai daily percent {dailyPercent.Value:F4}%");
+        return market.Defensive
+            ? SparrowRuleComparison.Reject("P1", SparrowComparisonReasonCodes.P1MarketDefensive, market.Reason)
+            : SparrowRuleComparison.Pass("P1", market.Reason);
     }
 
     private static void ReportSummary(
