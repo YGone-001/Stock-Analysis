@@ -20,6 +20,7 @@ try
     if (options.ContainsKey("run-research-experiment")) detectedModes.Add("managed-research-experiment");
     if (options.ContainsKey("export-research-evidence-bundle")) detectedModes.Add("bundle-export");
     if (options.ContainsKey("verify-research-evidence-bundle")) detectedModes.Add("bundle-verification");
+    if (options.ContainsKey("audit-research-evidence-directory")) detectedModes.Add("bundle-batch-audit");
     if (Bool("analyze-benchmark", false)) detectedModes.Add("benchmark-analysis");
     if (Bool("export-portfolio-research", false)) detectedModes.Add("portfolio-research-export");
     if (options.ContainsKey("source") || options.ContainsKey("dataset-id") || options.ContainsKey("symbols") || options.ContainsKey("benchmarks"))
@@ -62,6 +63,8 @@ try
         return await ExportResearchEvidenceBundleAsync(exportExperimentId);
     if (options.TryGetValue("verify-research-evidence-bundle", out string? verifyBundlePath))
         return await VerifyResearchEvidenceBundleAsync(verifyBundlePath);
+    if (options.TryGetValue("audit-research-evidence-directory", out string? auditDirectoryPath))
+        return await AuditResearchEvidenceDirectoryAsync(auditDirectoryPath);
 
     string source = Value("source", "tushare");
     string adjustment = Value("adjustment", "raw");
@@ -672,6 +675,71 @@ async Task<int> VerifyResearchEvidenceBundleAsync(string bundlePath)
     catch (Exception ex)
     {
         Console.Error.WriteLine($"RESEARCH_EVIDENCE_BUNDLE_VERIFICATION_FAILED: {ex.Message}");
+        return 1;
+    }
+}
+
+async Task<int> AuditResearchEvidenceDirectoryAsync(string directoryPath)
+{
+    try
+    {
+        bool reexecute = Bool("reexecute", false);
+        ResearchEvidenceBatchAuditReportFormat format = Value("format").Trim().ToLowerInvariant() switch
+        {
+            "json" => ResearchEvidenceBatchAuditReportFormat.Json,
+            "markdown" => ResearchEvidenceBatchAuditReportFormat.Markdown,
+            _ => throw new ArgumentException("--format must be json or markdown.")
+        };
+        string outputPath = Value("output");
+
+        ResearchEvidenceBatchAuditReport report = await new ResearchEvidenceBatchAuditor().AuditAsync(directoryPath, reexecute);
+        string publishedReportPath = await new ResearchEvidenceBatchReportExporter().WriteAsync(report, format, outputPath);
+
+        ResearchEvidenceBatchAuditSummary summary = report.Summary;
+        Console.WriteLine($"RESEARCH_EVIDENCE_BATCH_AUDIT_STATUS={report.BatchStatus}");
+        Console.WriteLine($"AUDIT_MODE={report.AuditMode}");
+        Console.WriteLine();
+        Console.WriteLine($"TOTAL_BUNDLES={summary.TotalBundles}");
+        Console.WriteLine($"STRUCTURALLY_VERIFIED={summary.StructurallyVerified}");
+        Console.WriteLine($"STRUCTURALLY_FAILED={summary.StructurallyFailed}");
+        Console.WriteLine($"STRUCTURALLY_UNSUPPORTED={summary.StructurallyUnsupported}");
+        if (report.AuditMode == ResearchEvidenceBatchAuditMode.StructuralAndReexecution)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"REEXECUTION_NOT_REQUESTED={summary.ReexecutionNotRequested}");
+            Console.WriteLine($"REEXECUTION_EQUIVALENT={summary.ReexecutionEquivalent}");
+            Console.WriteLine($"REEXECUTION_DIVERGED={summary.ReexecutionDiverged}");
+            Console.WriteLine($"REEXECUTION_UNSUPPORTED={summary.ReexecutionUnsupported}");
+            Console.WriteLine($"REEXECUTION_FAILED={summary.ReexecutionFailed}");
+        }
+        Console.WriteLine();
+        Console.WriteLine($"FULLY_SUCCESSFUL={summary.FullySuccessful}");
+        Console.WriteLine($"NOT_FULLY_SUCCESSFUL={summary.NotFullySuccessful}");
+        Console.WriteLine();
+        Console.WriteLine($"REPORT_FORMAT={format.ToString().ToLowerInvariant()}");
+        Console.WriteLine($"REPORT_OUTPUT={publishedReportPath}");
+
+        foreach (ResearchEvidenceBatchAuditBundleResult bundle in report.Bundles.Where(b => !b.FullVerificationSucceeded))
+        {
+            Console.Error.WriteLine($"NOT_FULLY_SUCCESSFUL_BUNDLE={bundle.BundleFileName}:{bundle.StructuralStatus}:{bundle.ReexecutionStatus}:{string.Join(',', bundle.ReasonCodes)}");
+        }
+
+        return report.BatchSucceeded ? 0 : 1;
+    }
+    catch (ResearchEvidenceBatchAuditException ex)
+    {
+        Console.Error.WriteLine($"RESEARCH_EVIDENCE_BATCH_AUDIT_FAILED={ex.ReasonCode}");
+        Console.Error.WriteLine($"RESEARCH_EVIDENCE_BATCH_AUDIT_ERROR={ex.Message}");
+        return 1;
+    }
+    catch (OperationCanceledException)
+    {
+        Console.Error.WriteLine("CANCELLED");
+        return 1;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"RESEARCH_EVIDENCE_BATCH_AUDIT_FAILED: {ex.Message}");
         return 1;
     }
 }
