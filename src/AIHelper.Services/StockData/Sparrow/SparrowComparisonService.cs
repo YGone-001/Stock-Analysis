@@ -401,7 +401,7 @@ public sealed class SparrowComparisonService
 
         foreach (JsonElement item in data.EnumerateArray())
         {
-            string code = NormalizeCode(GetString(item, "Code"));
+            string code = SparrowSymbolNormalizer.Normalize(GetString(item, "Code"));
             if (code.Length > 0
                 && universeCodes.Contains(code)
                 && SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote))
@@ -418,7 +418,7 @@ public sealed class SparrowComparisonService
     {
         foreach (QuoteSnapshot snapshot in snapshots)
         {
-            string code = NormalizeCode(snapshot.Symbol);
+            string code = SparrowSymbolNormalizer.Normalize(snapshot.Symbol);
             if (code.Length > 0 && universeCodes.Contains(code))
             {
                 quotes[code] = SparrowQuoteDataContract.FromSnapshot(snapshot);
@@ -825,15 +825,6 @@ public sealed class SparrowComparisonService
         string message,
         bool highlight = false) =>
         progress?.Report(new SparrowComparisonProgress { LogMessage = message, IsHighlight = highlight });
-
-    private static string NormalizeCode(string code)
-    {
-        string normalized = code.Trim();
-        return normalized.StartsWith("1.", StringComparison.Ordinal)
-            || normalized.StartsWith("0.", StringComparison.Ordinal)
-            ? normalized[2..]
-            : normalized;
-    }
 
     private static string GetString(JsonElement element, string name)
     {

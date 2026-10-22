@@ -1,10 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.IO;
-using System.Text;
 using System.Text.Json;
 using AIHelper.Core.Sparrow;
-using AIHelper.Helpers;
 using AIHelper.Models;
 using Serilog;
 
@@ -305,7 +302,7 @@ public sealed class SparrowClassicScanner
 
                 Interlocked.Increment(ref klineAvailable);
 
-                List<double> closes = ParseKlineClosesNewestFirst(klineJson, out double latestPrice);
+                List<double> closes = SparrowKlineJsonParser.ParseClosesNewestFirst(klineJson, out double latestPrice);
                 SparrowClassicTechnicalResult technical = SparrowClassicRuleEvaluator.Evaluate(closes, latestPrice, parameters);
                 if (technical.RejectReason == SparrowClassicP3RejectReason.KlineMissing)
                 {
@@ -476,104 +473,6 @@ public sealed class SparrowClassicScanner
     public static bool IsEligibleStock(string? code, string? name)
         => SparrowClassicUniverseEligibility.Evaluate(code, name).Eligible;
 
-    private static IEnumerable<JsonElement> EnumerateDataArray(string json)
-    {
-        using JsonDocument document = JsonDocument.Parse(json);
-        if (!document.RootElement.TryGetProperty("data", out JsonElement data) || data.ValueKind != JsonValueKind.Array)
-        {
-            return Array.Empty<JsonElement>();
-        }
-        return data.EnumerateArray().Select(item => item.Clone()).ToArray();
-    }
-
-    private static List<double> ParseKlineClosesNewestFirst(string json, out double latestPrice)
-    {
-        List<double> closes = ParseKlineClosesOldestFirst(json);
-        closes.Reverse();
-        latestPrice = closes.Count > 0 ? closes[0] : 0;
-        return closes;
-    }
-
-    private static List<double> ParseKlineClosesOldestFirst(string json)
-    {
-        using JsonDocument document = JsonDocument.Parse(json);
-        JsonElement root = document.RootElement;
-        JsonElement data = root.ValueKind == JsonValueKind.Array ? root : default;
-        if (data.ValueKind == JsonValueKind.Undefined && TryGetPropertyIgnoreCase(root, "data", out JsonElement wrapped))
-        {
-            data = wrapped.ValueKind == JsonValueKind.Array
-                ? wrapped
-                : TryGetPropertyIgnoreCase(wrapped, "list", out JsonElement list) ? list
-                : TryGetPropertyIgnoreCase(wrapped, "klines", out JsonElement klines) ? klines
-                : default;
-        }
-
-        var closes = new List<double>();
-        if (data.ValueKind != JsonValueKind.Array)
-        {
-            return closes;
-        }
-
-        foreach (JsonElement item in data.EnumerateArray())
-        {
-            if (TryGetDouble(item, "Close", out double closeRaw))
-            {
-                closes.Add(closeRaw / 1000.0);
-            }
-        }
-        return closes;
-    }
-
-    private static bool TryGetPropertyIgnoreCase(JsonElement element, string name, out JsonElement value)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            foreach (JsonProperty property in element.EnumerateObject())
-            {
-                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    value = property.Value;
-                    return true;
-                }
-            }
-        }
-        value = default;
-        return false;
-    }
-
-    private static bool TryGetDouble(JsonElement element, string name, out double value)
-    {
-        value = 0;
-        if (!TryGetPropertyIgnoreCase(element, name, out JsonElement property))
-        {
-            return false;
-        }
-        if (property.ValueKind == JsonValueKind.Number)
-        {
-            return property.TryGetDouble(out value);
-        }
-        return property.ValueKind == JsonValueKind.String && double.TryParse(
-            property.GetString(), System.Globalization.NumberStyles.Any,
-            System.Globalization.CultureInfo.InvariantCulture, out value);
-    }
-
-    private static string GetString(JsonElement element, string name)
-    {
-        if (!TryGetPropertyIgnoreCase(element, name, out JsonElement property))
-        {
-            return string.Empty;
-        }
-        return property.ValueKind == JsonValueKind.String ? property.GetString() ?? string.Empty : property.GetRawText();
-    }
-
-    private static string NormalizeCode(string code)
-    {
-        string normalized = code.Trim();
-        return normalized.StartsWith("1.", StringComparison.Ordinal) || normalized.StartsWith("0.", StringComparison.Ordinal)
-            ? normalized[2..]
-            : normalized;
-    }
-
     private static void ReportLog(IProgress<SparrowClassicScanReport>? progress, string message, bool isHighlight = false)
     {
         progress?.Report(new SparrowClassicScanReport { LogMessage = message, IsHighlight = isHighlight });
@@ -593,7 +492,7 @@ public sealed class SparrowClassicScanner
                 return null;
             }
             return response.Data.Select(quote =>
-                (NormalizeCode(quote.Symbol), SparrowQuoteDataContract.FromSnapshot(quote))).ToList();
+                (SparrowSymbolNormalizer.Normalize(quote.Symbol), SparrowQuoteDataContract.FromSnapshot(quote))).ToList();
         }
 
         string codes = string.Join(",", batch.Select(stock => stock.Code));
@@ -605,9 +504,9 @@ public sealed class SparrowClassicScanner
         }
 
         var rows = new List<(string Code, SparrowQuoteData Quote)>();
-        foreach (JsonElement item in EnumerateDataArray(result.Json))
+        foreach (JsonElement item in SparrowJsonElement.EnumerateDataArray(result.Json))
         {
-            string code = NormalizeCode(GetString(item, "Code"));
+            string code = SparrowSymbolNormalizer.Normalize(SparrowJsonElement.GetString(item, "Code"));
             if (code.Length > 0)
             {
                 SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote);
@@ -621,20 +520,7 @@ public sealed class SparrowClassicScanner
         IReadOnlyCollection<SparrowClassicCandidate> results,
         IProgress<SparrowClassicScanReport>? progress)
     {
-        string directory = ConfigManager.Load().DataSavePath;
-        if (string.IsNullOrWhiteSpace(directory))
-        {
-            directory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "GPSJ");
-        }
-        Directory.CreateDirectory(directory);
-
-        string filePath = Path.Combine(directory, $"麻雀池_Classic_{DateTime.Now:yyyyMMdd_HHmmss_fff}.txt");
-        await using var writer = new StreamWriter(filePath, append: false, Encoding.UTF8);
-        await writer.WriteLineAsync($"【Sparrow Classic】选股结果\nStrategy: {SparrowClassicCandidate.StrategyName}\n生成时间: {DateTime.Now}\n入围数量: {results.Count}\n=======================================");
-        foreach (SparrowClassicCandidate item in results)
-        {
-            await writer.WriteLineAsync($"代码: {item.Code} \t名称: {item.Name} \t策略: {item.Strategy} \t说明: {item.Reason}");
-        }
+        string filePath = await SparrowResultFileWriter.WriteClassicAsync(results);
         ReportLog(progress, $"\n📁 [Sparrow Classic] 结果已存至: {filePath}");
     }
 }

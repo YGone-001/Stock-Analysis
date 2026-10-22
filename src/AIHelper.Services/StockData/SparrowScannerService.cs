@@ -2,15 +2,12 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AIHelper.Core.Sparrow;
 using AIHelper.Core.StockData;
-using AIHelper.Helpers;
 using AIHelper.Models;
 using AIHelper.Services.StockData.Sparrow;
 using Serilog;
@@ -401,7 +398,10 @@ public class SparrowScannerService
         ReportLog(progress, $"🧭 [Sparrow V2][Cache Lifetime Totals] Kline: {_klineCache.Statistics}");
 
         var results = p3Winners.Values.OrderBy(candidate => candidate.Code, StringComparer.Ordinal).ToList();
-        await OutputResultsToFileAsync(results);
+        if (results.Count > 0)
+        {
+            await SparrowResultFileWriter.WriteV2Async(results);
+        }
         return results;
     }
 
@@ -463,7 +463,7 @@ public class SparrowScannerService
         {
             if (!item.TryGetProperty("Code", out JsonElement codeElement)
                 || !SparrowQuoteDataContract.TryParse(item, out SparrowQuoteData quote)) continue;
-            string code = NormalizeCode(codeElement.GetString() ?? "");
+            string code = SparrowSymbolNormalizer.Normalize(codeElement.GetString());
             if (!string.IsNullOrEmpty(code))
             {
                 quoteCache.TryAdd(code, quote);
@@ -477,22 +477,12 @@ public class SparrowScannerService
     {
         foreach (QuoteSnapshot snapshot in quotes)
         {
-            string code = NormalizeCode(snapshot.Symbol);
+            string code = SparrowSymbolNormalizer.Normalize(snapshot.Symbol);
             if (!string.IsNullOrEmpty(code))
             {
                 quoteCache.TryAdd(code, SparrowQuoteDataContract.FromSnapshot(snapshot));
             }
         }
-    }
-
-    private static string NormalizeCode(string code)
-    {
-        if (code.StartsWith("1.", StringComparison.Ordinal)
-            || code.StartsWith("0.", StringComparison.Ordinal))
-        {
-            return code.Substring(2);
-        }
-        return code;
     }
 
     private async Task<(bool IsWeak, double ShIndexPctChg)> CheckIndexWeakness(bool forceRefresh, CancellationToken cancellationToken)
@@ -528,31 +518,6 @@ public class SparrowScannerService
         }
         catch (System.Exception ex) { Log.Error(ex, "Swallowed exception"); }
         return (false, 0.0);
-    }
-
-    private async Task OutputResultsToFileAsync(IReadOnlyCollection<SparrowV2Candidate> results)
-    {
-        if (results.Count == 0) return;
-
-        string path = ConfigManager.Load().DataSavePath;
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "GPSJ");
-        }
-        if (!Directory.Exists(path))
-        {
-            Directory.CreateDirectory(path);
-        }
-
-        string fileName = $"麻雀池高速筛选结果_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.txt";
-        string fullPath = Path.Combine(path, fileName);
-
-        using StreamWriter writer = new StreamWriter(fullPath, append: false, Encoding.UTF8);
-        await writer.WriteLineAsync($"【麻雀战法高速版】选股结果\n生成时间: {DateTime.Now}\n入围数量: {results.Count}\n=======================================");
-        foreach (var item in results)
-        {
-            await writer.WriteLineAsync($"代码: {item.Code} \t名称: {item.Name} \t说明: {item.Reason}");
-        }
     }
 }
 
