@@ -237,7 +237,7 @@ public sealed class SparrowCacheLifecycleTests
         int initialKlineCalls = fakeProvider.CountRequestsMatching("/api/kline-all");
         Assert.Equal(1, initialKlineCalls);
 
-        // Advance time by 100s (TTL is 300s, so it is still fresh)
+        // Advance time by 100s (TTL is 1 day, so it is still fresh)
         timeProvider.Advance(TimeSpan.FromSeconds(100));
 
         // Scan 2: T = 100s, UseCache = true
@@ -281,8 +281,8 @@ public sealed class SparrowCacheLifecycleTests
         await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);
         Assert.Equal(1, fakeProvider.CountRequestsMatching("/api/kline-all"));
 
-        // Advance time past 300s TTL (301 seconds)
-        timeProvider.Advance(TimeSpan.FromSeconds(301));
+        // Advance time past the 1-day K-line TTL
+        timeProvider.Advance(TimeSpan.FromDays(1) + TimeSpan.FromSeconds(1));
 
         // Scan 2: T = 301s
         await scanner.ScanAsync(targetPool, parameters, null, CancellationToken.None);

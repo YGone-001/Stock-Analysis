@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Linq;
@@ -152,7 +153,7 @@ public partial class SparrowViewModel : ObservableObject
                 OnPropertyChanged(nameof(StartButtonText));
             }
         };
-        var sharedKlineCache = new SparrowMarketDataCache();
+        var sharedKlineCache = new SparrowMarketDataCache(persistFile: GetKlineCachePersistPath());
 		_scannerService = new SparrowScannerService(mainVm.DataProvider, sharedKlineCache, mainVm.KlineService, mainVm.QuoteService);
 		_classicScanner = new SparrowClassicScanner(mainVm.DataProvider, klineCache: sharedKlineCache, klineService: mainVm.KlineService, quoteService: mainVm.QuoteService);
 		_comparisonService = new SparrowComparisonService(mainVm.DataProvider, klineCache: sharedKlineCache, klineService: mainVm.KlineService, quoteService: mainVm.QuoteService);
@@ -165,6 +166,16 @@ public partial class SparrowViewModel : ObservableObject
                 ApplyCachedTopN();
             }
         };
+    }
+
+    private static string GetKlineCachePersistPath()
+    {
+        string directory = ConfigManager.Load().DataSavePath;
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            directory = AppDomain.CurrentDomain.BaseDirectory;
+        }
+        return Path.Combine(directory, "sparrow-kline-cache.json");
     }
 
     private void AppendLog(string msg, bool isHighlight = false)

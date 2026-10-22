@@ -10,9 +10,11 @@ namespace AIHelper.Core.Sparrow;
 public static class SparrowDataCachePolicy
 {
     /// <summary>
-    /// Default TTL for daily K-lines (5 minutes = 300s). Allows intraday refreshes without overloading the server.
+    /// Default TTL for daily K-lines (1 day). Daily bars only change once per trading day, so a
+    /// short TTL re-fetches identical history intraday. Intraday refresh of the current bar is
+    /// still available via the UseCache=false (refresh=1) scan option.
     /// </summary>
-    public static readonly TimeSpan DefaultKlineTtl = TimeSpan.FromSeconds(300);
+    public static readonly TimeSpan DefaultKlineTtl = TimeSpan.FromDays(1);
 
     /// <summary>
     /// Default TTL for intraday minute trends (10s).
