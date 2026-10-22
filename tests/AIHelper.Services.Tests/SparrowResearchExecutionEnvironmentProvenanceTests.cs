@@ -270,6 +270,147 @@ public sealed class SparrowResearchExecutionEnvironmentProvenanceTests
         Assert.Equal(DependencyManifestInvalid, exception.ReasonCode);
     }
 
+    [Fact]
+    public void DependencyEdge_TargetingCrossTypeSameNameAndVersion_IsRejectedAsAmbiguous()
+    {
+        ResearchResolvedDependency app = new("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("foo", "1.0.0") });
+        ResearchResolvedDependency package = new("foo", "1.0.0", "package", null);
+        ResearchResolvedDependency project = new("foo", "1.0.0", "project", null);
+
+        ResearchExecutionEnvironmentProvenanceException exception = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(
+            () => Environment(dependencies: new[] { app, package, project }));
+        Assert.Equal(DependencyManifestInvalid, exception.ReasonCode);
+    }
+
+    [Fact]
+    public void AmbiguousCrossTypeEdge_IsRejectedInBothInputOrders()
+    {
+        ResearchResolvedDependency app = new("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("foo", "1.0.0") });
+        ResearchResolvedDependency package = new("foo", "1.0.0", "package", null);
+        ResearchResolvedDependency project = new("foo", "1.0.0", "project", null);
+
+        ResearchExecutionEnvironmentProvenanceException forward = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(
+            () => Environment(dependencies: new[] { app, package, project }));
+        Assert.Equal(DependencyManifestInvalid, forward.ReasonCode);
+
+        ResearchExecutionEnvironmentProvenanceException reversed = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(
+            () => Environment(dependencies: new[] { app, project, package }));
+        Assert.Equal(DependencyManifestInvalid, reversed.ReasonCode);
+    }
+
+    [Fact]
+    public void CrossTypeTargetsWithoutReferencingEdge_RemainDistinctTopLevelNodes()
+    {
+        ResearchResolvedDependency package = new("foo", "1.0.0", "package", null);
+        ResearchResolvedDependency project = new("foo", "1.0.0", "project", null);
+
+        ResearchExecutionEnvironmentProvenance provenance = Environment(dependencies: new[] { package, project });
+        Assert.Equal(2, provenance.Dependencies.Count);
+
+        ResearchResolvedDependency packageNode = Assert.Single(provenance.Dependencies, d => d.Type == "package");
+        ResearchResolvedDependency projectNode = Assert.Single(provenance.Dependencies, d => d.Type == "project");
+        Assert.Equal("foo", packageNode.Name);
+        Assert.Equal("1.0.0", packageNode.Version);
+        Assert.Equal("foo", projectNode.Name);
+        Assert.Equal("1.0.0", projectNode.Version);
+    }
+
+    [Fact]
+    public void CrossTypeTargetsWithoutReferencingEdge_AreOrderIndependent()
+    {
+        ResearchResolvedDependency package = new("foo", "1.0.0", "package", null);
+        ResearchResolvedDependency project = new("foo", "1.0.0", "project", null);
+
+        ResearchExecutionEnvironmentProvenance forward = Environment(dependencies: new[] { package, project });
+        ResearchExecutionEnvironmentProvenance reversed = Environment(dependencies: new[] { project, package });
+
+        Assert.Equal(forward.DependencyManifestFingerprint, reversed.DependencyManifestFingerprint);
+        Assert.Equal(forward.ProvenanceFingerprint, reversed.ProvenanceFingerprint);
+    }
+
+    [Fact]
+    public void ExactProjectTargetResolution_TakesPrecedenceOverPackageFallback()
+    {
+        ResearchResolvedDependency app = new("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("foo", "1.0.0") });
+        ResearchResolvedDependency package = new("Foo", "1.0.0", "package", null);
+        ResearchResolvedDependency project = new("foo", "1.0.0", "project", null);
+
+        IReadOnlyList<ResearchResolvedDependency> canonical = ResearchDependencyGraph.Canonicalize(new[] { app, package, project });
+        ResearchResolvedDependency appResolved = Assert.Single(canonical, d => d.Name == "App");
+        ResearchResolvedDependencyReference edge = Assert.Single(appResolved.Dependencies);
+        Assert.Equal("foo", edge.Name);
+        Assert.Equal("1.0.0", edge.Version);
+    }
+
+    [Fact]
+    public void ExactPackageDuplicatesDifferingOnlyByCase_DoNotTriggerEdgeAmbiguityAndCollapse()
+    {
+        ResearchResolvedDependency app = new("App", "1.0.0", "project", new[] { new ResearchResolvedDependencyReference("newtonsoft.json", "13.0.3") });
+        ResearchResolvedDependency packageLower = new("newtonsoft.json", "13.0.3", "package", null);
+        ResearchResolvedDependency packageUpper = new("Newtonsoft.Json", "13.0.3", "package", null);
+
+        ResearchExecutionEnvironmentProvenance provenance = Environment(dependencies: new[] { app, packageLower, packageUpper });
+        Assert.Equal(2, provenance.Dependencies.Count);
+        ResearchResolvedDependency appResolved = Assert.Single(provenance.Dependencies, d => d.Name == "App");
+        Assert.Equal("newtonsoft.json", Assert.Single(appResolved.Dependencies).Name);
+    }
+
+    [Fact]
+    public void PersistedProvenance_ValidCrossTypeGraph_RoundTripsAndSelfValidates()
+    {
+        ResearchResolvedDependency package = new("foo", "1.0.0", "package", null);
+        ResearchResolvedDependency project = new("foo", "1.0.0", "project", null);
+
+        ResearchExecutionEnvironmentProvenance original = Environment(dependencies: new[] { package, project });
+        ResearchExecutionEnvironmentProvenance reloaded = RoundTrip(original);
+
+        Assert.Equal(original.DependencyManifestFingerprint, reloaded.DependencyManifestFingerprint);
+        Assert.Equal(original.ProvenanceFingerprint, reloaded.ProvenanceFingerprint);
+        Assert.Equal(2, reloaded.Dependencies.Count);
+    }
+
+    [Fact]
+    public void PersistedProvenance_AmbiguousCrossTypeEdge_IsRejectedDuringDeserialization()
+    {
+        ResearchExecutionEnvironmentProvenance valid = Environment();
+        string validJson = JsonSerializer.Serialize(valid, RoundTripOptions);
+
+        JsonObject root = JsonNode.Parse(validJson)!.AsObject();
+        JsonArray dependenciesArray = new()
+        {
+            new JsonObject
+            {
+                ["name"] = "App",
+                ["version"] = "1.0.0",
+                ["type"] = "project",
+                ["dependencies"] = new JsonArray
+                {
+                    new JsonObject { ["name"] = "foo", ["version"] = "1.0.0" }
+                }
+            },
+            new JsonObject
+            {
+                ["name"] = "foo",
+                ["version"] = "1.0.0",
+                ["type"] = "package",
+                ["dependencies"] = new JsonArray()
+            },
+            new JsonObject
+            {
+                ["name"] = "foo",
+                ["version"] = "1.0.0",
+                ["type"] = "project",
+                ["dependencies"] = new JsonArray()
+            }
+        };
+        root["dependencies"] = dependenciesArray;
+        string tamperedJson = root.ToJsonString();
+
+        ResearchExecutionEnvironmentProvenanceException exception = Assert.Throws<ResearchExecutionEnvironmentProvenanceException>(
+            () => JsonSerializer.Deserialize<ResearchExecutionEnvironmentProvenance>(tamperedJson, RoundTripOptions));
+        Assert.Equal(DependencyManifestInvalid, exception.ReasonCode);
+    }
+
     // ---- duplicate semantics ----------------------------------------------------------------------------
 
     [Fact]

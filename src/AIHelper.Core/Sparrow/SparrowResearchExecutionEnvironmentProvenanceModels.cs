@@ -255,6 +255,9 @@ public static class ResearchDependencyGraph
             .ThenBy(edge => edge.Version, StringComparer.Ordinal)
             .ToArray());
 
+    /// <summary>Internal representation of a candidate target library identity.</summary>
+    private readonly record struct TargetIdentity(string CanonicalName, string Version, string CanonicalType);
+
     /// <summary>
     /// Canonicalizes a parsed or persisted dependency graph: type-aware library names, deterministic edge target
     /// resolution, exact-duplicate collapse and conflicting-identity rejection. The result depends only on the
@@ -264,16 +267,17 @@ public static class ResearchDependencyGraph
     {
         if (libraries is null || libraries.Count == 0) return Array.Empty<ResearchResolvedDependency>();
 
-        Dictionary<string, List<string>> exactTargets = new(StringComparer.Ordinal);
-        Dictionary<string, List<string>> packageTargets = new(StringComparer.Ordinal);
+        Dictionary<string, List<TargetIdentity>> exactTargets = new(StringComparer.Ordinal);
+        Dictionary<string, List<TargetIdentity>> packageTargets = new(StringComparer.Ordinal);
         List<(string Name, string Version, string Type)> identities = new(libraries.Count);
         foreach (ResearchResolvedDependency library in libraries)
         {
             string name = CanonicalName(library.Name, library.Type);
             string type = CanonicalType(library.Type);
             identities.Add((name, library.Version, type));
-            Add(exactTargets, library.Name + '\u001f' + library.Version, name);
-            if (string.Equals(type, PackageType, StringComparison.Ordinal)) Add(packageTargets, name + '\u001f' + library.Version, name);
+            TargetIdentity target = new(name, library.Version, type);
+            Add(exactTargets, library.Name + '\u001f' + library.Version, target);
+            if (string.Equals(type, PackageType, StringComparison.Ordinal)) Add(packageTargets, name + '\u001f' + library.Version, target);
         }
 
         List<ResearchResolvedDependency> canonical = new(libraries.Count);
@@ -315,13 +319,13 @@ public static class ResearchDependencyGraph
     /// Resolves an edge to its target library identity. Exact factual matches win; case-insensitive matching is
     /// permitted only for package targets. An unresolved or ambiguous edge is never guessed.
     /// </summary>
-    private static string Resolve(ResearchResolvedDependencyReference edge, Dictionary<string, List<string>> exactTargets, Dictionary<string, List<string>> packageTargets)
+    private static string Resolve(ResearchResolvedDependencyReference edge, Dictionary<string, List<TargetIdentity>> exactTargets, Dictionary<string, List<TargetIdentity>> packageTargets)
     {
-        if (exactTargets.TryGetValue(edge.Name + '\u001f' + edge.Version, out List<string>? direct))
-            return direct.Count == 1 ? direct[0] : throw Ambiguous(edge);
+        if (exactTargets.TryGetValue(edge.Name + '\u001f' + edge.Version, out List<TargetIdentity>? direct))
+            return direct.Count == 1 ? direct[0].CanonicalName : throw Ambiguous(edge);
 
-        if (packageTargets.TryGetValue(edge.Name.ToLowerInvariant() + '\u001f' + edge.Version, out List<string>? packageMatch))
-            return packageMatch.Count == 1 ? packageMatch[0] : throw Ambiguous(edge);
+        if (packageTargets.TryGetValue(edge.Name.ToLowerInvariant() + '\u001f' + edge.Version, out List<TargetIdentity>? packageMatch))
+            return packageMatch.Count == 1 ? packageMatch[0].CanonicalName : throw Ambiguous(edge);
 
         throw new ResearchExecutionEnvironmentProvenanceException(
             ResearchExecutionEnvironmentProvenanceReasonCodes.DependencyManifestInvalid,
@@ -340,10 +344,10 @@ public static class ResearchDependencyGraph
             string.Equals(pair.First.Name, pair.Second.Name, StringComparison.Ordinal)
             && string.Equals(pair.First.Version, pair.Second.Version, StringComparison.Ordinal));
 
-    private static void Add(Dictionary<string, List<string>> index, string key, string value)
+    private static void Add(Dictionary<string, List<TargetIdentity>> index, string key, TargetIdentity value)
     {
-        if (!index.TryGetValue(key, out List<string>? values)) index[key] = values = new List<string>();
-        if (!values.Contains(value, StringComparer.Ordinal)) values.Add(value);
+        if (!index.TryGetValue(key, out List<TargetIdentity>? values)) index[key] = values = new List<TargetIdentity>();
+        if (!values.Contains(value)) values.Add(value);
     }
 }
 
