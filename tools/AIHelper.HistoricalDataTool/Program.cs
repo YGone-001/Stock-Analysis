@@ -18,6 +18,8 @@ try
     if (Bool("show-execution-environment-provenance", false)) detectedModes.Add("execution-environment-provenance");
     if (options.ContainsKey("verify-execution-environment-provenance")) detectedModes.Add("execution-environment-provenance-verification");
     if (options.ContainsKey("run-research-experiment")) detectedModes.Add("managed-research-experiment");
+    if (options.ContainsKey("export-research-evidence-bundle")) detectedModes.Add("bundle-export");
+    if (options.ContainsKey("verify-research-evidence-bundle")) detectedModes.Add("bundle-verification");
     if (Bool("analyze-benchmark", false)) detectedModes.Add("benchmark-analysis");
     if (Bool("export-portfolio-research", false)) detectedModes.Add("portfolio-research-export");
     if (options.ContainsKey("source") || options.ContainsKey("dataset-id") || options.ContainsKey("symbols") || options.ContainsKey("benchmarks"))
@@ -56,6 +58,10 @@ try
         return await ExportPortfolioResearchAsync();
     if (options.TryGetValue("run-research-experiment", out string? managedExperimentId))
         return await RunResearchExperimentAsync(managedExperimentId);
+    if (options.TryGetValue("export-research-evidence-bundle", out string? exportExperimentId))
+        return await ExportResearchEvidenceBundleAsync(exportExperimentId);
+    if (options.TryGetValue("verify-research-evidence-bundle", out string? verifyBundlePath))
+        return await VerifyResearchEvidenceBundleAsync(verifyBundlePath);
 
     string source = Value("source", "tushare");
     string adjustment = Value("adjustment", "raw");
@@ -579,4 +585,98 @@ static Dictionary<string, string> Parse(string[] args)
         output.Add(args[index][2..], hasValue ? args[++index] : "true");
     }
     return output;
+}
+
+async Task<int> ExportResearchEvidenceBundleAsync(string experimentId)
+{
+    if (!options.ContainsKey("backtest-round-trip-cost-rate") || !options.ContainsKey("backtest-slippage-rate"))
+    {
+        Console.Error.WriteLine("MISSING_BACKTEST_COSTS: --backtest-round-trip-cost-rate and --backtest-slippage-rate are required.");
+        return 1;
+    }
+    if (!TryParseCost(options["backtest-round-trip-cost-rate"], "backtest-round-trip-cost-rate", out double backtestRoundTripCostRate)
+        || !TryParseCost(options["backtest-slippage-rate"], "backtest-slippage-rate", out double backtestSlippageRate))
+        return 1;
+
+    try
+    {
+        ResearchEvidenceBundleExportRequest request = new(
+            experimentId,
+            Value("experiment-store"),
+            Value("artifact"),
+            Value("dataset"),
+            Value("parameters"),
+            backtestRoundTripCostRate,
+            backtestSlippageRate,
+            Value("output"));
+
+        ResearchEvidenceBundleExportResult result = await new ResearchEvidenceBundleExporter().ExportAsync(request);
+
+        Console.WriteLine("RESEARCH_EVIDENCE_BUNDLE_STATUS=Exported");
+        Console.WriteLine();
+        Console.WriteLine($"EXPERIMENT_ID={result.ExperimentId}");
+        Console.WriteLine($"BUNDLE_VERSION={result.BundleVersion}");
+        Console.WriteLine();
+        Console.WriteLine($"EXPERIMENT_FINGERPRINT={result.ExperimentFingerprint}");
+        Console.WriteLine($"DATASET_FINGERPRINT={result.DatasetFingerprint}");
+        Console.WriteLine($"ARTIFACT_FINGERPRINT={result.ArtifactFingerprint}");
+        Console.WriteLine();
+        Console.WriteLine($"EXECUTION_BINDING_FINGERPRINT={result.ExecutionBindingFingerprint}");
+        Console.WriteLine($"SOURCE_BUILD_PROVENANCE_FINGERPRINT={result.SourceBuildProvenanceFingerprint}");
+        Console.WriteLine($"EXECUTION_ENVIRONMENT_PROVENANCE_FINGERPRINT={result.ExecutionEnvironmentProvenanceFingerprint}");
+        Console.WriteLine();
+        Console.WriteLine($"BUNDLE_MANIFEST_FINGERPRINT={result.BundleManifestFingerprint}");
+        Console.WriteLine($"BUNDLE_OUTPUT={Path.GetFullPath(result.OutputPath)}");
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"RESEARCH_EVIDENCE_BUNDLE_EXPORT_FAILED: {ex.Message}");
+        return 1;
+    }
+}
+
+async Task<int> VerifyResearchEvidenceBundleAsync(string bundlePath)
+{
+    bool reexecute = Bool("reexecute", false);
+    try
+    {
+        ResearchEvidenceBundleVerificationResult result = await new ResearchEvidenceBundleVerifier().VerifyAsync(bundlePath, reexecute);
+
+        if (result.Status == ResearchEvidenceBundleVerificationStatus.Verified)
+        {
+            Console.WriteLine("RESEARCH_EVIDENCE_BUNDLE_VERIFICATION_STATUS=Verified");
+            Console.WriteLine();
+            Console.WriteLine($"EXPERIMENT_ID={result.ExperimentId}");
+            Console.WriteLine($"BUNDLE_VERSION={result.BundleVersion}");
+            Console.WriteLine();
+            Console.WriteLine($"BUNDLE_MANIFEST_FINGERPRINT={result.BundleManifestFingerprint}");
+            Console.WriteLine($"ENTRY_INTEGRITY_STATUS={result.EntryIntegrityStatus}");
+            Console.WriteLine($"EXPERIMENT_RECORD_STATUS={result.ExperimentRecordStatus}");
+            Console.WriteLine($"ARTIFACT_LINEAGE_STATUS={result.ArtifactLineageStatus}");
+            Console.WriteLine($"DATASET_STATUS={result.DatasetStatus}");
+            Console.WriteLine($"PARAMETER_STATUS={result.ParameterStatus}");
+            Console.WriteLine();
+            Console.WriteLine($"REEXECUTION_STATUS={result.ReexecutionStatus}");
+            Console.WriteLine($"FAILED_CHECK_COUNT={result.FailedCheckCount}");
+            return 0;
+        }
+
+        Console.Error.WriteLine($"RESEARCH_EVIDENCE_BUNDLE_VERIFICATION_STATUS={result.Status}");
+        if (!string.IsNullOrEmpty(result.ExperimentId)) Console.Error.WriteLine($"EXPERIMENT_ID={result.ExperimentId}");
+        if (!string.IsNullOrEmpty(result.BundleVersion)) Console.Error.WriteLine($"BUNDLE_VERSION={result.BundleVersion}");
+        if (result.ReasonCodes.Count > 0) Console.Error.WriteLine($"REASONS={string.Join(',', result.ReasonCodes)}");
+        Console.Error.WriteLine($"REEXECUTION_STATUS={result.ReexecutionStatus}");
+        Console.Error.WriteLine($"FAILED_CHECK_COUNT={result.FailedCheckCount}");
+        foreach (var check in result.Checks.Where(c => c.Status != "Pass"))
+        {
+            Console.Error.WriteLine($"FAILED_CHECK={check.CheckCode}:{check.Message}");
+        }
+        return 1;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"RESEARCH_EVIDENCE_BUNDLE_VERIFICATION_FAILED: {ex.Message}");
+        return 1;
+    }
 }

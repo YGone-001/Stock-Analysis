@@ -19,6 +19,20 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
         try
         {
             await using FileStream stream = File.OpenRead(path);
+            return await LoadStreamAsync(stream, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (IOException ex) { return HistoricalDatasetLoadResult.Failed($"Unable to read historical dataset: {ex.Message}"); }
+        catch (UnauthorizedAccessException ex) { return HistoricalDatasetLoadResult.Failed($"Unable to access historical dataset: {ex.Message}"); }
+        catch (Exception ex) { return HistoricalDatasetLoadResult.Failed($"Unexpected dataset load failure: {ex.Message}"); }
+    }
+
+    public async Task<HistoricalDatasetLoadResult> LoadStreamAsync(Stream stream, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
             HistoricalDatasetFile? file = await JsonSerializer.DeserializeAsync<HistoricalDatasetFile>(stream, JsonOptions, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             if (file is null) return HistoricalDatasetLoadResult.Failed("Invalid dataset file: JSON document is empty.");
@@ -37,8 +51,6 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
         }
         catch (OperationCanceledException) { throw; }
         catch (JsonException ex) { return HistoricalDatasetLoadResult.Failed($"Invalid dataset schema: {ex.Message}"); }
-        catch (IOException ex) { return HistoricalDatasetLoadResult.Failed($"Unable to read historical dataset: {ex.Message}"); }
-        catch (UnauthorizedAccessException ex) { return HistoricalDatasetLoadResult.Failed($"Unable to access historical dataset: {ex.Message}"); }
         catch (Exception ex) { return HistoricalDatasetLoadResult.Failed($"Unexpected dataset load failure: {ex.Message}"); }
     }
 
