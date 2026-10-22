@@ -152,6 +152,21 @@ public sealed class SparrowWindowRealUiTests
     }
 
     [Fact]
+    public void ResultGrid_IsPresentAndBoundToResults()
+    {
+        RunWindowTest((window, vm) =>
+        {
+            window.UpdateLayout();
+
+            DataGrid? grid = FindDescendant<DataGrid>(window);
+            Assert.NotNull(grid);
+            Assert.False(grid.AutoGenerateColumns);
+            Assert.Equal(11, grid.Columns.Count);
+            Assert.Same(vm.Results, grid.ItemsSource);
+        });
+    }
+
+    [Fact]
     public void AdhesionNumericToSliderSync_And_SliderToNumericSync()
     {
         RunWindowTest((window, vm) =>
@@ -338,6 +353,26 @@ public sealed class SparrowWindowRealUiTests
                 AssertNoVisibleConcurrencyText(d);
             }
         }
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        if (root is T match)
+        {
+            return match;
+        }
+        foreach (object? child in LogicalTreeHelper.GetChildren(root))
+        {
+            if (child is DependencyObject d)
+            {
+                T? found = FindDescendant<T>(d);
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     private static void SaveWindowScreenshot(Window window, string filePath)

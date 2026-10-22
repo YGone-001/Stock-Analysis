@@ -107,6 +107,106 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
                 TxtLog.ScrollToEnd();
             }
         };
+
+        BuildResultGrid();
+    }
+
+    private void BuildResultGrid()
+    {
+        FrameworkElement logHost = TxtLog;
+        Panel? hostPanel = logHost.Parent as Panel;
+
+        // TxtLog may be wrapped in a Border/ContentControl; walk up to the nearest Panel parent.
+        while (hostPanel == null && logHost.Parent is FrameworkElement parentElement)
+        {
+            logHost = parentElement;
+            hostPanel = parentElement.Parent as Panel;
+        }
+
+        if (hostPanel == null)
+        {
+            return;
+        }
+
+        int index = hostPanel.Children.IndexOf(logHost);
+        if (index < 0)
+        {
+            return;
+        }
+
+        int row = 0, column = 0, columnSpan = 1, rowSpan = 1;
+        if (hostPanel is Grid grid)
+        {
+            row = Grid.GetRow(logHost);
+            column = Grid.GetColumn(logHost);
+            columnSpan = Grid.GetColumnSpan(logHost);
+            rowSpan = Grid.GetRowSpan(logHost);
+        }
+
+        hostPanel.Children.Remove(logHost);
+
+        var logTab = new System.Windows.Controls.TabItem { Header = "运行日志", Content = logHost };
+        var resultTab = new System.Windows.Controls.TabItem { Header = "选股结果", Content = CreateResultGrid() };
+        var tabs = new System.Windows.Controls.TabControl();
+        tabs.Items.Add(logTab);
+        tabs.Items.Add(resultTab);
+
+        if (hostPanel is Grid)
+        {
+            Grid.SetRow(tabs, row);
+            Grid.SetColumn(tabs, column);
+            Grid.SetColumnSpan(tabs, columnSpan);
+            Grid.SetRowSpan(tabs, rowSpan);
+        }
+
+        hostPanel.Children.Insert(index, tabs);
+    }
+
+    private DataGrid CreateResultGrid()
+    {
+        var grid = new DataGrid
+        {
+            AutoGenerateColumns = false,
+            IsReadOnly = true,
+            CanUserAddRows = false,
+            CanUserDeleteRows = false,
+            CanUserSortColumns = true,
+            EnableRowVirtualization = true,
+            EnableColumnVirtualization = true,
+            HeadersVisibility = DataGridHeadersVisibility.Column,
+            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
+            SelectionMode = DataGridSelectionMode.Single
+        };
+        grid.SetBinding(ItemsControl.ItemsSourceProperty, new Binding("Results"));
+
+        grid.Columns.Add(Column("排名", "Rank", 46));
+        grid.Columns.Add(Column("代码", "Code", 78));
+        grid.Columns.Add(Column("名称", "Name", 100));
+        grid.Columns.Add(Column("评分", "TotalScore", 62, "F1"));
+        grid.Columns.Add(Column("涨幅%", "RisePercent", 66, "F2"));
+        grid.Columns.Add(Column("成交额(万)", "AmountWan", 88, "F0"));
+        grid.Columns.Add(Column("买压比", "BuyPressureRatio", 66, "F2"));
+        grid.Columns.Add(Column("黏合%", "AdhesionPercent", 62, "F2"));
+        grid.Columns.Add(Column("换手%", "Turnover", 58, "F1"));
+        grid.Columns.Add(Column("动量%", "MomentumPercent", 66, "F4"));
+        grid.Columns.Add(Column("Alpha", "AlphaMargin", 58, "F2"));
+
+        return grid;
+    }
+
+    private static DataGridTextColumn Column(string header, string path, double width, string? format = null, bool star = false)
+    {
+        var binding = new Binding(path);
+        if (format != null)
+        {
+            binding.StringFormat = format;
+        }
+        return new DataGridTextColumn
+        {
+            Header = header,
+            Binding = binding,
+            Width = star ? new DataGridLength(1, DataGridLengthUnitType.Star) : new DataGridLength(width)
+        };
     }
 
     private void BuildStrategyAwareParameterUi(bool reportFailure = true)

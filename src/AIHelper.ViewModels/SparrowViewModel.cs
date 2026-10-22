@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Linq;
@@ -12,6 +13,7 @@ using AIHelper.Helpers;
 using AIHelper.Models;
 using AIHelper.Services.StockData;
 using AIHelper.Services.StockData.Sparrow;
+using AIHelper.Core.Sparrow;
 using HandyControl.Controls;
 using Serilog;
 
@@ -83,6 +85,9 @@ public partial class SparrowViewModel : ObservableObject
         get => _resultSummary;
         private set { _resultSummary = value; OnPropertyChanged(); }
     }
+
+    /// <summary>Flat, binding-friendly rows backing the result grid. Populated on every completed scan.</summary>
+    public ObservableCollection<SparrowResultRow> Results { get; } = new();
 
     // UI States
     private bool _isScanning;
@@ -235,9 +240,7 @@ public partial class SparrowViewModel : ObservableObject
         if (stockNameMap == null || stockNameMap.Count == 0) return;
 
         var targetPool = stockNameMap
-            .Where(kvp => !string.IsNullOrEmpty(kvp.Value) && !string.IsNullOrEmpty(kvp.Key) && 
-                          !kvp.Value.Contains("ST") && !kvp.Key.StartsWith("688") && 
-                          (kvp.Key.StartsWith("60") || kvp.Key.StartsWith("00") || kvp.Key.StartsWith("30")))
+            .Where(kvp => SparrowClassicUniverseEligibility.Evaluate(kvp.Key, kvp.Value).Eligible)
             .Select(kvp => (Code: kvp.Key, Name: kvp.Value))
             .ToList();
 
@@ -389,6 +392,15 @@ public partial class SparrowViewModel : ObservableObject
         }
     }
 
+    private void PopulateResults(IReadOnlyList<SparrowRankedCandidate> ranking, int topN)
+    {
+        Results.Clear();
+        foreach (SparrowRankedCandidate candidate in ranking.Take(topN))
+        {
+            Results.Add(SparrowResultRow.From(candidate));
+        }
+    }
+
     private void ApplyCachedTopN()
     {
         if (!_lastCompletedMode.HasValue)
@@ -400,6 +412,7 @@ public partial class SparrowViewModel : ObservableObject
         switch (_lastCompletedMode.Value)
         {
             case SparrowStrategyMode.Classic:
+                PopulateResults(_lastClassicRanking, topN);
                 if (_lastClassicRanking.Count > 0)
                 {
                     SetResultGroup("Classic", $"麻雀_Classic_Top{topN}_{_lastCompletedAt:MMdd}",
@@ -408,6 +421,7 @@ public partial class SparrowViewModel : ObservableObject
                 ResultSummary = $"Classic 完成 · 候选池 {_lastClassicRanking.Count} · Top{topN} 已生成（{Math.Min(topN, _lastClassicRanking.Count)}只）";
                 break;
             case SparrowStrategyMode.V2:
+                PopulateResults(_lastV2Ranking, topN);
                 if (_lastV2Ranking.Count > 0)
                 {
                     SetResultGroup("V2", $"麻雀_V2_Top{topN}_{_lastCompletedAt:MMdd}",
@@ -521,5 +535,40 @@ public partial class SparrowViewModel : ObservableObject
             AppendLog($"\nScore Range:\nMax = {ranking.Max(item => item.TotalScore):F1}\nMedian = {median:F1}\nMin = {ranking.Min(item => item.TotalScore):F1}");
         }
         AppendLog($"\n精选：{shown}只\n========================================");
+    }
+}
+
+/// <summary>Flat, binding-friendly projection of a ranked candidate for the result grid.</summary>
+public sealed class SparrowResultRow
+{
+    public int Rank { get; init; }
+    public string Code { get; init; } = "";
+    public string Name { get; init; } = "";
+    public double TotalScore { get; init; }
+    public double? RisePercent { get; init; }
+    public double? AmountWan { get; init; }
+    public double? BuyPressureRatio { get; init; }
+    public double? AdhesionPercent { get; init; }
+    public double? Turnover { get; init; }
+    public double? MomentumPercent { get; init; }
+    public double? AlphaMargin { get; init; }
+
+    public static SparrowResultRow From(SparrowRankedCandidate candidate)
+    {
+        SparrowRankingFeatures features = candidate.Features;
+        return new SparrowResultRow
+        {
+            Rank = candidate.Rank,
+            Code = candidate.Code,
+            Name = candidate.Name,
+            TotalScore = candidate.TotalScore,
+            RisePercent = features.RisePercent,
+            AmountWan = features.Amount.HasValue ? features.Amount.Value / 10_000.0 : null,
+            BuyPressureRatio = features.BuyPressureRatio,
+            AdhesionPercent = features.Adhesion.HasValue ? features.Adhesion.Value * 100.0 : null,
+            Turnover = features.Turnover,
+            MomentumPercent = features.Momentum.HasValue ? features.Momentum.Value * 100.0 : null,
+            AlphaMargin = features.AlphaMargin
+        };
     }
 }
