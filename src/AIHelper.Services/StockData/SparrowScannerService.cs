@@ -476,8 +476,8 @@ public class SparrowScannerService
                     var elements = dataArr.EnumerateArray().ToList();
                     if (elements.Count >= 2)
                     {
-                        double prevClose = elements[elements.Count - 2].TryGetProperty("Close", out var pc) ? pc.GetDouble() / 1000.0 : 0.0;
-                        double close = elements[elements.Count - 1].TryGetProperty("Close", out var c) ? c.GetDouble() / 1000.0 : 0.0;
+                        double prevClose = elements[elements.Count - 2].TryGetProperty("Close", out var pc) ? pc.GetDouble() / MarketDataUnits.MilliDivisor : 0.0;
+                        double close = elements[elements.Count - 1].TryGetProperty("Close", out var c) ? c.GetDouble() / MarketDataUnits.MilliDivisor : 0.0;
                         if (prevClose > 0)
                         {
                             shIndexPctChg = (close - prevClose) / prevClose * 100.0;

@@ -83,7 +83,7 @@ public static class SparrowKlineSnapshotFactory
                     continue;
                 }
 
-                double close = rawClose / 1000.0;
+                double close = rawClose / MarketDataUnits.MilliDivisor;
                 if (close > 0)
                 {
                     closesNewestFirst.Add(close);
@@ -93,7 +93,7 @@ public static class SparrowKlineSnapshotFactory
                     latestPrice = close;
                     if (index > 0 && TryGetDouble(elements[index - 1], "Close", out double previousRaw))
                     {
-                        double previous = previousRaw / 1000.0;
+                        double previous = previousRaw / MarketDataUnits.MilliDivisor;
                         latestPercent = previous > 0 ? (close - previous) / previous * 100.0 : 0;
                     }
                 }

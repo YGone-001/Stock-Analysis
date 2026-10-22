@@ -41,7 +41,7 @@ public static class SparrowKlineJsonParser
         {
             if (SparrowJsonElement.TryGetDouble(item, "Close", out double closeRaw))
             {
-                closes.Add(closeRaw / 1000.0);
+                closes.Add(closeRaw / MarketDataUnits.MilliDivisor);
             }
         }
         return closes;

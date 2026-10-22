@@ -235,8 +235,8 @@ public sealed class SparrowComparisonService
             {
                 return null;
             }
-            double previous = previousRaw / 1000.0;
-            double latest = latestRaw / 1000.0;
+            double previous = previousRaw / MarketDataUnits.MilliDivisor;
+            double latest = latestRaw / MarketDataUnits.MilliDivisor;
             return previous > 0 ? (latest - previous) / previous * 100.0 : null;
         }
         catch (JsonException ex)

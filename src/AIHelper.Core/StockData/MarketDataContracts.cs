@@ -24,7 +24,10 @@ public sealed record MarketDataResult<T>(T Data, MarketDataMetadata Metadata, st
 	public bool Success => string.IsNullOrWhiteSpace(Error);
 }
 
-/// <summary>Normalized quote values. Null means unavailable; zero remains a real upstream value.</summary>
+/// <summary>
+/// Normalized quote values. Null means unavailable; zero remains a real upstream value.
+/// Price fields (Price/PreviousClose/Open/High/Low) are normalized to CNY yuan regardless of source.
+/// </summary>
 public sealed record QuoteSnapshot(
 	string Symbol,
 	string Name,
@@ -40,7 +43,10 @@ public sealed record QuoteSnapshot(
 	double? High,
 	double? Low);
 
-/// <summary>One daily K-line bar. Date is the exchange-local trading date supplied by the provider.</summary>
+/// <summary>
+/// One daily K-line bar. Date is the exchange-local trading date supplied by the provider.
+/// Price fields (Open/High/Low/Close) are normalized to CNY yuan regardless of source.
+/// </summary>
 public sealed record KlineBar(
 	DateTime Date,
 	double? Open,

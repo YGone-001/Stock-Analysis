@@ -43,8 +43,8 @@ public static class SparrowQuoteDataContract
         double? preClose = ReadNullable(item, "PreClose");
         if (TryGetPropertyIgnoreCase(item, "K", out JsonElement k))
         {
-            price ??= DivideMilli(ReadNullable(k, "Close"));
-            preClose ??= DivideMilli(ReadNullable(k, "Last")) ?? DivideMilli(ReadNullable(k, "PreClose"));
+            price ??= MarketDataUnits.DivideMilli(ReadNullable(k, "Close"));
+            preClose ??= MarketDataUnits.DivideMilli(ReadNullable(k, "Last")) ?? MarketDataUnits.DivideMilli(ReadNullable(k, "PreClose"));
         }
 
         quote = new SparrowQuoteData(
@@ -74,8 +74,6 @@ public static class SparrowQuoteDataContract
                 ? SparrowVolumeCheckResult.Passed
                 : SparrowVolumeCheckResult.VolRatioFailed;
     }
-
-    private static double? DivideMilli(double? value) => value.HasValue ? value.Value / 1000.0 : null;
 
     private static double? ReadNullable(JsonElement element, string name)
     {

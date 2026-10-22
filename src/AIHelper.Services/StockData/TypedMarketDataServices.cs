@@ -155,17 +155,17 @@ internal static class MarketDataContractParser
 				quotes.Add(new QuoteSnapshot(
 					symbol,
 					ReadString(item, "Name"),
-					ReadNullable(item, "Price") ?? DivideMilli(ReadNullable(prices, "Close")),
-					ReadNullable(item, "PreClose") ?? DivideMilli(ReadNullable(prices, "Last")) ?? DivideMilli(ReadNullable(prices, "PreClose")),
+					ReadNullable(item, "Price") ?? MarketDataUnits.DivideMilli(ReadNullable(prices, "Close")),
+					ReadNullable(item, "PreClose") ?? MarketDataUnits.DivideMilli(ReadNullable(prices, "Last")) ?? MarketDataUnits.DivideMilli(ReadNullable(prices, "PreClose")),
 					ReadNullable(item, "Percent"),
 					ReadNullable(item, "Volume") ?? ReadNullable(item, "TotalHand"),
 					ReadNullable(item, "Amount") ?? ReadNullable(item, "TotalAmount"),
 					ReadNullable(item, "Turnover"),
 					ReadNullable(item, "OuterVolume") ?? ReadNullable(item, "Wp"),
 					ReadNullable(item, "InnerVolume") ?? ReadNullable(item, "Np"),
-					DivideMilli(ReadNullable(prices, "Open")),
-					DivideMilli(ReadNullable(prices, "High")),
-					DivideMilli(ReadNullable(prices, "Low"))));
+					MarketDataUnits.DivideMilli(ReadNullable(prices, "Open")),
+					MarketDataUnits.DivideMilli(ReadNullable(prices, "High")),
+					MarketDataUnits.DivideMilli(ReadNullable(prices, "Low"))));
 			}
 			return quotes;
 		}
@@ -195,10 +195,10 @@ internal static class MarketDataContractParser
 				}
 				bars.Add(new KlineBar(
 					date,
-					DivideMilli(ReadNullable(item, "Open")),
-					DivideMilli(ReadNullable(item, "High")),
-					DivideMilli(ReadNullable(item, "Low")),
-					DivideMilli(ReadNullable(item, "Close")),
+					MarketDataUnits.DivideMilli(ReadNullable(item, "Open")),
+					MarketDataUnits.DivideMilli(ReadNullable(item, "High")),
+					MarketDataUnits.DivideMilli(ReadNullable(item, "Low")),
+					MarketDataUnits.DivideMilli(ReadNullable(item, "Close")),
 					ReadNullable(item, "Volume"),
 					ReadNullable(item, "Amount"),
 					ReadNullable(item, "Percent") ?? ReadNullable(item, "ChangePercent"),
@@ -285,8 +285,6 @@ internal static class MarketDataContractParser
 			&& double.TryParse(value.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out number)
 			&& double.IsFinite(number) ? number : null;
 	}
-
-	private static double? DivideMilli(double? value) => value.HasValue ? value.Value / 1000.0 : null;
 
 	private static string ReadString(JsonElement element, string name) =>
 		TryGetPropertyIgnoreCase(element, name, out JsonElement value)
