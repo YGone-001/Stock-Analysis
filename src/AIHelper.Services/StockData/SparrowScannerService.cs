@@ -61,7 +61,8 @@ public class SparrowScannerService
         List<(string Code, string Name)> targetPool,
         SparrowScanParameters parameters,
         IProgress<SparrowScanReport>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        SparrowMomentumGateConfig? momentumGates = null)
     {
         // Scan-local session state: quotes are fresh per scan and never frozen across scans
         var quoteCache = new ConcurrentDictionary<string, SparrowQuoteData>(StringComparer.Ordinal);
@@ -351,10 +352,15 @@ public class SparrowScannerService
 
             SparrowKlineSnapshot snapshot = klineData[item.Code];
             SparrowQuoteData quote = rankingQuotes[item.Code];
-            SparrowTechnicalEvaluation technical = SparrowV2RuleEvaluator.Evaluate(
-                snapshot, shIndexPctChg, parameters);
-            SparrowV2CandidateEvaluation evidence = SparrowV2CandidateEvaluator.Evaluate(
-                item.Code, quote, snapshot, shIndexPctChg, parameters);
+            // V2 path stays on the frozen evaluator; a gate config routes P3 through V3 (= V2 rules + momentum gates).
+            SparrowRuleComparison p2 = SparrowV2CandidateEvaluator.EvaluateQuote(quote, parameters);
+            SparrowTechnicalEvaluation technical = !p2.Passed
+                ? new SparrowTechnicalEvaluation(SparrowRuleComparison.NotRun("P3", "P2 did not pass"))
+                : momentumGates is null
+                    ? SparrowV2RuleEvaluator.Evaluate(snapshot, shIndexPctChg, parameters)
+                    : SparrowV3RuleEvaluator.Evaluate(snapshot, shIndexPctChg, parameters, momentumGates);
+            SparrowV2CandidateEvaluation evidence = new(item.Code, p2, technical.Rule,
+                StrategyVersion: momentumGates is null ? SparrowStrategyVersions.V2 : SparrowStrategyVersions.V3);
             if (evidence.Passed)
             {
                 string reason = $"黏合:{technical.Adhesion * 100.0:F1}% 动量:{technical.Momentum * 100.0:F1}%";

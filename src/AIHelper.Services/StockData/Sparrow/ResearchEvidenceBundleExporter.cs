@@ -106,10 +106,13 @@ public sealed class ResearchEvidenceBundleExporter : IResearchEvidenceBundleExpo
         string parametersJson = await File.ReadAllTextAsync(request.ParametersPath, cancellationToken).ConfigureAwait(false);
         SparrowClassicParameterSnapshot? classicParameters = null;
         SparrowV2ParameterSnapshot? v2Parameters = null;
+        SparrowV3ParameterSnapshot? v3Parameters = null;
         if (artifact.PortfolioRequest.StrategyMode == SparrowStrategyMode.Classic)
             classicParameters = JsonSerializer.Deserialize<SparrowClassicParameterSnapshot>(parametersJson, JsonOpts) ?? throw new InvalidOperationException("Classic snapshot was null.");
         else if (artifact.PortfolioRequest.StrategyMode == SparrowStrategyMode.V2)
             v2Parameters = JsonSerializer.Deserialize<SparrowV2ParameterSnapshot>(parametersJson, JsonOpts) ?? throw new InvalidOperationException("V2 snapshot was null.");
+        else if (artifact.PortfolioRequest.StrategyMode == SparrowStrategyMode.V3)
+            v3Parameters = JsonSerializer.Deserialize<SparrowV3ParameterSnapshot>(parametersJson, JsonOpts) ?? throw new InvalidOperationException("V3 snapshot was null.");
         else
             throw new NotSupportedException($"Unsupported strategy mode: {artifact.PortfolioRequest.StrategyMode}");
 
@@ -117,7 +120,7 @@ public sealed class ResearchEvidenceBundleExporter : IResearchEvidenceBundleExpo
         var pr = artifact.PortfolioRequest;
         SparrowBacktestRequest backtestRequest = new(pr.StrategyMode, pr.StrategyVersion, pr.StartDate, pr.EndDate, pr.TopN,
             new[] { pr.HorizonTradingDays }, request.BacktestRoundTripCostRate, request.BacktestSlippageRate,
-            ClassicParameters: classicParameters, V2Parameters: v2Parameters);
+            ClassicParameters: classicParameters, V2Parameters: v2Parameters, V3Parameters: v3Parameters);
 
         string candidateParamFp = SparrowHistoricalFingerprint.Parameters(backtestRequest);
         if (!string.Equals(candidateParamFp, pr.StrategyParameterFingerprint, StringComparison.Ordinal)
@@ -127,7 +130,8 @@ public sealed class ResearchEvidenceBundleExporter : IResearchEvidenceBundleExpo
         ExperimentParameterSnapshot genericParams = ResearchExperimentParameterSnapshotFactory.Create(
             pr.StrategyMode, pr.StrategyVersion, pr.StartDate, pr.EndDate, pr.TopN, pr.HorizonTradingDays,
             request.BacktestRoundTripCostRate, request.BacktestSlippageRate, classicParameters, v2Parameters,
-            pr.InitialCapital, pr.PositionSizingMethod, pr.CommissionRate, pr.SlippageRate, pr.ExecutionModel);
+            pr.InitialCapital, pr.PositionSizingMethod, pr.CommissionRate, pr.SlippageRate, pr.ExecutionModel,
+            v3Parameters);
 
         if (!string.Equals(genericParams.Fingerprint, record.Definition.Parameters.Fingerprint, StringComparison.Ordinal)
             || !string.Equals(genericParams.Fingerprint, record.ExecutionProvenanceBinding.ParameterSnapshotFingerprint, StringComparison.Ordinal))

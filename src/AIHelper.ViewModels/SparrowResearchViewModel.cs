@@ -65,7 +65,8 @@ public partial class SparrowResearchViewModel : ObservableObject, IDisposable
     public IReadOnlyList<SparrowStrategyOption> SupportedStrategies { get; } = new[]
     {
         new SparrowStrategyOption(SparrowStrategyMode.Classic, SparrowResearchDisplayText.Strategy(SparrowStrategyMode.Classic)),
-        new SparrowStrategyOption(SparrowStrategyMode.V2, SparrowResearchDisplayText.Strategy(SparrowStrategyMode.V2))
+        new SparrowStrategyOption(SparrowStrategyMode.V2, SparrowResearchDisplayText.Strategy(SparrowStrategyMode.V2)),
+        new SparrowStrategyOption(SparrowStrategyMode.V3, SparrowResearchDisplayText.Strategy(SparrowStrategyMode.V3))
     };
     public string Limitations => "研究回测 / 选股研究：仅按收盘价对收盘价计算；不包含组合资金分配、可执行性校验、完整历史股票池、退市证券覆盖，也未确认公司行为（除权除息）的处理方式。";
     public bool IsDatasetReady => DatasetLoadState == HistoricalDatasetLoadState.Ready && Dataset is not null;
@@ -80,7 +81,12 @@ public partial class SparrowResearchViewModel : ObservableObject, IDisposable
 
     partial void OnStrategyChanged(SparrowStrategyMode value)
     {
-        StrategyVersionDisplay = value == SparrowStrategyMode.Classic ? SparrowStrategyVersions.Classic : SparrowStrategyVersions.V2;
+        StrategyVersionDisplay = value switch
+        {
+            SparrowStrategyMode.Classic => SparrowStrategyVersions.Classic,
+            SparrowStrategyMode.V3 => SparrowStrategyVersions.V3,
+            _ => SparrowStrategyVersions.V2
+        };
         RefreshStrategyCompatibility(); NotifyCommandState();
     }
     partial void OnDatasetLoadStateChanged(HistoricalDatasetLoadState value) { OnPropertyChanged(nameof(IsDatasetReady)); OnPropertyChanged(nameof(IsStrategySupported)); RefreshStrategyCompatibility(); NotifyCommandState(); }
@@ -202,10 +208,18 @@ public partial class SparrowResearchViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsStrategySupported));
     }
     private static bool HasRequiredQuoteCapabilities(HistoricalDataCapabilities capabilities) => capabilities.HasAmount && capabilities.HasOuterVolume && capabilities.HasInnerVolume;
-    private SparrowReplayRequest ReplayRequest() => new(Strategy, StrategyVersionDisplay, DateOnly.FromDateTime(ReplayDate), TopN, Strategy == SparrowStrategyMode.Classic ? Classic() : null, Strategy == SparrowStrategyMode.V2 ? V2() : null);
-    private SparrowBacktestRequest BacktestRequest() => new(Strategy, StrategyVersionDisplay, DateOnly.FromDateTime(StartDate), DateOnly.FromDateTime(EndDate), TopN, new[] { 1, 3, 5, 10, 20 }, RoundTripCostPercent / 100, SlippagePerSidePercent / 100, Strategy == SparrowStrategyMode.Classic ? Classic() : null, Strategy == SparrowStrategyMode.V2 ? V2() : null);
+    private SparrowReplayRequest ReplayRequest() => new(Strategy, StrategyVersionDisplay, DateOnly.FromDateTime(ReplayDate), TopN,
+        Strategy == SparrowStrategyMode.Classic ? Classic() : null,
+        Strategy == SparrowStrategyMode.V2 ? V2() : null,
+        Strategy == SparrowStrategyMode.V3 ? V3() : null);
+    private SparrowBacktestRequest BacktestRequest() => new(Strategy, StrategyVersionDisplay, DateOnly.FromDateTime(StartDate), DateOnly.FromDateTime(EndDate), TopN, new[] { 1, 3, 5, 10, 20 }, RoundTripCostPercent / 100, SlippagePerSidePercent / 100,
+        Strategy == SparrowStrategyMode.Classic ? Classic() : null,
+        Strategy == SparrowStrategyMode.V2 ? V2() : null,
+        Strategy == SparrowStrategyMode.V3 ? V3() : null);
     private static SparrowClassicParameterSnapshot Classic() => new(false, 1, 5, 1.1, 1, true, 0, .15);
     private static SparrowV2ParameterSnapshot V2() => new(false, 1, 5, 1.1, 1, true, 0, .15, 3, 30, 0, false);
+    private static SparrowV3ParameterSnapshot V3() => new(false, 1, 5, 1.1, 1, true, 0, .15, 3, 30, 0, false,
+        SparrowParameterDefaults.RsiMin, SparrowParameterDefaults.RsiMax, SparrowParameterDefaults.RequireMacdBullish, 14, 12, 26, 9);
     private void Present(SparrowReplayResult result) { _replayResult = result; Message = string.Join(" ", result.Warnings.DefaultIfEmpty($"{SparrowResearchDisplayText.Support(result.Support)}：本次入选 {result.Selections.Count} 只")); Selections.Clear(); foreach (SparrowReplaySelection item in result.Selections) Selections.Add(new(result.Request.TradingDate, item.Code, item.RankedCandidate.Rank, item.RankedCandidate.TotalScore, item.ReasonCode, SparrowResearchDisplayText.Reason(item.ReasonCode, item.Reason), SparrowResearchDisplayText.None, SparrowResearchDisplayText.None, SparrowResearchDisplayText.None, SparrowResearchDisplayText.None, SparrowResearchDisplayText.None)); NotifyCommandState(); }
     private void Present(SparrowBacktestResult result) { _backtestResult = result; Message = string.Join(" ", result.Warnings.DefaultIfEmpty($"回测完成：共 {result.Selections.Count} 条入选记录")); Metrics.Clear(); Selections.Clear(); foreach (SparrowHorizonMetrics metric in result.Metrics) Metrics.Add(new(metric.HorizonTradingDays, metric.AvailableCount, P(metric.AverageReturnPercent), P(metric.MedianReturnPercent), P(metric.WinRate, true))); foreach (SparrowBacktestSelection item in result.Selections) Selections.Add(new(item.ReplayDate, item.Selection.Code, item.Selection.RankedCandidate.Rank, item.Selection.RankedCandidate.TotalScore, item.Selection.ReasonCode, SparrowResearchDisplayText.Reason(item.Selection.ReasonCode, item.Selection.Reason), Return(item, 1), Return(item, 3), Return(item, 5), Return(item, 10), Return(item, 20))); NotifyCommandState(); }
     private static string Return(SparrowBacktestSelection selection, int horizon) => P(selection.Outcomes.SingleOrDefault(value => value.HorizonTradingDays == horizon)?.ReturnPercent);

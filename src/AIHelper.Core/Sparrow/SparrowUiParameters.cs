@@ -10,6 +10,7 @@ public static class SparrowStrategyModeExtensions
         SparrowStrategyMode.Classic => "Classic（原始麻雀）",
         SparrowStrategyMode.V2 => "V2（东财增强）",
         SparrowStrategyMode.Compare => "Classic + V2 双选",
+        SparrowStrategyMode.V3 => "V3（动量门限）",
         _ => mode.ToString()
     };
 }
@@ -104,7 +105,8 @@ public class SparrowStrategyUiParameters : ISparrowStrategyUiParameters
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
 
-public sealed class SparrowV2UiParameters : SparrowStrategyUiParameters
+/// <summary>V2 enhancement parameters. Unsealed so V3 can inherit the full V2 field set verbatim.</summary>
+public class SparrowV2UiParameters : SparrowStrategyUiParameters
 {
     private double _minTurnover;
     private double _maxTurnover;
@@ -138,6 +140,41 @@ public sealed class SparrowV2UiParameters : SparrowStrategyUiParameters
     public double MomentumThreshold { get => _momentumThreshold; set => Set(ref _momentumThreshold, value); }
     public bool CheckAlpha { get => _checkAlpha; set => Set(ref _checkAlpha, value); }
     public bool StrictTurnover { get => _strictTurnover; set => Set(ref _strictTurnover, value); }
+}
+
+/// <summary>V3 inherits every V2 enhancement and adds the close-based momentum-quality gates.</summary>
+public sealed class SparrowV3UiParameters : SparrowV2UiParameters
+{
+    private double? _rsiMin;
+    private double? _rsiMax;
+    private bool _requireMacdBullish;
+
+    public double? RsiMin
+    {
+        get => _rsiMin;
+        set
+        {
+            if (Set(ref _rsiMin, value))
+            {
+                OnPropertyChanged(nameof(RsiBandText));
+            }
+        }
+    }
+    public double? RsiMax
+    {
+        get => _rsiMax;
+        set
+        {
+            if (Set(ref _rsiMax, value))
+            {
+                OnPropertyChanged(nameof(RsiBandText));
+            }
+        }
+    }
+    public bool RequireMacdBullish { get => _requireMacdBullish; set => Set(ref _requireMacdBullish, value); }
+    public string RsiBandText => RsiMin.HasValue && RsiMax.HasValue
+        ? $"当前范围：{RsiMin.Value:F0} ~ {RsiMax.Value:F0}"
+        : "RSI 门限未启用";
 }
 
 public sealed class SparrowSystemSettings : INotifyPropertyChanged
@@ -185,6 +222,9 @@ public static class SparrowParameterDefaults
     public const double MomentumThreshold = 0.0;
     public const bool CheckAlpha = true;
     public const bool StrictTurnover = false;
+    public const double RsiMin = 25.0;
+    public const double RsiMax = 75.0;
+    public const bool RequireMacdBullish = true;
     public const int MaxConcurrency = 8;
     public const bool UseCache = true;
 
@@ -199,6 +239,13 @@ public static class SparrowParameterDefaults
     {
         var parameters = new SparrowV2UiParameters();
         ResetV2(parameters);
+        return parameters;
+    }
+
+    public static SparrowV3UiParameters CreateV3()
+    {
+        var parameters = new SparrowV3UiParameters();
+        ResetV3(parameters);
         return parameters;
     }
 
@@ -244,6 +291,28 @@ public static class SparrowParameterDefaults
         && parameters.CheckAlpha == CheckAlpha
         && parameters.StrictTurnover == StrictTurnover;
 
+    public static void ResetV3(SparrowV3UiParameters parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        ResetV2(parameters);
+        ApplyV3Gates(parameters);
+        // ApplyV3Gates mutates through the setters, which clears the recommended flag set by ResetV2.
+        parameters.MarkRecommended();
+    }
+
+    public static void ApplyV3Gates(SparrowV3UiParameters parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        parameters.RsiMin = RsiMin;
+        parameters.RsiMax = RsiMax;
+        parameters.RequireMacdBullish = RequireMacdBullish;
+    }
+
+    public static bool AreV3GatesRecommended(SparrowV3UiParameters parameters) =>
+        parameters.RsiMin == RsiMin
+        && parameters.RsiMax == RsiMax
+        && parameters.RequireMacdBullish == RequireMacdBullish;
+
     private static void ApplyBase(SparrowStrategyUiParameters parameters)
     {
         parameters.MacroDef = MacroDef;
@@ -257,7 +326,7 @@ public static class SparrowParameterDefaults
     }
 }
 
-/// <summary>Owns independent Classic/V2 strategy values and shared runtime settings.</summary>
+/// <summary>Owns independent Classic/V2/V3 strategy values and shared runtime settings.</summary>
 public sealed class SparrowParameterUiState : INotifyPropertyChanged
 {
     private SparrowStrategyMode _strategyMode = SparrowStrategyMode.Classic;
@@ -266,12 +335,14 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
     {
         ClassicParameters.PropertyChanged += StrategyParametersChanged;
         V2Parameters.PropertyChanged += StrategyParametersChanged;
+        V3Parameters.PropertyChanged += StrategyParametersChanged;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public SparrowStrategyUiParameters ClassicParameters { get; } = SparrowParameterDefaults.CreateClassic();
     public SparrowV2UiParameters V2Parameters { get; } = SparrowParameterDefaults.CreateV2();
+    public SparrowV3UiParameters V3Parameters { get; } = SparrowParameterDefaults.CreateV3();
     public SparrowSystemSettings SystemSettings { get; } = SparrowParameterDefaults.CreateSystemSettings();
 
     public SparrowStrategyMode StrategyMode
@@ -285,20 +356,30 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         }
     }
 
-    public ISparrowStrategyUiParameters ActiveParameters =>
-        StrategyMode == SparrowStrategyMode.V2 ? V2Parameters : ClassicParameters;
+    public ISparrowStrategyUiParameters ActiveParameters => StrategyMode switch
+    {
+        SparrowStrategyMode.V2 => V2Parameters,
+        SparrowStrategyMode.V3 => V3Parameters,
+        _ => ClassicParameters
+    };
+
+    /// <summary>The V2-enhancement panel target; V3 mode edits its own inherited copy so saved V2 state is never mutated.</summary>
+    public SparrowV2UiParameters EnhancementParameters => StrategyMode == SparrowStrategyMode.V3 ? V3Parameters : V2Parameters;
 
     public bool IsClassicMode => StrategyMode == SparrowStrategyMode.Classic;
     public bool IsV2Mode => StrategyMode == SparrowStrategyMode.V2;
     public bool IsCompareMode => StrategyMode == SparrowStrategyMode.Compare;
+    public bool IsV3Mode => StrategyMode == SparrowStrategyMode.V3;
     public bool ShowBaseParameters => true;
-    public bool ShowV2Parameters => StrategyMode is SparrowStrategyMode.V2 or SparrowStrategyMode.Compare;
+    public bool ShowV2Parameters => StrategyMode is SparrowStrategyMode.V2 or SparrowStrategyMode.Compare or SparrowStrategyMode.V3;
+    public bool ShowV3Parameters => StrategyMode == SparrowStrategyMode.V3;
     public bool ShowSystemParameters => true;
 
     public string StrategyDescription => StrategyMode switch
     {
         SparrowStrategyMode.Classic => "原始麻雀：涨幅 + 成交额 + 外/内盘 → 均线结构 → 黏合",
         SparrowStrategyMode.V2 => "增强麻雀：Classic + 换手率 + Alpha + MA5 动量",
+        SparrowStrategyMode.V3 => "动量门限麻雀：V2 + RSI 区间 + MACD 多头过滤",
         _ => "A/B 对照工具：同一行情快照比较 Classic 与 V2，不是第三套策略"
     };
 
@@ -306,12 +387,16 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
     {
         SparrowStrategyMode.Classic => "麻雀 Classic",
         SparrowStrategyMode.V2 => "基础麻雀条件",
+        SparrowStrategyMode.V3 => "基础麻雀条件（V3 继承 V2 全部增强）",
         _ => "Classic / V2 共同条件"
     };
 
-    public string V2ParametersHeader => StrategyMode == SparrowStrategyMode.Compare
-        ? "仅 V2 生效"
-        : "V2 增强条件";
+    public string V2ParametersHeader => StrategyMode switch
+    {
+        SparrowStrategyMode.Compare => "仅 V2 生效",
+        SparrowStrategyMode.V3 => "V2 增强条件（作用于 V3）",
+        _ => "V2 增强条件"
+    };
 
     public string ComparisonHint => IsCompareMode
         ? "Compare 使用同一行情快照；V2 增强条件不会应用到 Classic。"
@@ -325,6 +410,9 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
             {
                 SparrowStrategyMode.Classic => ClassicParameters.IsRecommended,
                 SparrowStrategyMode.V2 => V2Parameters.IsRecommended,
+                SparrowStrategyMode.V3 => V3Parameters.IsRecommended
+                    && SparrowParameterDefaults.AreV2EnhancementsRecommended(V3Parameters)
+                    && SparrowParameterDefaults.AreV3GatesRecommended(V3Parameters),
                 _ => ClassicParameters.IsRecommended
                     && SparrowParameterDefaults.AreV2EnhancementsRecommended(V2Parameters)
             };
@@ -333,7 +421,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
     }
 
     public string AdhesionRangeText => ActiveParameters.AdhesionRangeText;
-    public string TurnoverRangeText => V2Parameters.TurnoverRangeText;
+    public string TurnoverRangeText => EnhancementParameters.TurnoverRangeText;
 
     public void ResetRecommendedDefaults()
     {
@@ -348,6 +436,9 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
             case SparrowStrategyMode.Compare:
                 SparrowParameterDefaults.ResetClassic(ClassicParameters);
                 SparrowParameterDefaults.ResetV2Enhancements(V2Parameters);
+                break;
+            case SparrowStrategyMode.V3:
+                SparrowParameterDefaults.ResetV3(V3Parameters);
                 break;
         }
         OnPropertyChanged(nameof(CurrentPresetName));
@@ -376,11 +467,14 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
     {
         OnPropertyChanged(nameof(StrategyMode));
         OnPropertyChanged(nameof(ActiveParameters));
+        OnPropertyChanged(nameof(EnhancementParameters));
         OnPropertyChanged(nameof(IsClassicMode));
         OnPropertyChanged(nameof(IsV2Mode));
         OnPropertyChanged(nameof(IsCompareMode));
+        OnPropertyChanged(nameof(IsV3Mode));
         OnPropertyChanged(nameof(ShowBaseParameters));
         OnPropertyChanged(nameof(ShowV2Parameters));
+        OnPropertyChanged(nameof(ShowV3Parameters));
         OnPropertyChanged(nameof(ShowSystemParameters));
         OnPropertyChanged(nameof(StrategyDescription));
         OnPropertyChanged(nameof(BaseParametersHeader));
@@ -416,6 +510,15 @@ public static class SparrowParameterMapper
     public static SparrowScanParameters ToV2(
         SparrowV2UiParameters parameters,
         SparrowSystemSettings system) => ToV2(parameters, parameters, system);
+
+    public static SparrowScanParameters ToV3(
+        SparrowV3UiParameters parameters,
+        SparrowSystemSettings system) => ToV2(parameters, parameters, system);
+
+    public static SparrowMomentumGateConfig ToMomentumGates(SparrowV3UiParameters parameters) => new(
+        parameters.RsiMin,
+        parameters.RsiMax,
+        parameters.RequireMacdBullish);
 
     /// <summary>
     /// Compare uses one editable common parameter set (Classic) for both sides and the saved
@@ -461,9 +564,15 @@ public static class SparrowParameterValidator
         SparrowStrategyMode mode,
         SparrowStrategyUiParameters classic,
         SparrowV2UiParameters v2,
-        SparrowSystemSettings system)
+        SparrowSystemSettings system,
+        SparrowV3UiParameters? v3 = null)
     {
-        ISparrowStrategyUiParameters common = mode == SparrowStrategyMode.V2 ? v2 : classic;
+        ISparrowStrategyUiParameters common = mode switch
+        {
+            SparrowStrategyMode.V2 => v2,
+            SparrowStrategyMode.V3 => v3 ?? throw new ArgumentNullException(nameof(v3), "V3 parameters are required in V3 mode."),
+            _ => classic
+        };
         if (!Finite(common.MinRise) || !Finite(common.MaxRise) || common.MinRise > common.MaxRise)
         {
             return Invalid("最低涨幅不能大于最高涨幅。");
@@ -485,6 +594,15 @@ public static class SparrowParameterValidator
             && (!Finite(v2.MinTurnover) || !Finite(v2.MaxTurnover) || v2.MinTurnover > v2.MaxTurnover))
         {
             return Invalid("最低换手率不能大于最高换手率。");
+        }
+        if (mode == SparrowStrategyMode.V3 && v3 is not null)
+        {
+            if ((v3.RsiMin.HasValue && (!Finite(v3.RsiMin.Value) || v3.RsiMin.Value < 0 || v3.RsiMin.Value > 100))
+                || (v3.RsiMax.HasValue && (!Finite(v3.RsiMax.Value) || v3.RsiMax.Value < 0 || v3.RsiMax.Value > 100))
+                || (v3.RsiMin.HasValue && v3.RsiMax.HasValue && v3.RsiMin.Value > v3.RsiMax.Value))
+            {
+                return Invalid("RSI 门限必须在 0~100 之间，且下限不能大于上限。");
+            }
         }
         if (system.MaxConcurrency < 1)
         {

@@ -47,7 +47,8 @@ public static class ResearchExperimentParameterSnapshotFactory
         PortfolioPositionSizingMethod positionSizingMethod,
         decimal commissionRate,
         decimal portfolioSlippageRate,
-        PortfolioExecutionModel executionModel)
+        PortfolioExecutionModel executionModel,
+        SparrowV3ParameterSnapshot? v3Parameters = null)
     {
         Dictionary<string, string> strategy = new(StringComparer.Ordinal)
         {
@@ -62,6 +63,7 @@ public static class ResearchExperimentParameterSnapshotFactory
         };
         AddClassic(strategy, classicParameters);
         AddV2(strategy, v2Parameters);
+        AddV3(strategy, v3Parameters);
 
         Dictionary<string, string> portfolio = new(StringComparer.Ordinal)
         {
@@ -118,9 +120,39 @@ public static class ResearchExperimentParameterSnapshotFactory
         target["V2.CheckAlpha"] = Boolean(parameters.CheckAlpha);
     }
 
+    /// <summary>Explicit V3 mapping. Every semantic field of <see cref="SparrowV3ParameterSnapshot"/> must appear here.</summary>
+    public static void AddV3(IDictionary<string, string> target, SparrowV3ParameterSnapshot? parameters)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (parameters is null) return;
+        target["V3.MacroDef"] = Boolean(parameters.MacroDef);
+        target["V3.MinRise"] = Double(parameters.MinRise);
+        target["V3.MaxRise"] = Double(parameters.MaxRise);
+        target["V3.VolRatio"] = Double(parameters.VolRatio);
+        target["V3.MinAmount"] = Double(parameters.MinAmount);
+        target["V3.CheckMA60"] = Boolean(parameters.CheckMA60);
+        target["V3.MinAdhesion"] = Double(parameters.MinAdhesion);
+        target["V3.MaxAdhesion"] = Double(parameters.MaxAdhesion);
+        target["V3.MinTurnover"] = Double(parameters.MinTurnover);
+        target["V3.MaxTurnover"] = Double(parameters.MaxTurnover);
+        target["V3.MomentumThreshold"] = Double(parameters.MomentumThreshold);
+        target["V3.CheckAlpha"] = Boolean(parameters.CheckAlpha);
+        target["V3.RsiMin"] = parameters.RsiMin.HasValue ? Double(parameters.RsiMin.Value) : "null";
+        target["V3.RsiMax"] = parameters.RsiMax.HasValue ? Double(parameters.RsiMax.Value) : "null";
+        target["V3.RequireMacdBullish"] = Boolean(parameters.RequireMacdBullish);
+        target["V3.RsiPeriod"] = Integer(parameters.RsiPeriod);
+        target["V3.MacdFastPeriod"] = Integer(parameters.MacdFastPeriod);
+        target["V3.MacdSlowPeriod"] = Integer(parameters.MacdSlowPeriod);
+        target["V3.MacdSignalPeriod"] = Integer(parameters.MacdSignalPeriod);
+    }
+
     /// <summary>Canonical typed-snapshot key prefix for a strategy mode.</summary>
-    public static string TypedKeyPrefix(SparrowStrategyMode strategyMode) =>
-        strategyMode == SparrowStrategyMode.V2 ? "V2." : "Classic.";
+    public static string TypedKeyPrefix(SparrowStrategyMode strategyMode) => strategyMode switch
+    {
+        SparrowStrategyMode.V2 => "V2.",
+        SparrowStrategyMode.V3 => "V3.",
+        _ => "Classic."
+    };
 
     public static string Date(DateOnly value) => value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     public static string Integer(int value) => value.ToString(CultureInfo.InvariantCulture);

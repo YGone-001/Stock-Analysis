@@ -290,11 +290,20 @@ public sealed record SparrowV2ParameterSnapshot(bool MacroDef, double MinRise, d
     public SparrowScanParameters ToParameters() => new() { MacroDef = MacroDef, MinRise = MinRise, MaxRise = MaxRise, VolRatio = VolRatio, MinAmount = MinAmount, CheckMA60 = CheckMA60, MinAdhesion = MinAdhesion, MaxAdhesion = MaxAdhesion, MinTurnover = MinTurnover, MaxTurnover = MaxTurnover, MomentumThreshold = MomentumThreshold, CheckAlpha = CheckAlpha };
     public static SparrowV2ParameterSnapshot From(SparrowScanParameters p) => new(p.MacroDef, p.MinRise, p.MaxRise, p.VolRatio, p.MinAmount, p.CheckMA60, p.MinAdhesion, p.MaxAdhesion, p.MinTurnover, p.MaxTurnover, p.MomentumThreshold, p.CheckAlpha);
 }
-public sealed record SparrowReplayRequest(SparrowStrategyMode StrategyMode, string StrategyVersion, DateOnly TradingDate, int TopN, SparrowClassicParameterSnapshot? ClassicParameters = null, SparrowV2ParameterSnapshot? V2Parameters = null);
+/// <summary>V3 = the complete V2 snapshot plus the momentum-quality gates; carried flat so the fingerprint preimage stays explicit.</summary>
+public sealed record SparrowV3ParameterSnapshot(
+    bool MacroDef, double MinRise, double MaxRise, double VolRatio, double MinAmount, bool CheckMA60, double MinAdhesion, double MaxAdhesion,
+    double MinTurnover, double MaxTurnover, double MomentumThreshold, bool CheckAlpha,
+    double? RsiMin, double? RsiMax, bool RequireMacdBullish, int RsiPeriod, int MacdFastPeriod, int MacdSlowPeriod, int MacdSignalPeriod)
+{
+    public SparrowScanParameters ToParameters() => new() { MacroDef = MacroDef, MinRise = MinRise, MaxRise = MaxRise, VolRatio = VolRatio, MinAmount = MinAmount, CheckMA60 = CheckMA60, MinAdhesion = MinAdhesion, MaxAdhesion = MaxAdhesion, MinTurnover = MinTurnover, MaxTurnover = MaxTurnover, MomentumThreshold = MomentumThreshold, CheckAlpha = CheckAlpha };
+    public SparrowMomentumGateConfig ToMomentumGates() => new(RsiMin, RsiMax, RequireMacdBullish, RsiPeriod, MacdFastPeriod, MacdSlowPeriod, MacdSignalPeriod);
+}
+public sealed record SparrowReplayRequest(SparrowStrategyMode StrategyMode, string StrategyVersion, DateOnly TradingDate, int TopN, SparrowClassicParameterSnapshot? ClassicParameters = null, SparrowV2ParameterSnapshot? V2Parameters = null, SparrowV3ParameterSnapshot? V3Parameters = null);
 public sealed record SparrowReplaySelection(string Code, string Name, SparrowRankedCandidate RankedCandidate, string ReasonCode, string Reason);
 public sealed record SparrowReplayResult(SparrowReplayRequest Request, string ParameterFingerprint, string DatasetId, string DatasetFingerprint, HistoricalReplaySupport Support, IReadOnlyList<SparrowReplaySelection> Selections, IReadOnlyList<string> Warnings);
 public sealed record ForwardReturn(int HorizonTradingDays, double? EntryPrice, double? ExitPrice, double? ReturnPercent, bool Available);
-public sealed record SparrowBacktestRequest(SparrowStrategyMode StrategyMode, string StrategyVersion, DateOnly StartDate, DateOnly EndDate, int TopN, IReadOnlyList<int> Horizons, double RoundTripCostRate = 0, double SlippageRate = 0, SparrowClassicParameterSnapshot? ClassicParameters = null, SparrowV2ParameterSnapshot? V2Parameters = null);
+public sealed record SparrowBacktestRequest(SparrowStrategyMode StrategyMode, string StrategyVersion, DateOnly StartDate, DateOnly EndDate, int TopN, IReadOnlyList<int> Horizons, double RoundTripCostRate = 0, double SlippageRate = 0, SparrowClassicParameterSnapshot? ClassicParameters = null, SparrowV2ParameterSnapshot? V2Parameters = null, SparrowV3ParameterSnapshot? V3Parameters = null);
 public sealed record SparrowBacktestSelection(DateOnly ReplayDate, SparrowReplaySelection Selection, IReadOnlyList<ForwardReturn> Outcomes);
 public sealed record SparrowHorizonMetrics(int HorizonTradingDays, int SelectionCount, int AvailableCount, double? AverageReturnPercent, double? MedianReturnPercent, double? WinRate);
 public sealed record SparrowBacktestResult(SparrowBacktestRequest Request, string ParameterFingerprint, string DatasetId, string DatasetFingerprint, IReadOnlyList<SparrowBacktestSelection> Selections, IReadOnlyList<SparrowHorizonMetrics> Metrics, IReadOnlyList<string> Warnings);

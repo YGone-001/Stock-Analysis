@@ -39,6 +39,9 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
     internal NumericUpDown NumMaxTurnover;
     internal NumericUpDown? LegacyConcurrencyControl { get; private set; }
     internal NumericUpDown NumMomentum;
+    internal NumericUpDown NumRsiMin;
+    internal NumericUpDown NumRsiMax;
+    internal CheckBox ChkMacdBullish;
     internal Button BtnStart;
     internal Button BtnTest;
     internal NumericUpDown NumConcurrency;
@@ -81,18 +84,21 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumVolRatio.SetBinding(NumericUpDown.ValueProperty, new Binding("Parameters.VolRatio") { Mode = BindingMode.TwoWay });
         NumMinAmount.SetBinding(NumericUpDown.ValueProperty, new Binding("Parameters.MinAmount") { Mode = BindingMode.TwoWay });
         ChkMA60.SetBinding(CheckBox.IsCheckedProperty, new Binding("Parameters.CheckMA60") { Mode = BindingMode.TwoWay });
-        ChkAlpha.SetBinding(CheckBox.IsCheckedProperty, new Binding("V2Parameters.CheckAlpha") { Mode = BindingMode.TwoWay });
-        ChkStrictTurnover.SetBinding(CheckBox.IsCheckedProperty, new Binding("V2Parameters.StrictTurnover") { Mode = BindingMode.TwoWay });
+        ChkAlpha.SetBinding(CheckBox.IsCheckedProperty, new Binding("EnhancementParameters.CheckAlpha") { Mode = BindingMode.TwoWay });
+        ChkStrictTurnover.SetBinding(CheckBox.IsCheckedProperty, new Binding("EnhancementParameters.StrictTurnover") { Mode = BindingMode.TwoWay });
         ChkUseCache.SetBinding(CheckBox.IsCheckedProperty, new Binding("SystemSettings.UseCache") { Mode = BindingMode.TwoWay });
         SldAdhesion.SetBinding(RangeSlider.ValueStartProperty, new Binding("Parameters.MinAdhesion") { Mode = BindingMode.TwoWay });
         SldAdhesion.SetBinding(RangeSlider.ValueEndProperty, new Binding("Parameters.MaxAdhesion") { Mode = BindingMode.TwoWay });
         NumMinAdhesion.SetBinding(NumericUpDown.ValueProperty, new Binding("Parameters.MinAdhesion") { Mode = BindingMode.TwoWay });
         NumMaxAdhesion.SetBinding(NumericUpDown.ValueProperty, new Binding("Parameters.MaxAdhesion") { Mode = BindingMode.TwoWay });
-        SldTurnover.SetBinding(RangeSlider.ValueStartProperty, new Binding("V2Parameters.MinTurnover") { Mode = BindingMode.TwoWay });
-        SldTurnover.SetBinding(RangeSlider.ValueEndProperty, new Binding("V2Parameters.MaxTurnover") { Mode = BindingMode.TwoWay });
-        NumMinTurnover.SetBinding(NumericUpDown.ValueProperty, new Binding("V2Parameters.MinTurnover") { Mode = BindingMode.TwoWay });
-        NumMaxTurnover.SetBinding(NumericUpDown.ValueProperty, new Binding("V2Parameters.MaxTurnover") { Mode = BindingMode.TwoWay });
-        NumMomentum.SetBinding(NumericUpDown.ValueProperty, new Binding("V2Parameters.MomentumThreshold") { Mode = BindingMode.TwoWay });
+        SldTurnover.SetBinding(RangeSlider.ValueStartProperty, new Binding("EnhancementParameters.MinTurnover") { Mode = BindingMode.TwoWay });
+        SldTurnover.SetBinding(RangeSlider.ValueEndProperty, new Binding("EnhancementParameters.MaxTurnover") { Mode = BindingMode.TwoWay });
+        NumMinTurnover.SetBinding(NumericUpDown.ValueProperty, new Binding("EnhancementParameters.MinTurnover") { Mode = BindingMode.TwoWay });
+        NumMaxTurnover.SetBinding(NumericUpDown.ValueProperty, new Binding("EnhancementParameters.MaxTurnover") { Mode = BindingMode.TwoWay });
+        NumMomentum.SetBinding(NumericUpDown.ValueProperty, new Binding("EnhancementParameters.MomentumThreshold") { Mode = BindingMode.TwoWay });
+        NumRsiMin.SetBinding(NumericUpDown.ValueProperty, new Binding("V3Parameters.RsiMin") { Mode = BindingMode.TwoWay });
+        NumRsiMax.SetBinding(NumericUpDown.ValueProperty, new Binding("V3Parameters.RsiMax") { Mode = BindingMode.TwoWay });
+        ChkMacdBullish.SetBinding(CheckBox.IsCheckedProperty, new Binding("V3Parameters.RequireMacdBullish") { Mode = BindingMode.TwoWay });
         NumConcurrency.SetBinding(NumericUpDown.ValueProperty, new Binding("SystemSettings.MaxConcurrency") { Mode = BindingMode.TwoWay });
         NumTopN.SetBinding(NumericUpDown.ValueProperty, new Binding("TopN") { Mode = BindingMode.TwoWay });
 
@@ -286,6 +292,10 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumMaxTurnover = new NumericUpDown { Minimum = 0, Maximum = 50, Increment = 0.5, Width = 65 };
         SldTurnover = new RangeSlider { Minimum = 0, Maximum = 50, SmallChange = 0.5, TickFrequency = 5.0, Width = 160 };
 
+        NumRsiMin = new NumericUpDown { Minimum = 0, Maximum = 100, Increment = 1, Width = 65 };
+        NumRsiMax = new NumericUpDown { Minimum = 0, Maximum = 100, Increment = 1, Width = 65 };
+        ChkMacdBullish = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
+
         var modePanel = new StackPanel
         {
             Name = "SparrowStrategyModePanel",
@@ -421,6 +431,55 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
             Converter = new BooleanToVisibilityConverter()
         });
 
+        var v3RsiPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        v3RsiPanel.Children.Add(new TextBlock
+        {
+            Text = "RSI(14) 区间：",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        });
+        v3RsiPanel.Children.Add(NumRsiMin);
+        v3RsiPanel.Children.Add(new TextBlock { Text = "~", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0) });
+        v3RsiPanel.Children.Add(NumRsiMax);
+        v3RsiPanel.Children.Add(new TextBlock
+        {
+            Text = "0~100 等效关闭该门限",
+            Foreground = System.Windows.Media.Brushes.Gray,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0)
+        });
+
+        var v3MacdPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        v3MacdPanel.Children.Add(new TextBlock
+        {
+            Text = "MACD 多头要求（DIF ≥ DEA）：",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        });
+        v3MacdPanel.Children.Add(ChkMacdBullish);
+
+        var v3Content = new StackPanel();
+        v3Content.Children.Add(v3RsiPanel);
+        v3Content.Children.Add(v3MacdPanel);
+        v3Content.Children.Add(new TextBlock
+        {
+            Text = "V3 = 冻结的 V2 规则 + 以上动量门限；门限在 V2 全部通过后才评估。",
+            Foreground = System.Windows.Media.Brushes.Gray,
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var v3Group = new GroupBox
+        {
+            Header = "V3 动量门限",
+            Content = v3Content,
+            Margin = new Thickness(0, 0, 0, 8),
+            Padding = new Thickness(8)
+        };
+        v3Group.SetBinding(UIElement.VisibilityProperty, new Binding("ShowV3Parameters")
+        {
+            Converter = new BooleanToVisibilityConverter()
+        });
+
         var compareHint = new TextBlock
         {
             Foreground = System.Windows.Media.Brushes.SteelBlue,
@@ -500,6 +559,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         root.Children.Add(description);
         root.Children.Add(baseGroup);
         root.Children.Add(v2Group);
+        root.Children.Add(v3Group);
         root.Children.Add(compareHint);
         root.Children.Add(outputPanel);
         root.Children.Add(resultSummary);

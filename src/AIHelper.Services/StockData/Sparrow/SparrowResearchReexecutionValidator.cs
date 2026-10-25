@@ -98,6 +98,7 @@ public sealed class SparrowResearchReexecutionValidator : ISparrowResearchReexec
         string parametersJson = await File.ReadAllTextAsync(parametersPath, cancellationToken).ConfigureAwait(false);
         SparrowClassicParameterSnapshot? classicParameters = null;
         SparrowV2ParameterSnapshot? v2Parameters = null;
+        SparrowV3ParameterSnapshot? v3Parameters = null;
 
         try
         {
@@ -105,9 +106,11 @@ public sealed class SparrowResearchReexecutionValidator : ISparrowResearchReexec
                 classicParameters = JsonSerializer.Deserialize<SparrowClassicParameterSnapshot>(parametersJson, JsonOpts) ?? throw new InvalidOperationException("Classic snapshot was null.");
             else if (originalArtifact.PortfolioRequest.StrategyMode == SparrowStrategyMode.V2)
                 v2Parameters = JsonSerializer.Deserialize<SparrowV2ParameterSnapshot>(parametersJson, JsonOpts) ?? throw new InvalidOperationException("V2 snapshot was null.");
+            else if (originalArtifact.PortfolioRequest.StrategyMode == SparrowStrategyMode.V3)
+                v3Parameters = JsonSerializer.Deserialize<SparrowV3ParameterSnapshot>(parametersJson, JsonOpts) ?? throw new InvalidOperationException("V3 snapshot was null.");
             else
             {
-                Unsup(ExecutableParametersLoaded, "Classic or V2", originalArtifact.PortfolioRequest.StrategyMode.ToString(), $"Unsupported strategy mode: {originalArtifact.PortfolioRequest.StrategyMode}", ExecutableParametersLoadFailed);
+                Unsup(ExecutableParametersLoaded, "Classic, V2 or V3", originalArtifact.PortfolioRequest.StrategyMode.ToString(), $"Unsupported strategy mode: {originalArtifact.PortfolioRequest.StrategyMode}", ExecutableParametersLoadFailed);
                 return Result(Unsupported);
             }
         }
@@ -121,7 +124,7 @@ public sealed class SparrowResearchReexecutionValidator : ISparrowResearchReexec
         // Historical backtest identity preimage includes RoundTripCostRate and SlippageRate: supplied explicitly, never inferred.
         var pr = originalArtifact.PortfolioRequest;
         SparrowBacktestRequest backtestRequest = new(pr.StrategyMode, pr.StrategyVersion, pr.StartDate, pr.EndDate, pr.TopN, new[] { pr.HorizonTradingDays },
-            backtestRoundTripCostRate, backtestSlippageRate, ClassicParameters: classicParameters, V2Parameters: v2Parameters);
+            backtestRoundTripCostRate, backtestSlippageRate, ClassicParameters: classicParameters, V2Parameters: v2Parameters, V3Parameters: v3Parameters);
 
         string candidateParamFp = SparrowHistoricalFingerprint.Parameters(backtestRequest);
         bool paramFpMatches = string.Equals(candidateParamFp, pr.StrategyParameterFingerprint, StringComparison.Ordinal)

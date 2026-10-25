@@ -41,7 +41,7 @@ public sealed class SparrowWindowRealUiTests
     }
 
     [Fact]
-    public void SparrowWindowDC_InitializesStrategyAwareUi_AndRendersAllThreeModes()
+    public void SparrowWindowDC_InitializesStrategyAwareUi_AndRendersAllFourModes()
     {
         RunWindowTest((window, vm) =>
         {
@@ -68,10 +68,11 @@ public sealed class SparrowWindowRealUiTests
 
             var options = modeSelector.ItemsSource as IReadOnlyList<SparrowStrategyModeOption>;
             Assert.NotNull(options);
-            Assert.Equal(3, options.Count);
+            Assert.Equal(4, options.Count);
             Assert.Equal("Classic（原始麻雀）", options[0].DisplayName);
             Assert.Equal("V2（东财增强）", options[1].DisplayName);
             Assert.Equal("Classic + V2 双选", options[2].DisplayName);
+            Assert.Equal("V3（动量门限）", options[3].DisplayName);
 
             string artifactDir = @"C:\Users\YGone\.gemini\antigravity\brain\61802ae4-a116-4387-b1a8-996a03966bd0";
             Directory.CreateDirectory(artifactDir);
@@ -102,6 +103,19 @@ public sealed class SparrowWindowRealUiTests
             Assert.Equal("仅 V2 生效", vm.V2ParametersHeader);
             Assert.Contains("Compare 使用同一行情快照", vm.ComparisonHint);
             SaveWindowScreenshot(window, Path.Combine(artifactDir, "sparrow_compare.png"));
+
+            // 5. Mode: V3
+            vm.StrategyMode = SparrowStrategyMode.V3;
+            window.UpdateLayout();
+            Assert.True(vm.ShowV2Parameters);
+            Assert.True(vm.ShowV3Parameters);
+            Assert.True(vm.IsV3Mode);
+            Assert.Equal("动量门限麻雀：V2 + RSI 区间 + MACD 多头过滤", vm.StrategyDescription);
+            Assert.Equal("V2 增强条件（作用于 V3）", vm.V2ParametersHeader);
+            Assert.Equal(25d, vm.V3Parameters.RsiMin);
+            Assert.Equal(75d, vm.V3Parameters.RsiMax);
+            Assert.True(vm.V3Parameters.RequireMacdBullish);
+            SaveWindowScreenshot(window, Path.Combine(artifactDir, "sparrow_v3.png"));
         });
     }
 

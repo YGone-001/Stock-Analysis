@@ -88,7 +88,12 @@ public sealed class ManagedResearchExperimentRequest
 
     /// <summary>Stable single-line description used by diagnostics; contains no absolute-path-dependent identity.</summary>
     public string Describe() => string.Format(CultureInfo.InvariantCulture, "{0}|{1}|{2}|{3:yyyy-MM-dd}|{4:yyyy-MM-dd}|{5}|{6}",
-        ExperimentId, StrategyMode, StrategyMode == SparrowStrategyMode.V2 ? SparrowStrategyVersions.V2 : SparrowStrategyVersions.Classic,
+        ExperimentId, StrategyMode, StrategyMode switch
+        {
+            SparrowStrategyMode.V2 => SparrowStrategyVersions.V2,
+            SparrowStrategyMode.V3 => SparrowStrategyVersions.V3,
+            _ => SparrowStrategyVersions.Classic
+        },
         StartDate, EndDate, TopN, HorizonTradingDays);
 }
 

@@ -17,6 +17,7 @@ internal static class SparrowResearchDisplayText
     {
         SparrowStrategyMode.Classic => "经典策略",
         SparrowStrategyMode.V2 => "V2 策略",
+        SparrowStrategyMode.V3 => "V3 动量门限策略",
         SparrowStrategyMode.Compare => "对比",
         _ => mode.ToString()
     };

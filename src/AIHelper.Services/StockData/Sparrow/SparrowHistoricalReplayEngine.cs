@@ -81,12 +81,16 @@ public sealed class SparrowHistoricalReplayEngine
         if (request.StrategyMode == SparrowStrategyMode.Compare) return Unsupported(dataset, request, "Compare 属于对比编排模式，不能直接用于回放。");
         if (request.StrategyMode == SparrowStrategyMode.Classic && request.ClassicParameters == null) return Unsupported(dataset, request, "缺少经典策略的参数快照。");
         if (request.StrategyMode == SparrowStrategyMode.V2 && request.V2Parameters == null) return Unsupported(dataset, request, "缺少 V2 策略的参数快照。");
+        if (request.StrategyMode == SparrowStrategyMode.V3 && request.V3Parameters == null) return Unsupported(dataset, request, "缺少 V3 策略的参数快照。");
         if (!HasRequiredCapabilities(dataset, request, snapshot.MarketContext, out string? gap)) return Unsupported(dataset, request, gap!);
         if (request.StrategyMode == SparrowStrategyMode.Classic && dataset.QualitySummary.HistoricalStCoverage != HistoricalFieldCoverage.Unknown && dataset.QualitySummary.HistoricalStCoverage != HistoricalFieldCoverage.Full)
             return Unsupported(dataset, request, "该数据集的历史 ST 证据不完整，无法运行经典策略。");
-        return request.StrategyMode == SparrowStrategyMode.Classic
-            ? ReplayClassic(dataset, request, snapshot, warnings, cancellationToken)
-            : ReplayV2(dataset, request, snapshot, warnings, cancellationToken);
+        return request.StrategyMode switch
+        {
+            SparrowStrategyMode.Classic => ReplayClassic(dataset, request, snapshot, warnings, cancellationToken),
+            SparrowStrategyMode.V3 => ReplayV3(dataset, request, snapshot, warnings, cancellationToken),
+            _ => ReplayV2(dataset, request, snapshot, warnings, cancellationToken)
+        };
     }
 
     private SparrowReplayResult ReplayClassic(HistoricalMarketDataset dataset, SparrowReplayRequest request, HistoricalMarketSnapshot snapshot, List<string> warnings, CancellationToken ct)
@@ -152,6 +156,39 @@ public sealed class SparrowHistoricalReplayEngine
         return Result(dataset, request, HistoricalReplaySupport.Supported, ToSelections(ranked, candidates, request.TopN), warnings);
     }
 
+    /// <summary>V3 mirrors the V2 replay flow; only the P3 evaluator differs (frozen V2 rules plus momentum gates).</summary>
+    private SparrowReplayResult ReplayV3(HistoricalMarketDataset dataset, SparrowReplayRequest request, HistoricalMarketSnapshot snapshot, List<string> warnings, CancellationToken ct)
+    {
+        SparrowV3ParameterSnapshot snapshotParameters = request.V3Parameters!;
+        SparrowScanParameters parameters = snapshotParameters.ToParameters();
+        SparrowMomentumGateConfig gates = snapshotParameters.ToMomentumGates();
+        double? shPercent = snapshot.MarketContext?.V2ShanghaiDailyPercent;
+        if (parameters.MacroDef && snapshot.MarketContext?.ClassicMarketRegime?.Defensive == true)
+        {
+            warnings.Add("V3 双指数弱势，本次未评估任何候选。");
+            return Result(dataset, request, HistoricalReplaySupport.Supported, Array.Empty<SparrowReplaySelection>(), warnings);
+        }
+        var candidates = new List<(SparrowRankingFeatures Features, string ReasonCode, string Reason)>();
+        foreach (HistoricalSecuritySnapshot security in snapshot.Securities)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!HasRequiredQuoteFields(dataset, security.Quote, SparrowStrategyMode.V3))
+            {
+                warnings.Add($"{security.Security.Symbol}：缺少必需的行情字段，已跳过。");
+                continue;
+            }
+            SparrowQuoteData quote = SparrowQuoteDataContract.FromSnapshot(security.Quote);
+            SparrowKlineSnapshot? kline = SparrowKlineSnapshotFactory.FromSeries(security.Klines);
+            SparrowRuleComparison p2 = SparrowV2CandidateEvaluator.EvaluateQuote(quote, parameters);
+            if (!p2.Passed) continue;
+            SparrowTechnicalEvaluation technical = SparrowV3RuleEvaluator.Evaluate(kline, shPercent, parameters, gates);
+            if (!technical.Rule.Passed) continue;
+            candidates.Add((Features(security.Quote, quote, technical, parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null), technical.Rule.ReasonCode, technical.Rule.Reason));
+        }
+        IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha);
+        return Result(dataset, request, HistoricalReplaySupport.Supported, ToSelections(ranked, candidates, request.TopN), warnings);
+    }
+
     private static SparrowRankingFeatures Features(QuoteSnapshot source, SparrowQuoteData quote, SparrowTechnicalEvaluation technical, double? alpha = null) => new()
     { Code = source.Symbol, Name = source.Name, RisePercent = quote.PriceDerivedPercent ?? quote.Percent, Amount = quote.Amount, OuterVolume = quote.OuterVolume, InnerVolume = quote.InnerVolume, BuyPressureRatio = SparrowRankingFeatures.CalculateBuyPressureRatio(quote.OuterVolume, quote.InnerVolume), Adhesion = technical.Adhesion, Turnover = quote.Turnover, Momentum = technical.Momentum, AlphaMargin = alpha };
     private static IReadOnlyList<SparrowReplaySelection> ToSelections(IReadOnlyList<SparrowRankedCandidate> ranked, IEnumerable<(SparrowRankingFeatures Features, string ReasonCode, string Reason)> evidence, int topN)
@@ -162,13 +199,19 @@ public sealed class SparrowHistoricalReplayEngine
     {
         HistoricalDataCapabilities c = dataset.Capabilities;
         bool common = dataset.SchemaVersion <= 1
-            ? c.HasAmount && c.HasOuterVolume && c.HasInnerVolume && (r.StrategyMode != SparrowStrategyMode.V2 || c.HasTurnover)
+            ? c.HasAmount && c.HasOuterVolume && c.HasInnerVolume && (r.StrategyMode is not (SparrowStrategyMode.V2 or SparrowStrategyMode.V3) || c.HasTurnover)
             : RequiredFields(r.StrategyMode).All(field => HasDatasetField(dataset, field));
-        bool market = r.StrategyMode == SparrowStrategyMode.Classic ? (!r.ClassicParameters!.MacroDef || c.HasClassicMarketRegime && context?.ClassicMarketRegime != null) : (!r.V2Parameters!.MacroDef || c.HasClassicMarketRegime && context?.ClassicMarketRegime != null);
+        bool macroDef = r.StrategyMode switch
+        {
+            SparrowStrategyMode.Classic => r.ClassicParameters!.MacroDef,
+            SparrowStrategyMode.V3 => r.V3Parameters!.MacroDef,
+            _ => r.V2Parameters!.MacroDef
+        };
+        bool market = !macroDef || c.HasClassicMarketRegime && context?.ClassicMarketRegime != null;
         gap = common && market ? null : "HistoricalFieldUnavailable：本次回放所需的行情或大盘状态字段缺失。"; return gap == null;
     }
 
-    private static IReadOnlyList<HistoricalField> RequiredFields(SparrowStrategyMode strategyMode) => strategyMode == SparrowStrategyMode.V2
+    private static IReadOnlyList<HistoricalField> RequiredFields(SparrowStrategyMode strategyMode) => strategyMode is SparrowStrategyMode.V2 or SparrowStrategyMode.V3
         ? new[] { HistoricalField.Price, HistoricalField.PreviousClose, HistoricalField.Amount, HistoricalField.Turnover, HistoricalField.OuterVolume, HistoricalField.InnerVolume }
         : new[] { HistoricalField.Price, HistoricalField.PreviousClose, HistoricalField.Amount, HistoricalField.OuterVolume, HistoricalField.InnerVolume };
 
@@ -196,7 +239,7 @@ public sealed class SparrowHistoricalReplayEngine
         });
     }
     private static void ValidateVersion(SparrowReplayRequest request)
-    { string expected = request.StrategyMode == SparrowStrategyMode.Classic ? SparrowStrategyVersions.Classic : request.StrategyMode == SparrowStrategyMode.V2 ? SparrowStrategyVersions.V2 : ""; if (!string.Equals(request.StrategyVersion, expected, StringComparison.Ordinal)) throw new ArgumentException($"Requested strategy version '{request.StrategyVersion}' does not match '{expected}'.", nameof(request)); }
+    { string expected = request.StrategyMode switch { SparrowStrategyMode.Classic => SparrowStrategyVersions.Classic, SparrowStrategyMode.V2 => SparrowStrategyVersions.V2, SparrowStrategyMode.V3 => SparrowStrategyVersions.V3, _ => "" }; if (!string.Equals(request.StrategyVersion, expected, StringComparison.Ordinal)) throw new ArgumentException($"Requested strategy version '{request.StrategyVersion}' does not match '{expected}'.", nameof(request)); }
 }
 
 public sealed class HistoricalOutcomeEvaluator
@@ -222,7 +265,7 @@ public sealed class SparrowHistoricalBacktestEngine
         foreach (DateOnly date in dataset.TradingDates.Where(date => date >= request.StartDate && date <= request.EndDate))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var replayRequest = new SparrowReplayRequest(request.StrategyMode, request.StrategyVersion, date, request.TopN, request.ClassicParameters, request.V2Parameters);
+            var replayRequest = new SparrowReplayRequest(request.StrategyMode, request.StrategyVersion, date, request.TopN, request.ClassicParameters, request.V2Parameters, request.V3Parameters);
             SparrowReplayResult replay = _replay.Replay(dataset, replayRequest, cancellationToken);
             warnings.AddRange(replay.Warnings.Select(warning => $"{date:O}: {warning}"));
             foreach (SparrowReplaySelection selection in replay.Selections)

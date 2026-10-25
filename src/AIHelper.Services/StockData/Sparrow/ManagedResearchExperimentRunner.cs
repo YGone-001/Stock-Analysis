@@ -88,13 +88,18 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
             throw new InvalidOperationException($"Dataset load failed: {string.Join("; ", loaded.Errors)}");
         HistoricalMarketDataset dataset = loaded.Dataset;
 
-        (SparrowClassicParameterSnapshot? classicParameters, SparrowV2ParameterSnapshot? v2Parameters) =
+        (SparrowClassicParameterSnapshot? classicParameters, SparrowV2ParameterSnapshot? v2Parameters, SparrowV3ParameterSnapshot? v3Parameters) =
             await LoadTypedParametersAsync(request, cancellationToken).ConfigureAwait(false);
 
-        string strategyVersion = request.StrategyMode == SparrowStrategyMode.V2 ? SparrowStrategyVersions.V2 : SparrowStrategyVersions.Classic;
+        string strategyVersion = request.StrategyMode switch
+        {
+            SparrowStrategyMode.V2 => SparrowStrategyVersions.V2,
+            SparrowStrategyMode.V3 => SparrowStrategyVersions.V3,
+            _ => SparrowStrategyVersions.Classic
+        };
         SparrowBacktestRequest backtestRequest = new(request.StrategyMode, strategyVersion, request.StartDate, request.EndDate, request.TopN,
             new[] { request.HorizonTradingDays }, request.BacktestRoundTripCostRate, request.BacktestSlippageRate,
-            ClassicParameters: classicParameters, V2Parameters: v2Parameters);
+            ClassicParameters: classicParameters, V2Parameters: v2Parameters, V3Parameters: v3Parameters);
 
         // Authoritative provenance for both domains is captured before research execution and before any output side effect.
         ResearchSourceBuildProvenance provenance = _provenanceProvider.Capture();
@@ -119,7 +124,8 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
         ExperimentParameterSnapshot parameters = ResearchExperimentParameterSnapshotFactory.Create(
             request.StrategyMode, strategyVersion, request.StartDate, request.EndDate, request.TopN, request.HorizonTradingDays,
             request.BacktestRoundTripCostRate, request.BacktestSlippageRate, classicParameters, v2Parameters,
-            request.InitialCapital, request.PositionSizingMethod, request.CommissionRate, request.PortfolioSlippageRate, request.ExecutionModel);
+            request.InitialCapital, request.PositionSizingMethod, request.CommissionRate, request.PortfolioSlippageRate, request.ExecutionModel,
+            v3Parameters);
 
         // Experiment analysis identity is the experiment parameter-analysis fingerprint, deliberately not the artifact analysis fingerprint.
         ResearchExperimentDefinition definition = new(execution.ExperimentIdentity, dataset.Fingerprint,
@@ -187,7 +193,7 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
         throw new InvalidOperationException($"Experiment '{experimentId}' already exists; authoritative managed evidence is never overwritten.");
     }
 
-    private static async Task<(SparrowClassicParameterSnapshot? Classic, SparrowV2ParameterSnapshot? V2)> LoadTypedParametersAsync(
+    private static async Task<(SparrowClassicParameterSnapshot? Classic, SparrowV2ParameterSnapshot? V2, SparrowV3ParameterSnapshot? V3)> LoadTypedParametersAsync(
         ManagedResearchExperimentRequest request, CancellationToken cancellationToken)
     {
         string json = await File.ReadAllTextAsync(request.ParameterSnapshotPath, cancellationToken).ConfigureAwait(false);
@@ -196,10 +202,13 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
         {
             if (request.StrategyMode == SparrowStrategyMode.Classic)
                 return (JsonSerializer.Deserialize<SparrowClassicParameterSnapshot>(json, options)
-                    ?? throw new InvalidOperationException("Classic strategy parameter snapshot is empty."), null);
+                    ?? throw new InvalidOperationException("Classic strategy parameter snapshot is empty."), null, null);
             if (request.StrategyMode == SparrowStrategyMode.V2)
                 return (null, JsonSerializer.Deserialize<SparrowV2ParameterSnapshot>(json, options)
-                    ?? throw new InvalidOperationException("V2 strategy parameter snapshot is empty."));
+                    ?? throw new InvalidOperationException("V2 strategy parameter snapshot is empty."), null);
+            if (request.StrategyMode == SparrowStrategyMode.V3)
+                return (null, null, JsonSerializer.Deserialize<SparrowV3ParameterSnapshot>(json, options)
+                    ?? throw new InvalidOperationException("V3 strategy parameter snapshot is empty."));
         }
         catch (JsonException exception)
         {

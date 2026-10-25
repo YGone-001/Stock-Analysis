@@ -3,29 +3,6 @@ using AIHelper.Core.Sparrow;
 
 namespace AIHelper.Services.StockData.Sparrow;
 
-/// <summary>Optional V3 momentum-quality gates evaluated on the close series that already passed the V2 rules.</summary>
-/// <param name="RsiMin">Inclusive lower RSI bound; null disables the gate.</param>
-/// <param name="RsiMax">Inclusive upper RSI bound; null disables the gate.</param>
-/// <param name="RequireMacdBullish">Requires DIF &gt;= DEA at the newest close.</param>
-public sealed record SparrowMomentumGateConfig(
-    double? RsiMin = 25,
-    double? RsiMax = 75,
-    bool RequireMacdBullish = true,
-    int RsiPeriod = 14,
-    int MacdFastPeriod = 12,
-    int MacdSlowPeriod = 26,
-    int MacdSignalPeriod = 9)
-{
-    public void Validate()
-    {
-        if (RsiMin.HasValue && (!double.IsFinite(RsiMin.Value) || RsiMin.Value < 0 || RsiMin.Value > 100)) throw new ArgumentOutOfRangeException(nameof(RsiMin));
-        if (RsiMax.HasValue && (!double.IsFinite(RsiMax.Value) || RsiMax.Value < 0 || RsiMax.Value > 100)) throw new ArgumentOutOfRangeException(nameof(RsiMax));
-        if (RsiMin.HasValue && RsiMax.HasValue && RsiMin.Value > RsiMax.Value) throw new ArgumentException("RsiMin must not exceed RsiMax.");
-        if (RsiPeriod <= 0 || MacdFastPeriod <= 0 || MacdSlowPeriod <= MacdFastPeriod || MacdSignalPeriod <= 0)
-            throw new InvalidOperationException("Momentum gate periods are invalid.");
-    }
-}
-
 /// <summary>
 /// Pure V3 P3 evaluator: the frozen V2 rule set plus optional close-based momentum-quality gates.
 /// v2 behavior is delegated verbatim; the gates only decide after V2 has passed.

@@ -323,10 +323,10 @@ public sealed class SparrowComparisonServiceTests
     }
 
     [Fact]
-    public void StrategyMode_ContainsOnlyClassicV2AndCompare()
+    public void StrategyMode_ContainsExactlyClassicV2CompareAndV3()
     {
         Assert.Equal(
-            new[] { SparrowStrategyMode.Classic, SparrowStrategyMode.V2, SparrowStrategyMode.Compare },
+            new[] { SparrowStrategyMode.Classic, SparrowStrategyMode.V2, SparrowStrategyMode.Compare, SparrowStrategyMode.V3 },
             Enum.GetValues<SparrowStrategyMode>());
     }
 

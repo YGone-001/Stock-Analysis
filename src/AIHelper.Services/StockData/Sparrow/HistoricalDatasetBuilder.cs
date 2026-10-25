@@ -274,6 +274,8 @@ public sealed class HistoricalDatasetBuilder
         if (quality.SuspensionCoverage != HistoricalFieldCoverage.Full) { classic.Add("SUSPENSION_PARTIAL"); v2.Add("SUSPENSION_PARTIAL"); }
         if (quality.TurnoverCoverage != HistoricalFieldCoverage.Full) v2.Add("TURNOVER_PARTIAL");
         if (quality.IndexCoverage != HistoricalFieldCoverage.Full) v2.Add("INDEX_CONTEXT_PARTIAL");
-        return [new(SparrowStrategyMode.Classic, HistoricalReplaySupport.Partial, classic), new(SparrowStrategyMode.V2, HistoricalReplaySupport.Partial, v2)];
+        // V3 consumes the same field set as V2; its momentum gates are computed from the K-line closes V2 already requires.
+        var v3 = new List<string>(v2);
+        return [new(SparrowStrategyMode.Classic, HistoricalReplaySupport.Partial, classic), new(SparrowStrategyMode.V2, HistoricalReplaySupport.Partial, v2), new(SparrowStrategyMode.V3, HistoricalReplaySupport.Partial, v3)];
     }
 }
