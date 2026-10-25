@@ -327,12 +327,47 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
             DisplayMemberPath = nameof(SparrowStrategyModeOption.DisplayName),
             SelectedValuePath = nameof(SparrowStrategyModeOption.Mode)
         };
-        modeSelector.SetBinding(ItemsControl.ItemsSourceProperty, new Binding("AvailableStrategyModeOptions"));
-        modeSelector.SetBinding(System.Windows.Controls.ComboBox.SelectedValueProperty, new Binding("StrategyMode")
+        modeSelector.SetBinding(ItemsControl.ItemsSourceProperty, new Binding("AvailableStrategyModeOptions"));        modeSelector.SetBinding(System.Windows.Controls.ComboBox.SelectedValueProperty, new Binding("StrategyMode")
         {
             Mode = BindingMode.TwoWay
         });
         modePanel.Children.Add(modeSelector);
+
+        var pairPanel = new StackPanel
+        {
+            Name = "SparrowPairComparisonPanel",
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        pairPanel.Children.Add(new TextBlock
+        {
+            Text = "对照组",
+            Width = 88,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        var pairSelector = new System.Windows.Controls.ComboBox
+        {
+            Width = 220,
+            MinHeight = 28,
+            DisplayMemberPath = nameof(SparrowPairComparisonPreset.DisplayName)
+        };
+        pairSelector.SetBinding(ItemsControl.ItemsSourceProperty, new Binding("AvailablePairComparisonPresets"));
+        pairSelector.SetBinding(System.Windows.Controls.ComboBox.SelectedItemProperty, new Binding("SelectedPairComparisonPreset")
+        {
+            Mode = BindingMode.TwoWay
+        });
+        pairPanel.Children.Add(new TextBlock
+        {
+            Text = "两侧各自使用已保存参数",
+            Foreground = System.Windows.Media.Brushes.Gray,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0)
+        });
+        pairPanel.Children.Add(pairSelector);
+        pairPanel.SetBinding(UIElement.VisibilityProperty, new Binding("ShowPairComparison")
+        {
+            Converter = new BooleanToVisibilityConverter()
+        });
 
         var description = new TextBlock
         {
@@ -648,6 +683,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
 
         var root = new StackPanel();
         root.Children.Add(modePanel);
+        root.Children.Add(pairPanel);
         root.Children.Add(description);
         root.Children.Add(baseGroup);
         root.Children.Add(v2Group);

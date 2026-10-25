@@ -78,7 +78,7 @@ public sealed class SparrowHistoricalReplayEngine
         HistoricalMarketSnapshot snapshot = _snapshotBuilder.Build(dataset, request.TradingDate);
         cancellationToken.ThrowIfCancellationRequested();
         var warnings = new List<string>(snapshot.Warnings);
-        if (request.StrategyMode == SparrowStrategyMode.Compare) return Unsupported(dataset, request, "Compare 属于对比编排模式，不能直接用于回放。");
+        if (request.StrategyMode is SparrowStrategyMode.Compare or SparrowStrategyMode.PairCompare) return Unsupported(dataset, request, "Compare 属于对比编排模式，不能直接用于回放。");
         if (request.StrategyMode == SparrowStrategyMode.Classic && request.ClassicParameters == null) return Unsupported(dataset, request, "缺少经典策略的参数快照。");
         if (request.StrategyMode == SparrowStrategyMode.V2 && request.V2Parameters == null) return Unsupported(dataset, request, "缺少 V2 策略的参数快照。");
         if (request.StrategyMode == SparrowStrategyMode.V3 && request.V3Parameters == null) return Unsupported(dataset, request, "缺少 V3 策略的参数快照。");

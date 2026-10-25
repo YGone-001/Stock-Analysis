@@ -35,6 +35,9 @@ public partial class SparrowViewModel : ObservableObject
     private IReadOnlyList<SparrowRankedCandidate> _lastClassicRanking = Array.Empty<SparrowRankedCandidate>();
     private IReadOnlyList<SparrowRankedCandidate> _lastV2Ranking = Array.Empty<SparrowRankedCandidate>();
     private IReadOnlyList<SparrowComparisonRow> _lastComparisonRows = Array.Empty<SparrowComparisonRow>();
+    private IReadOnlyList<SparrowPairComparisonRow> _lastPairComparisonRows = Array.Empty<SparrowPairComparisonRow>();
+    private string _lastPairLeftVersion = "";
+    private string _lastPairRightVersion = "";
     private SparrowStrategyMode? _lastCompletedMode;
     private DateTime _lastCompletedAt;
     private CancellationTokenSource _cts;
@@ -50,8 +53,32 @@ public partial class SparrowViewModel : ObservableObject
             new(SparrowStrategyMode.Compare),
             new(SparrowStrategyMode.V3),
             new(SparrowStrategyMode.V4),
-            new(SparrowStrategyMode.V5)
+            new(SparrowStrategyMode.V5),
+            new(SparrowStrategyMode.PairCompare)
         };
+
+    public IReadOnlyList<SparrowPairComparisonPreset> AvailablePairComparisonPresets { get; } =
+        new SparrowPairComparisonPreset[]
+        {
+            new(SparrowStrategyMode.V2, SparrowStrategyMode.V3),
+            new(SparrowStrategyMode.V2, SparrowStrategyMode.V4),
+            new(SparrowStrategyMode.V2, SparrowStrategyMode.V5),
+            new(SparrowStrategyMode.V3, SparrowStrategyMode.V4),
+            new(SparrowStrategyMode.V3, SparrowStrategyMode.V5),
+            new(SparrowStrategyMode.V4, SparrowStrategyMode.V5)
+        };
+
+    private SparrowPairComparisonPreset _selectedPairComparisonPreset = new(SparrowStrategyMode.V3, SparrowStrategyMode.V4);
+    public SparrowPairComparisonPreset SelectedPairComparisonPreset
+    {
+        get => _selectedPairComparisonPreset;
+        set
+        {
+            if (Equals(_selectedPairComparisonPreset, value)) return;
+            _selectedPairComparisonPreset = value;
+            OnPropertyChanged();
+        }
+    }
 
     public SparrowStrategyMode StrategyMode
     {
@@ -81,6 +108,8 @@ public partial class SparrowViewModel : ObservableObject
     public bool IsV3Mode => _parameterState.IsV3Mode;
     public bool IsV4Mode => _parameterState.IsV4Mode;
     public bool IsV5Mode => _parameterState.IsV5Mode;
+    public bool IsPairCompareMode => _parameterState.IsPairCompareMode;
+    public bool ShowPairComparison => _parameterState.ShowPairComparison;
     public bool ShowBaseParameters => _parameterState.ShowBaseParameters;
     public bool ShowV2Parameters => _parameterState.ShowV2Parameters;
     public bool ShowV3Parameters => _parameterState.ShowV3Parameters;
@@ -504,6 +533,42 @@ public partial class SparrowViewModel : ObservableObject
                     }
                     break;
                 }
+                case SparrowStrategyMode.PairCompare:
+                {
+                    (SparrowScanParameters, SparrowMomentumGateConfig?, SparrowVolumeGateConfig?, SparrowWeeklyGateConfig?, string) Side(SparrowStrategyMode mode) => mode switch
+                    {
+                        SparrowStrategyMode.V3 => (SparrowParameterMapper.ToV3(V3Parameters, SystemSettings),
+                            SparrowParameterMapper.ToMomentumGates(V3Parameters), null, null, SparrowStrategyVersions.V3),
+                        SparrowStrategyMode.V4 => (SparrowParameterMapper.ToV4(V4Parameters, SystemSettings),
+                            SparrowParameterMapper.ToMomentumGates(V4Parameters), SparrowParameterMapper.ToVolumeGates(V4Parameters), null, SparrowStrategyVersions.V4),
+                        SparrowStrategyMode.V5 => (SparrowParameterMapper.ToV5(V5Parameters, SystemSettings),
+                            SparrowParameterMapper.ToMomentumGates(V5Parameters), SparrowParameterMapper.ToVolumeGates(V5Parameters),
+                            SparrowParameterMapper.ToWeeklyGates(V5Parameters), SparrowStrategyVersions.V5),
+                        _ => (SparrowParameterMapper.ToV2(V2Parameters, SystemSettings), null, null, null, SparrowStrategyVersions.V2)
+                    };
+                    (SparrowScanParameters leftParams, SparrowMomentumGateConfig? leftMomentum, SparrowVolumeGateConfig? leftVolume, SparrowWeeklyGateConfig? leftWeekly, string leftVersion) = Side(SelectedPairComparisonPreset.Left);
+                    (SparrowScanParameters rightParams, SparrowMomentumGateConfig? rightMomentum, SparrowVolumeGateConfig? rightVolume, SparrowWeeklyGateConfig? rightWeekly, string rightVersion) = Side(SelectedPairComparisonPreset.Right);
+                    var pairService = new SparrowPairComparisonService(_scannerService, _rankingEngine);
+                    SparrowPairComparisonResult result = await pairService.CompareAsync(targetPool,
+                        new(SelectedPairComparisonPreset.Left.ToString(), leftVersion), leftParams, leftMomentum, leftVolume, leftWeekly,
+                        new(SelectedPairComparisonPreset.Right.ToString(), rightVersion), rightParams, rightMomentum, rightVolume, rightWeekly,
+                        v2Progress, _cts.Token);
+                    if (!_cts.Token.IsCancellationRequested)
+                    {
+                        _lastPairComparisonRows = result.Rows;
+                        _lastPairLeftVersion = leftVersion;
+                        _lastPairRightVersion = rightVersion;
+                        _lastV2Ranking = Array.Empty<SparrowRankedCandidate>();
+                        _lastClassicRanking = Array.Empty<SparrowRankedCandidate>();
+                        _lastComparisonRows = Array.Empty<SparrowComparisonRow>();
+                        _lastCompletedMode = SparrowStrategyMode.PairCompare;
+                        _lastCompletedAt = result.CapturedAt.LocalDateTime;
+                        AppendLog($"Pair Comparison CSV: {result.CsvPath}");
+                        ApplyCachedTopN();
+                        Growl.Success($"双版本对照完成：双选 {result.Metrics.BothCount} / 仅{leftVersion} {result.Metrics.LeftOnlyCount} / 仅{rightVersion} {result.Metrics.RightOnlyCount}。");
+                    }
+                    break;
+                }
             }
         }
         catch (OperationCanceledException) when (_cts.Token.IsCancellationRequested)
@@ -588,6 +653,9 @@ public partial class SparrowViewModel : ObservableObject
             case SparrowStrategyMode.Compare:
                 ApplyComparisonTopN(topN);
                 break;
+            case SparrowStrategyMode.PairCompare:
+                ApplyPairComparisonTopN(topN);
+                break;
         }
     }
 
@@ -603,6 +671,17 @@ public partial class SparrowViewModel : ObservableObject
         SetResultGroupIfAny("ClassicOnly", $"麻雀_ClassicOnly_Top{topN}_{_lastCompletedAt:MMdd}", classicOnly.Select(row => (row.Code, row.Name)));
         SetResultGroupIfAny("V2Only", $"麻雀_V2Only_Top{topN}_{_lastCompletedAt:MMdd}", v2Only.Select(row => (row.Code, row.Name)));
         ResultSummary = $"Compare 完成 · Top{topN}: 双选 {both.Count} / ClassicOnly {classicOnly.Count} / V2Only {v2Only.Count}";
+    }
+
+    private void ApplyPairComparisonTopN(int topN)
+    {
+        List<SparrowPairComparisonRow> both = _lastPairComparisonRows.Where(row => row.Category == SparrowPairComparisonCategory.Both).Take(topN).ToList();
+        List<SparrowPairComparisonRow> leftOnly = _lastPairComparisonRows.Where(row => row.Category == SparrowPairComparisonCategory.LeftOnly).Take(topN).ToList();
+        List<SparrowPairComparisonRow> rightOnly = _lastPairComparisonRows.Where(row => row.Category == SparrowPairComparisonCategory.RightOnly).Take(topN).ToList();
+        SetResultGroupIfAny("PairBoth", $"麻雀_双选_{_lastPairLeftVersion}_{_lastPairRightVersion}_Top{topN}_{_lastCompletedAt:MMdd}", both.Select(row => (row.Code, row.Name)));
+        SetResultGroupIfAny("PairLeftOnly", $"麻雀_仅{_lastPairLeftVersion}_Top{topN}_{_lastCompletedAt:MMdd}", leftOnly.Select(row => (row.Code, row.Name)));
+        SetResultGroupIfAny("PairRightOnly", $"麻雀_仅{_lastPairRightVersion}_Top{topN}_{_lastCompletedAt:MMdd}", rightOnly.Select(row => (row.Code, row.Name)));
+        ResultSummary = $"双版本对照 · Top{topN}: 双选 {both.Count} / 仅{_lastPairLeftVersion} {leftOnly.Count} / 仅{_lastPairRightVersion} {rightOnly.Count}";
     }
 
     private void SetResultGroupIfAny(

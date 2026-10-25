@@ -13,6 +13,7 @@ public static class SparrowStrategyModeExtensions
         SparrowStrategyMode.V3 => "V3（动量门限）",
         SparrowStrategyMode.V4 => "V4（量价形态）",
         SparrowStrategyMode.V5 => "V5（周线共振）",
+        SparrowStrategyMode.PairCompare => "双版本对照",
         _ => mode.ToString()
     };
 }
@@ -492,7 +493,9 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
     public bool IsV3Mode => StrategyMode == SparrowStrategyMode.V3;
     public bool IsV4Mode => StrategyMode == SparrowStrategyMode.V4;
     public bool IsV5Mode => StrategyMode == SparrowStrategyMode.V5;
-    public bool ShowBaseParameters => true;
+    public bool IsPairCompareMode => StrategyMode == SparrowStrategyMode.PairCompare;
+    public bool ShowBaseParameters => StrategyMode != SparrowStrategyMode.PairCompare;
+    public bool ShowPairComparison => StrategyMode == SparrowStrategyMode.PairCompare;
     public bool ShowV2Parameters => StrategyMode is SparrowStrategyMode.V2 or SparrowStrategyMode.Compare or SparrowStrategyMode.V3 or SparrowStrategyMode.V4 or SparrowStrategyMode.V5;
     public bool ShowV3Parameters => StrategyMode is SparrowStrategyMode.V3 or SparrowStrategyMode.V4 or SparrowStrategyMode.V5;
     public bool ShowV4Parameters => StrategyMode is SparrowStrategyMode.V4 or SparrowStrategyMode.V5;
@@ -506,6 +509,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         SparrowStrategyMode.V3 => "动量门限麻雀：V2 + RSI 区间 + MACD 多头过滤",
         SparrowStrategyMode.V4 => "量价形态麻雀：V3 + 缩量蓄势 + 放量突破",
         SparrowStrategyMode.V5 => "周线共振麻雀：V4 + 周线 MA20 趋势向上",
+        SparrowStrategyMode.PairCompare => "双版本对照：同一行情快照比较 V2~V5 中任意两版，两侧各自使用已保存参数",
         _ => "A/B 对照工具：同一行情快照比较 Classic 与 V2，不是第三套策略"
     };
 
@@ -621,7 +625,9 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsV3Mode));
         OnPropertyChanged(nameof(IsV4Mode));
         OnPropertyChanged(nameof(IsV5Mode));
+        OnPropertyChanged(nameof(IsPairCompareMode));
         OnPropertyChanged(nameof(ShowBaseParameters));
+        OnPropertyChanged(nameof(ShowPairComparison));
         OnPropertyChanged(nameof(ShowV2Parameters));
         OnPropertyChanged(nameof(ShowV3Parameters));
         OnPropertyChanged(nameof(ShowV4Parameters));
