@@ -48,7 +48,8 @@ public static class ResearchExperimentParameterSnapshotFactory
         decimal commissionRate,
         decimal portfolioSlippageRate,
         PortfolioExecutionModel executionModel,
-        SparrowV3ParameterSnapshot? v3Parameters = null)
+        SparrowV3ParameterSnapshot? v3Parameters = null,
+        SparrowV4ParameterSnapshot? v4Parameters = null)
     {
         Dictionary<string, string> strategy = new(StringComparer.Ordinal)
         {
@@ -64,6 +65,7 @@ public static class ResearchExperimentParameterSnapshotFactory
         AddClassic(strategy, classicParameters);
         AddV2(strategy, v2Parameters);
         AddV3(strategy, v3Parameters);
+        AddV4(strategy, v4Parameters);
 
         Dictionary<string, string> portfolio = new(StringComparer.Ordinal)
         {
@@ -146,11 +148,43 @@ public static class ResearchExperimentParameterSnapshotFactory
         target["V3.MacdSignalPeriod"] = Integer(parameters.MacdSignalPeriod);
     }
 
+    /// <summary>Explicit V4 mapping. Every semantic field of <see cref="SparrowV4ParameterSnapshot"/> must appear here.</summary>
+    public static void AddV4(IDictionary<string, string> target, SparrowV4ParameterSnapshot? parameters)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (parameters is null) return;
+        target["V4.MacroDef"] = Boolean(parameters.MacroDef);
+        target["V4.MinRise"] = Double(parameters.MinRise);
+        target["V4.MaxRise"] = Double(parameters.MaxRise);
+        target["V4.VolRatio"] = Double(parameters.VolRatio);
+        target["V4.MinAmount"] = Double(parameters.MinAmount);
+        target["V4.CheckMA60"] = Boolean(parameters.CheckMA60);
+        target["V4.MinAdhesion"] = Double(parameters.MinAdhesion);
+        target["V4.MaxAdhesion"] = Double(parameters.MaxAdhesion);
+        target["V4.MinTurnover"] = Double(parameters.MinTurnover);
+        target["V4.MaxTurnover"] = Double(parameters.MaxTurnover);
+        target["V4.MomentumThreshold"] = Double(parameters.MomentumThreshold);
+        target["V4.CheckAlpha"] = Boolean(parameters.CheckAlpha);
+        target["V4.RsiMin"] = parameters.RsiMin.HasValue ? Double(parameters.RsiMin.Value) : "null";
+        target["V4.RsiMax"] = parameters.RsiMax.HasValue ? Double(parameters.RsiMax.Value) : "null";
+        target["V4.RequireMacdBullish"] = Boolean(parameters.RequireMacdBullish);
+        target["V4.RsiPeriod"] = Integer(parameters.RsiPeriod);
+        target["V4.MacdFastPeriod"] = Integer(parameters.MacdFastPeriod);
+        target["V4.MacdSlowPeriod"] = Integer(parameters.MacdSlowPeriod);
+        target["V4.MacdSignalPeriod"] = Integer(parameters.MacdSignalPeriod);
+        target["V4.VolBreakoutMultiple"] = parameters.VolBreakoutMultiple.HasValue ? Double(parameters.VolBreakoutMultiple.Value) : "null";
+        target["V4.VolContractionMaxRatio"] = parameters.VolContractionMaxRatio.HasValue ? Double(parameters.VolContractionMaxRatio.Value) : "null";
+        target["V4.VolBreakoutLookbackDays"] = Integer(parameters.VolBreakoutLookbackDays);
+        target["V4.VolContractionLookbackDays"] = Integer(parameters.VolContractionLookbackDays);
+        target["V4.VolContractionBaselineDays"] = Integer(parameters.VolContractionBaselineDays);
+    }
+
     /// <summary>Canonical typed-snapshot key prefix for a strategy mode.</summary>
     public static string TypedKeyPrefix(SparrowStrategyMode strategyMode) => strategyMode switch
     {
         SparrowStrategyMode.V2 => "V2.",
         SparrowStrategyMode.V3 => "V3.",
+        SparrowStrategyMode.V4 => "V4.",
         _ => "Classic."
     };
 

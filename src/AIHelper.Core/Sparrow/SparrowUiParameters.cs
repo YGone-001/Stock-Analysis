@@ -11,6 +11,7 @@ public static class SparrowStrategyModeExtensions
         SparrowStrategyMode.V2 => "V2（东财增强）",
         SparrowStrategyMode.Compare => "Classic + V2 双选",
         SparrowStrategyMode.V3 => "V3（动量门限）",
+        SparrowStrategyMode.V4 => "V4（量价形态）",
         _ => mode.ToString()
     };
 }
@@ -142,8 +143,8 @@ public class SparrowV2UiParameters : SparrowStrategyUiParameters
     public bool StrictTurnover { get => _strictTurnover; set => Set(ref _strictTurnover, value); }
 }
 
-/// <summary>V3 inherits every V2 enhancement and adds the close-based momentum-quality gates.</summary>
-public sealed class SparrowV3UiParameters : SparrowV2UiParameters
+/// <summary>V3 inherits every V2 enhancement and adds the close-based momentum-quality gates. Unsealed so V4 can inherit verbatim.</summary>
+public class SparrowV3UiParameters : SparrowV2UiParameters
 {
     private double? _rsiMin;
     private double? _rsiMax;
@@ -175,6 +176,42 @@ public sealed class SparrowV3UiParameters : SparrowV2UiParameters
     public string RsiBandText => RsiMin.HasValue && RsiMax.HasValue
         ? $"当前范围：{RsiMin.Value:F0} ~ {RsiMax.Value:F0}"
         : "RSI 门限未启用";
+}
+
+/// <summary>V4 inherits every V3 enhancement and adds the ratio-based volume-pattern gates.</summary>
+public sealed class SparrowV4UiParameters : SparrowV3UiParameters
+{
+    private bool _volumeGatesEnabled;
+    private double _volBreakoutMultiple;
+    private double _volContractionMaxRatio;
+
+    /// <summary>Master switch: off maps both gate multipliers to null (gates disabled) regardless of their values.</summary>
+    public bool VolumeGatesEnabled { get => _volumeGatesEnabled; set => Set(ref _volumeGatesEnabled, value); }
+    public double VolBreakoutMultiple
+    {
+        get => _volBreakoutMultiple;
+        set
+        {
+            if (Set(ref _volBreakoutMultiple, value))
+            {
+                OnPropertyChanged(nameof(VolumeGateText));
+            }
+        }
+    }
+    public double VolContractionMaxRatio
+    {
+        get => _volContractionMaxRatio;
+        set
+        {
+            if (Set(ref _volContractionMaxRatio, value))
+            {
+                OnPropertyChanged(nameof(VolumeGateText));
+            }
+        }
+    }
+    public string VolumeGateText => VolumeGatesEnabled
+        ? $"突破量 ≥ {VolBreakoutMultiple:F1}×近{SparrowParameterDefaults.VolBreakoutLookbackDays}日均量；蓄势量 ≤ {VolContractionMaxRatio:F2}×基期均量"
+        : "量价门限未启用";
 }
 
 public sealed class SparrowSystemSettings : INotifyPropertyChanged
@@ -225,6 +262,12 @@ public static class SparrowParameterDefaults
     public const double RsiMin = 25.0;
     public const double RsiMax = 75.0;
     public const bool RequireMacdBullish = true;
+    public const bool VolumeGatesEnabled = true;
+    public const double VolBreakoutMultiple = 1.5;
+    public const double VolContractionMaxRatio = 0.8;
+    public const int VolBreakoutLookbackDays = 5;
+    public const int VolContractionLookbackDays = 5;
+    public const int VolContractionBaselineDays = 10;
     public const int MaxConcurrency = 8;
     public const bool UseCache = true;
 
@@ -246,6 +289,13 @@ public static class SparrowParameterDefaults
     {
         var parameters = new SparrowV3UiParameters();
         ResetV3(parameters);
+        return parameters;
+    }
+
+    public static SparrowV4UiParameters CreateV4()
+    {
+        var parameters = new SparrowV4UiParameters();
+        ResetV4(parameters);
         return parameters;
     }
 
@@ -313,6 +363,27 @@ public static class SparrowParameterDefaults
         && parameters.RsiMax == RsiMax
         && parameters.RequireMacdBullish == RequireMacdBullish;
 
+    public static void ResetV4(SparrowV4UiParameters parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        ResetV3(parameters);
+        ApplyV4Gates(parameters);
+        parameters.MarkRecommended();
+    }
+
+    public static void ApplyV4Gates(SparrowV4UiParameters parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        parameters.VolumeGatesEnabled = VolumeGatesEnabled;
+        parameters.VolBreakoutMultiple = VolBreakoutMultiple;
+        parameters.VolContractionMaxRatio = VolContractionMaxRatio;
+    }
+
+    public static bool AreV4GatesRecommended(SparrowV4UiParameters parameters) =>
+        parameters.VolumeGatesEnabled == VolumeGatesEnabled
+        && parameters.VolBreakoutMultiple == VolBreakoutMultiple
+        && parameters.VolContractionMaxRatio == VolContractionMaxRatio;
+
     private static void ApplyBase(SparrowStrategyUiParameters parameters)
     {
         parameters.MacroDef = MacroDef;
@@ -336,6 +407,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         ClassicParameters.PropertyChanged += StrategyParametersChanged;
         V2Parameters.PropertyChanged += StrategyParametersChanged;
         V3Parameters.PropertyChanged += StrategyParametersChanged;
+        V4Parameters.PropertyChanged += StrategyParametersChanged;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -343,6 +415,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
     public SparrowStrategyUiParameters ClassicParameters { get; } = SparrowParameterDefaults.CreateClassic();
     public SparrowV2UiParameters V2Parameters { get; } = SparrowParameterDefaults.CreateV2();
     public SparrowV3UiParameters V3Parameters { get; } = SparrowParameterDefaults.CreateV3();
+    public SparrowV4UiParameters V4Parameters { get; } = SparrowParameterDefaults.CreateV4();
     public SparrowSystemSettings SystemSettings { get; } = SparrowParameterDefaults.CreateSystemSettings();
 
     public SparrowStrategyMode StrategyMode
@@ -360,19 +433,30 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
     {
         SparrowStrategyMode.V2 => V2Parameters,
         SparrowStrategyMode.V3 => V3Parameters,
+        SparrowStrategyMode.V4 => V4Parameters,
         _ => ClassicParameters
     };
 
-    /// <summary>The V2-enhancement panel target; V3 mode edits its own inherited copy so saved V2 state is never mutated.</summary>
-    public SparrowV2UiParameters EnhancementParameters => StrategyMode == SparrowStrategyMode.V3 ? V3Parameters : V2Parameters;
+    /// <summary>The V2-enhancement panel target; V3/V4 modes edit their own inherited copy so saved V2 state is never mutated.</summary>
+    public SparrowV2UiParameters EnhancementParameters => StrategyMode switch
+    {
+        SparrowStrategyMode.V3 => V3Parameters,
+        SparrowStrategyMode.V4 => V4Parameters,
+        _ => V2Parameters
+    };
+
+    /// <summary>The V3 momentum-gate panel target; V4 mode edits its own inherited copy so saved V3 state is never mutated.</summary>
+    public SparrowV3UiParameters MomentumGateParameters => StrategyMode == SparrowStrategyMode.V4 ? V4Parameters : V3Parameters;
 
     public bool IsClassicMode => StrategyMode == SparrowStrategyMode.Classic;
     public bool IsV2Mode => StrategyMode == SparrowStrategyMode.V2;
     public bool IsCompareMode => StrategyMode == SparrowStrategyMode.Compare;
     public bool IsV3Mode => StrategyMode == SparrowStrategyMode.V3;
+    public bool IsV4Mode => StrategyMode == SparrowStrategyMode.V4;
     public bool ShowBaseParameters => true;
-    public bool ShowV2Parameters => StrategyMode is SparrowStrategyMode.V2 or SparrowStrategyMode.Compare or SparrowStrategyMode.V3;
-    public bool ShowV3Parameters => StrategyMode == SparrowStrategyMode.V3;
+    public bool ShowV2Parameters => StrategyMode is SparrowStrategyMode.V2 or SparrowStrategyMode.Compare or SparrowStrategyMode.V3 or SparrowStrategyMode.V4;
+    public bool ShowV3Parameters => StrategyMode is SparrowStrategyMode.V3 or SparrowStrategyMode.V4;
+    public bool ShowV4Parameters => StrategyMode == SparrowStrategyMode.V4;
     public bool ShowSystemParameters => true;
 
     public string StrategyDescription => StrategyMode switch
@@ -380,6 +464,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         SparrowStrategyMode.Classic => "原始麻雀：涨幅 + 成交额 + 外/内盘 → 均线结构 → 黏合",
         SparrowStrategyMode.V2 => "增强麻雀：Classic + 换手率 + Alpha + MA5 动量",
         SparrowStrategyMode.V3 => "动量门限麻雀：V2 + RSI 区间 + MACD 多头过滤",
+        SparrowStrategyMode.V4 => "量价形态麻雀：V3 + 缩量蓄势 + 放量突破",
         _ => "A/B 对照工具：同一行情快照比较 Classic 与 V2，不是第三套策略"
     };
 
@@ -388,6 +473,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         SparrowStrategyMode.Classic => "麻雀 Classic",
         SparrowStrategyMode.V2 => "基础麻雀条件",
         SparrowStrategyMode.V3 => "基础麻雀条件（V3 继承 V2 全部增强）",
+        SparrowStrategyMode.V4 => "基础麻雀条件（V4 继承 V3 全部增强）",
         _ => "Classic / V2 共同条件"
     };
 
@@ -395,6 +481,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
     {
         SparrowStrategyMode.Compare => "仅 V2 生效",
         SparrowStrategyMode.V3 => "V2 增强条件（作用于 V3）",
+        SparrowStrategyMode.V4 => "V2 增强条件（作用于 V4）",
         _ => "V2 增强条件"
     };
 
@@ -413,6 +500,10 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
                 SparrowStrategyMode.V3 => V3Parameters.IsRecommended
                     && SparrowParameterDefaults.AreV2EnhancementsRecommended(V3Parameters)
                     && SparrowParameterDefaults.AreV3GatesRecommended(V3Parameters),
+                SparrowStrategyMode.V4 => V4Parameters.IsRecommended
+                    && SparrowParameterDefaults.AreV2EnhancementsRecommended(V4Parameters)
+                    && SparrowParameterDefaults.AreV3GatesRecommended(V4Parameters)
+                    && SparrowParameterDefaults.AreV4GatesRecommended(V4Parameters),
                 _ => ClassicParameters.IsRecommended
                     && SparrowParameterDefaults.AreV2EnhancementsRecommended(V2Parameters)
             };
@@ -439,6 +530,9 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
                 break;
             case SparrowStrategyMode.V3:
                 SparrowParameterDefaults.ResetV3(V3Parameters);
+                break;
+            case SparrowStrategyMode.V4:
+                SparrowParameterDefaults.ResetV4(V4Parameters);
                 break;
         }
         OnPropertyChanged(nameof(CurrentPresetName));
@@ -468,13 +562,16 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         OnPropertyChanged(nameof(StrategyMode));
         OnPropertyChanged(nameof(ActiveParameters));
         OnPropertyChanged(nameof(EnhancementParameters));
+        OnPropertyChanged(nameof(MomentumGateParameters));
         OnPropertyChanged(nameof(IsClassicMode));
         OnPropertyChanged(nameof(IsV2Mode));
         OnPropertyChanged(nameof(IsCompareMode));
         OnPropertyChanged(nameof(IsV3Mode));
+        OnPropertyChanged(nameof(IsV4Mode));
         OnPropertyChanged(nameof(ShowBaseParameters));
         OnPropertyChanged(nameof(ShowV2Parameters));
         OnPropertyChanged(nameof(ShowV3Parameters));
+        OnPropertyChanged(nameof(ShowV4Parameters));
         OnPropertyChanged(nameof(ShowSystemParameters));
         OnPropertyChanged(nameof(StrategyDescription));
         OnPropertyChanged(nameof(BaseParametersHeader));
@@ -519,6 +616,15 @@ public static class SparrowParameterMapper
         parameters.RsiMin,
         parameters.RsiMax,
         parameters.RequireMacdBullish);
+
+    public static SparrowScanParameters ToV4(
+        SparrowV4UiParameters parameters,
+        SparrowSystemSettings system) => ToV2(parameters, parameters, system);
+
+    /// <summary>The master switch maps to null multipliers so a disabled gate is carried explicitly, not silently.</summary>
+    public static SparrowVolumeGateConfig? ToVolumeGates(SparrowV4UiParameters parameters) => parameters.VolumeGatesEnabled
+        ? new SparrowVolumeGateConfig(parameters.VolBreakoutMultiple, parameters.VolContractionMaxRatio)
+        : new SparrowVolumeGateConfig(VolBreakoutMultiple: null, VolContractionMaxRatio: null);
 
     /// <summary>
     /// Compare uses one editable common parameter set (Classic) for both sides and the saved
@@ -565,12 +671,14 @@ public static class SparrowParameterValidator
         SparrowStrategyUiParameters classic,
         SparrowV2UiParameters v2,
         SparrowSystemSettings system,
-        SparrowV3UiParameters? v3 = null)
+        SparrowV3UiParameters? v3 = null,
+        SparrowV4UiParameters? v4 = null)
     {
         ISparrowStrategyUiParameters common = mode switch
         {
             SparrowStrategyMode.V2 => v2,
             SparrowStrategyMode.V3 => v3 ?? throw new ArgumentNullException(nameof(v3), "V3 parameters are required in V3 mode."),
+            SparrowStrategyMode.V4 => v4 ?? throw new ArgumentNullException(nameof(v4), "V4 parameters are required in V4 mode."),
             _ => classic
         };
         if (!Finite(common.MinRise) || !Finite(common.MaxRise) || common.MinRise > common.MaxRise)
@@ -602,6 +710,20 @@ public static class SparrowParameterValidator
                 || (v3.RsiMin.HasValue && v3.RsiMax.HasValue && v3.RsiMin.Value > v3.RsiMax.Value))
             {
                 return Invalid("RSI 门限必须在 0~100 之间，且下限不能大于上限。");
+            }
+        }
+        if (mode == SparrowStrategyMode.V4 && v4 is not null)
+        {
+            if ((v4.RsiMin.HasValue && (!Finite(v4.RsiMin.Value) || v4.RsiMin.Value < 0 || v4.RsiMin.Value > 100))
+                || (v4.RsiMax.HasValue && (!Finite(v4.RsiMax.Value) || v4.RsiMax.Value < 0 || v4.RsiMax.Value > 100))
+                || (v4.RsiMin.HasValue && v4.RsiMax.HasValue && v4.RsiMin.Value > v4.RsiMax.Value))
+            {
+                return Invalid("RSI 门限必须在 0~100 之间，且下限不能大于上限。");
+            }
+            if (v4.VolumeGatesEnabled
+                && (!Finite(v4.VolBreakoutMultiple) || v4.VolBreakoutMultiple <= 0 || !Finite(v4.VolContractionMaxRatio) || v4.VolContractionMaxRatio <= 0))
+            {
+                return Invalid("量价门限倍数必须大于 0。");
             }
         }
         if (system.MaxConcurrency < 1)

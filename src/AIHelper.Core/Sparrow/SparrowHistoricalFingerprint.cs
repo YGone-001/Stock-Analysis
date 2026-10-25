@@ -8,7 +8,7 @@ namespace AIHelper.Core.Sparrow;
 public static class SparrowHistoricalFingerprint
 {
     public static string Parameters(SparrowReplayRequest request) => Hash(CanonicalRequest(request));
-    public static string Parameters(SparrowBacktestRequest request) => Hash(string.Join('|', request.StrategyMode, request.StrategyVersion, request.TopN, request.RoundTripCostRate.ToString("R"), request.SlippageRate.ToString("R"), string.Join(',', request.Horizons.Order()), request.ClassicParameters, request.V2Parameters, request.V3Parameters));
+    public static string Parameters(SparrowBacktestRequest request) => Hash(string.Join('|', request.StrategyMode, request.StrategyVersion, request.TopN, request.RoundTripCostRate.ToString("R"), request.SlippageRate.ToString("R"), string.Join(',', request.Horizons.Order()), request.ClassicParameters, request.V2Parameters, request.V3Parameters, request.V4Parameters));
     public static string BenchmarkAnalysis(SparrowBenchmarkAnalysisRequest request, string datasetFingerprint, string strategyParameterFingerprint) => Hash(string.Join('|',
         datasetFingerprint,
         request.BacktestRequest.StrategyMode,
@@ -142,6 +142,6 @@ public static class SparrowHistoricalFingerprint
         float number => number.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
         _ => Convert.ToBase64String(Encoding.UTF8.GetBytes(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty))
     };
-    private static string CanonicalRequest(SparrowReplayRequest request) => string.Join('|', request.StrategyMode, request.StrategyVersion, request.TradingDate.ToString("O"), request.TopN, request.ClassicParameters, request.V2Parameters, request.V3Parameters);
+    private static string CanonicalRequest(SparrowReplayRequest request) => string.Join('|', request.StrategyMode, request.StrategyVersion, request.TradingDate.ToString("O"), request.TopN, request.ClassicParameters, request.V2Parameters, request.V3Parameters, request.V4Parameters);
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 }

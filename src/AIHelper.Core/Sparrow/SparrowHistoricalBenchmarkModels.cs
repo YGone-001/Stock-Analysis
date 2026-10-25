@@ -88,8 +88,9 @@ public sealed class SparrowBenchmarkAnalysisRequest
             throw new ArgumentException("Phase 3.3 benchmark analysis requires zero round-trip cost and slippage.", nameof(backtestRequest));
         if (backtestRequest.StrategyMode is not AIHelper.Models.SparrowStrategyMode.Classic
             and not AIHelper.Models.SparrowStrategyMode.V2
-            and not AIHelper.Models.SparrowStrategyMode.V3)
-            throw new ArgumentException("Benchmark analysis supports Classic, V2 and V3 only.", nameof(backtestRequest));
+            and not AIHelper.Models.SparrowStrategyMode.V3
+            and not AIHelper.Models.SparrowStrategyMode.V4)
+            throw new ArgumentException("Benchmark analysis supports Classic, V2, V3 and V4 only.", nameof(backtestRequest));
         BacktestRequest = backtestRequest;
         BenchmarkId = benchmarkId;
     }

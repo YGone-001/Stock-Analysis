@@ -42,6 +42,9 @@ public static class SparrowComparisonReasonCodes
     public const string P3AdhesionHigh = "P3_ADHESION_HIGH";
     public const string P3Rsi = "P3_RSI";
     public const string P3Macd = "P3_MACD";
+    public const string P3VolBreakout = "P3_VOL_BREAKOUT";
+    public const string P3VolContraction = "P3_VOL_CONTRACTION";
+    public const string P3VolUnavailable = "P3_VOL_UNAVAILABLE";
 }
 
 public sealed class SparrowRuleComparison

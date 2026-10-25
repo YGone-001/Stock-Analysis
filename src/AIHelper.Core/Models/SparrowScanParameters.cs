@@ -22,6 +22,24 @@ public class SparrowScanParameters
     public bool UseCache { get; set; }
 }
 
+/// <summary>Optional V4 volume-pattern gates evaluated on the newest-first volume series after the V3 rules passed.</summary>
+/// <param name="VolBreakoutMultiple">Today's volume must reach this multiple of the recent-window mean; null disables the breakout gate.</param>
+/// <param name="VolContractionMaxRatio">The pre-breakout window mean must stay at or below this ratio of the baseline-window mean; null disables the contraction gate.</param>
+public sealed record SparrowVolumeGateConfig(
+    double? VolBreakoutMultiple = 1.5,
+    double? VolContractionMaxRatio = 0.8,
+    int VolBreakoutLookbackDays = 5,
+    int VolContractionLookbackDays = 5,
+    int VolContractionBaselineDays = 10)
+{
+    public void Validate()
+    {
+        if (VolBreakoutMultiple.HasValue && (!double.IsFinite(VolBreakoutMultiple.Value) || VolBreakoutMultiple.Value <= 0)) throw new ArgumentOutOfRangeException(nameof(VolBreakoutMultiple));
+        if (VolContractionMaxRatio.HasValue && (!double.IsFinite(VolContractionMaxRatio.Value) || VolContractionMaxRatio.Value <= 0)) throw new ArgumentOutOfRangeException(nameof(VolContractionMaxRatio));
+        if (VolBreakoutLookbackDays <= 0 || VolContractionLookbackDays <= 0 || VolContractionBaselineDays <= 0)
+            throw new InvalidOperationException("Volume gate windows are invalid.");
+    }
+}
 /// <summary>Optional V3 momentum-quality gates evaluated on the close series that already passed the V2 rules.</summary>
 /// <param name="RsiMin">Inclusive lower RSI bound; null disables the gate.</param>
 /// <param name="RsiMax">Inclusive upper RSI bound; null disables the gate.</param>

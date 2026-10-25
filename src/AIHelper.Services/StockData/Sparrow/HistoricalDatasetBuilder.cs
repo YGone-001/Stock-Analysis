@@ -265,7 +265,17 @@ public sealed class HistoricalDatasetBuilder
     }
 
     private static HistoricalStrategyCapabilityExplanation[] Capabilities(HistoricalMarketDataset dataset)
-        => Capabilities(dataset.QualitySummary);
+    {
+        HistoricalStrategyCapabilityExplanation[] qualityBased = Capabilities(dataset.QualitySummary);
+        // V4 additionally depends on kline volume; disclose the declared coverage so degraded datasets are visible up front.
+        HistoricalFieldCapability? volume = dataset.GetFieldCapability(HistoricalField.Volume);
+        var v4 = new List<string> { "UNIVERSE_PARTIAL", "OUTER_VOLUME_UNAVAILABLE", "INNER_VOLUME_UNAVAILABLE" };
+        if (volume is null || volume.Coverage is HistoricalFieldCoverage.None or HistoricalFieldCoverage.Unknown || volume.Origin == HistoricalFieldOrigin.Unavailable)
+            v4.Add("KLINE_VOLUME_UNAVAILABLE");
+        else if (volume.Coverage == HistoricalFieldCoverage.Partial)
+            v4.Add("KLINE_VOLUME_PARTIAL");
+        return [.. qualityBased, new(SparrowStrategyMode.V4, HistoricalReplaySupport.Partial, v4)];
+    }
 
     private static HistoricalStrategyCapabilityExplanation[] Capabilities(HistoricalDatasetQualitySummary quality)
     {

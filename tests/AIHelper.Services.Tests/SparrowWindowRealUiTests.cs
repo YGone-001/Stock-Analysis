@@ -41,7 +41,7 @@ public sealed class SparrowWindowRealUiTests
     }
 
     [Fact]
-    public void SparrowWindowDC_InitializesStrategyAwareUi_AndRendersAllFourModes()
+    public void SparrowWindowDC_InitializesStrategyAwareUi_AndRendersAllFiveModes()
     {
         RunWindowTest((window, vm) =>
         {
@@ -68,11 +68,12 @@ public sealed class SparrowWindowRealUiTests
 
             var options = modeSelector.ItemsSource as IReadOnlyList<SparrowStrategyModeOption>;
             Assert.NotNull(options);
-            Assert.Equal(4, options.Count);
+            Assert.Equal(5, options.Count);
             Assert.Equal("Classic（原始麻雀）", options[0].DisplayName);
             Assert.Equal("V2（东财增强）", options[1].DisplayName);
             Assert.Equal("Classic + V2 双选", options[2].DisplayName);
             Assert.Equal("V3（动量门限）", options[3].DisplayName);
+            Assert.Equal("V4（量价形态）", options[4].DisplayName);
 
             string artifactDir = @"C:\Users\YGone\.gemini\antigravity\brain\61802ae4-a116-4387-b1a8-996a03966bd0";
             Directory.CreateDirectory(artifactDir);
@@ -116,6 +117,20 @@ public sealed class SparrowWindowRealUiTests
             Assert.Equal(75d, vm.V3Parameters.RsiMax);
             Assert.True(vm.V3Parameters.RequireMacdBullish);
             SaveWindowScreenshot(window, Path.Combine(artifactDir, "sparrow_v3.png"));
+
+            // 6. Mode: V4
+            vm.StrategyMode = SparrowStrategyMode.V4;
+            window.UpdateLayout();
+            Assert.True(vm.ShowV2Parameters);
+            Assert.True(vm.ShowV3Parameters);
+            Assert.True(vm.ShowV4Parameters);
+            Assert.True(vm.IsV4Mode);
+            Assert.Equal("量价形态麻雀：V3 + 缩量蓄势 + 放量突破", vm.StrategyDescription);
+            Assert.Equal("V2 增强条件（作用于 V4）", vm.V2ParametersHeader);
+            Assert.True(vm.V4Parameters.VolumeGatesEnabled);
+            Assert.Equal(1.5d, vm.V4Parameters.VolBreakoutMultiple);
+            Assert.Equal(.8d, vm.V4Parameters.VolContractionMaxRatio);
+            SaveWindowScreenshot(window, Path.Combine(artifactDir, "sparrow_v4.png"));
         });
     }
 

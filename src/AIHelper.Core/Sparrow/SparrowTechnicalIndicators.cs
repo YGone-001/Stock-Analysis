@@ -108,6 +108,26 @@ public static class SparrowTechnicalIndicators
         return double.IsFinite(atr) && atr > 0;
     }
 
+    /// <summary>
+    /// Mean of a contiguous window on a newest-first series. Any NaN inside the window makes the result
+    /// unavailable (returns false) so callers surface an explicit DataUnavailable outcome instead of a
+    /// silently truncated average.
+    /// </summary>
+    public static bool TryWindowAverage(IReadOnlyList<double> valuesNewestFirst, int offset, int count, out double average)
+    {
+        average = default;
+        if (count <= 0 || offset < 0 || offset + count > valuesNewestFirst.Count) return false;
+        double sum = 0;
+        for (int index = offset; index < offset + count; index++)
+        {
+            double value = valuesNewestFirst[index];
+            if (!double.IsFinite(value) || value < 0) return false;
+            sum += value;
+        }
+        average = sum / count;
+        return double.IsFinite(average);
+    }
+
     private static double SimpleAverage(IReadOnlyList<double> values, int offset, int count)
     {
         double sum = 0;

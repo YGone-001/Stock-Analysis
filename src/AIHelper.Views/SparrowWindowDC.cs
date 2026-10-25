@@ -42,6 +42,9 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
     internal NumericUpDown NumRsiMin;
     internal NumericUpDown NumRsiMax;
     internal CheckBox ChkMacdBullish;
+    internal NumericUpDown NumVolBreakout;
+    internal NumericUpDown NumVolContraction;
+    internal CheckBox ChkVolumeGates;
     internal Button BtnStart;
     internal Button BtnTest;
     internal NumericUpDown NumConcurrency;
@@ -96,9 +99,12 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumMinTurnover.SetBinding(NumericUpDown.ValueProperty, new Binding("EnhancementParameters.MinTurnover") { Mode = BindingMode.TwoWay });
         NumMaxTurnover.SetBinding(NumericUpDown.ValueProperty, new Binding("EnhancementParameters.MaxTurnover") { Mode = BindingMode.TwoWay });
         NumMomentum.SetBinding(NumericUpDown.ValueProperty, new Binding("EnhancementParameters.MomentumThreshold") { Mode = BindingMode.TwoWay });
-        NumRsiMin.SetBinding(NumericUpDown.ValueProperty, new Binding("V3Parameters.RsiMin") { Mode = BindingMode.TwoWay });
-        NumRsiMax.SetBinding(NumericUpDown.ValueProperty, new Binding("V3Parameters.RsiMax") { Mode = BindingMode.TwoWay });
-        ChkMacdBullish.SetBinding(CheckBox.IsCheckedProperty, new Binding("V3Parameters.RequireMacdBullish") { Mode = BindingMode.TwoWay });
+        NumRsiMin.SetBinding(NumericUpDown.ValueProperty, new Binding("MomentumGateParameters.RsiMin") { Mode = BindingMode.TwoWay });
+        NumRsiMax.SetBinding(NumericUpDown.ValueProperty, new Binding("MomentumGateParameters.RsiMax") { Mode = BindingMode.TwoWay });
+        ChkMacdBullish.SetBinding(CheckBox.IsCheckedProperty, new Binding("MomentumGateParameters.RequireMacdBullish") { Mode = BindingMode.TwoWay });
+        NumVolBreakout.SetBinding(NumericUpDown.ValueProperty, new Binding("V4Parameters.VolBreakoutMultiple") { Mode = BindingMode.TwoWay });
+        NumVolContraction.SetBinding(NumericUpDown.ValueProperty, new Binding("V4Parameters.VolContractionMaxRatio") { Mode = BindingMode.TwoWay });
+        ChkVolumeGates.SetBinding(CheckBox.IsCheckedProperty, new Binding("V4Parameters.VolumeGatesEnabled") { Mode = BindingMode.TwoWay });
         NumConcurrency.SetBinding(NumericUpDown.ValueProperty, new Binding("SystemSettings.MaxConcurrency") { Mode = BindingMode.TwoWay });
         NumTopN.SetBinding(NumericUpDown.ValueProperty, new Binding("TopN") { Mode = BindingMode.TwoWay });
 
@@ -295,6 +301,9 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumRsiMin = new NumericUpDown { Minimum = 0, Maximum = 100, Increment = 1, Width = 65 };
         NumRsiMax = new NumericUpDown { Minimum = 0, Maximum = 100, Increment = 1, Width = 65 };
         ChkMacdBullish = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
+        NumVolBreakout = new NumericUpDown { Minimum = 0.1, Maximum = 10, Increment = 0.1, Width = 65 };
+        NumVolContraction = new NumericUpDown { Minimum = 0.1, Maximum = 2, Increment = 0.05, Width = 65 };
+        ChkVolumeGates = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
 
         var modePanel = new StackPanel
         {
@@ -480,6 +489,56 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
             Converter = new BooleanToVisibilityConverter()
         });
 
+        var v4GatePanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        v4GatePanel.Children.Add(new TextBlock
+        {
+            Text = "启用量价门限：",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        });
+        v4GatePanel.Children.Add(ChkVolumeGates);
+
+        var v4BreakoutPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        v4BreakoutPanel.Children.Add(new TextBlock
+        {
+            Text = "放量突破倍数（当日量 / 近5日均量）：",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        });
+        v4BreakoutPanel.Children.Add(NumVolBreakout);
+
+        var v4ContractionPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        v4ContractionPanel.Children.Add(new TextBlock
+        {
+            Text = "缩量蓄势比（近5日均量 / 基期10日均量）：",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        });
+        v4ContractionPanel.Children.Add(NumVolContraction);
+
+        var v4Content = new StackPanel();
+        v4Content.Children.Add(v4GatePanel);
+        v4Content.Children.Add(v4BreakoutPanel);
+        v4Content.Children.Add(v4ContractionPanel);
+        v4Content.Children.Add(new TextBlock
+        {
+            Text = "V4 = 冻结的 V3 规则 + 量价形态门限；量数据缺失时该股显式记为数据不可用。",
+            Foreground = System.Windows.Media.Brushes.Gray,
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var v4Group = new GroupBox
+        {
+            Header = "V4 量价形态",
+            Content = v4Content,
+            Margin = new Thickness(0, 0, 0, 8),
+            Padding = new Thickness(8)
+        };
+        v4Group.SetBinding(UIElement.VisibilityProperty, new Binding("ShowV4Parameters")
+        {
+            Converter = new BooleanToVisibilityConverter()
+        });
+
         var compareHint = new TextBlock
         {
             Foreground = System.Windows.Media.Brushes.SteelBlue,
@@ -560,6 +619,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         root.Children.Add(baseGroup);
         root.Children.Add(v2Group);
         root.Children.Add(v3Group);
+        root.Children.Add(v4Group);
         root.Children.Add(compareHint);
         root.Children.Add(outputPanel);
         root.Children.Add(resultSummary);

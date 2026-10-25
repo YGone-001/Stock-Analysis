@@ -92,6 +92,7 @@ public sealed class ManagedResearchExperimentRequest
         {
             SparrowStrategyMode.V2 => SparrowStrategyVersions.V2,
             SparrowStrategyMode.V3 => SparrowStrategyVersions.V3,
+            SparrowStrategyMode.V4 => SparrowStrategyVersions.V4,
             _ => SparrowStrategyVersions.Classic
         },
         StartDate, EndDate, TopN, HorizonTradingDays);
