@@ -34,7 +34,8 @@ public sealed class PortfolioPerformanceMetrics
         double? sharpeRatio = null,
         double? sortinoRatio = null,
         double? profitLossRatio = null,
-        int? maximumDrawdownRecoveryTradingDays = null)
+        int? maximumDrawdownRecoveryTradingDays = null,
+        double? calmarRatio = null)
     {
         if (initialCapital <= 0) throw new ArgumentOutOfRangeException(nameof(initialCapital));
         if (finalEquity < 0) throw new ArgumentOutOfRangeException(nameof(finalEquity));
@@ -52,11 +53,13 @@ public sealed class PortfolioPerformanceMetrics
         if (sortinoRatio.HasValue && !double.IsFinite(sortinoRatio.Value)) throw new ArgumentOutOfRangeException(nameof(sortinoRatio));
         if (profitLossRatio.HasValue && (!double.IsFinite(profitLossRatio.Value) || profitLossRatio.Value <= 0)) throw new ArgumentOutOfRangeException(nameof(profitLossRatio));
         if (maximumDrawdownRecoveryTradingDays.HasValue && maximumDrawdownRecoveryTradingDays.Value < 0) throw new ArgumentOutOfRangeException(nameof(maximumDrawdownRecoveryTradingDays));
+        if (calmarRatio.HasValue && !double.IsFinite(calmarRatio.Value)) throw new ArgumentOutOfRangeException(nameof(calmarRatio));
         if (annualizedVolatilityPercent.HasValue && !annualizedReturnPercent.HasValue) throw new ArgumentException("Annualized volatility requires annualized return.", nameof(annualizedVolatilityPercent));
         if (sharpeRatio.HasValue && !(annualizedVolatilityPercent > 0)) throw new ArgumentException("Sharpe ratio requires positive annualized volatility.", nameof(sharpeRatio));
         if (sortinoRatio.HasValue && !(annualizedVolatilityPercent > 0)) throw new ArgumentException("Sortino ratio requires positive annualized volatility.", nameof(sortinoRatio));
         if (profitLossRatio.HasValue && (winningTradeCount == 0 || losingTradeCount == 0)) throw new ArgumentException("Profit/loss ratio requires at least one winning and one losing trade.", nameof(profitLossRatio));
         if (maximumDrawdownRecoveryTradingDays is > 0 && maximumDrawdownPercent == 0) throw new ArgumentException("A positive recovery period requires a non-zero drawdown.", nameof(maximumDrawdownRecoveryTradingDays));
+        if (calmarRatio.HasValue && (!annualizedReturnPercent.HasValue || maximumDrawdownPercent >= 0)) throw new ArgumentException("Calmar ratio requires annualized return and a non-zero drawdown.", nameof(calmarRatio));
 
         InitialCapital = initialCapital;
         FinalEquity = finalEquity;
@@ -73,6 +76,7 @@ public sealed class PortfolioPerformanceMetrics
         SortinoRatio = sortinoRatio;
         ProfitLossRatio = profitLossRatio;
         MaximumDrawdownRecoveryTradingDays = maximumDrawdownRecoveryTradingDays;
+        CalmarRatio = calmarRatio;
     }
 
     public decimal InitialCapital { get; }
@@ -98,6 +102,8 @@ public sealed class PortfolioPerformanceMetrics
     public double? ProfitLossRatio { get; }
     /// <summary>Trading days from the maximum-drawdown trough until equity first regains its prior peak; null when the peak is never regained, zero when no drawdown occurred.</summary>
     public int? MaximumDrawdownRecoveryTradingDays { get; }
+    /// <summary>Annualized return percent divided by the absolute maximum drawdown percent; null without a non-zero drawdown.</summary>
+    public double? CalmarRatio { get; }
 }
 
 /// <summary>Immutable benchmark valuation point normalized to the portfolio's initial capital.</summary>

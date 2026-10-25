@@ -168,9 +168,18 @@ public sealed class ResearchExperimentComparableGroup
 
 public sealed class ResearchExperimentMetricAvailability
 {
-    public ResearchExperimentMetricAvailability(bool totalReturn, bool maximumDrawdown, bool tradeCount, bool winRate)
-    { TotalReturn = totalReturn; MaximumDrawdown = maximumDrawdown; TradeCount = tradeCount; WinRate = winRate; }
+    public ResearchExperimentMetricAvailability(bool totalReturn, bool maximumDrawdown, bool tradeCount, bool winRate,
+        bool annualizedReturn = false, bool annualizedVolatility = false, bool sharpe = false, bool sortino = false,
+        bool profitLoss = false, bool calmar = false)
+    {
+        TotalReturn = totalReturn; MaximumDrawdown = maximumDrawdown; TradeCount = tradeCount; WinRate = winRate;
+        AnnualizedReturn = annualizedReturn; AnnualizedVolatility = annualizedVolatility;
+        Sharpe = sharpe; Sortino = sortino; ProfitLoss = profitLoss; Calmar = calmar;
+    }
     public bool TotalReturn { get; } public bool MaximumDrawdown { get; } public bool TradeCount { get; } public bool WinRate { get; }
+    /// <summary>Risk-adjusted extension metrics; false unless every experiment carries them.</summary>
+    public bool AnnualizedReturn { get; } public bool AnnualizedVolatility { get; }
+    public bool Sharpe { get; } public bool Sortino { get; } public bool ProfitLoss { get; } public bool Calmar { get; }
 }
 
 /// <summary>Neutral multi-experiment grouping; no score, ranking, winner, or recommendation is produced.</summary>
@@ -186,7 +195,10 @@ public sealed class ResearchExperimentBatchComparison
             .Select(group => new ResearchExperimentComparableGroup(group.Key.DatasetFingerprint, new ResearchExperimentStrategyIdentity(group.Key.Mode, group.Key.Version), group)).ToArray());
         ResearchExperimentPerformanceSummary?[] metrics = canonical.Select(item => item.ExecutionSummary.Performance).ToArray();
         MetricAvailability = new ResearchExperimentMetricAvailability(metrics.All(item => item?.TotalReturnPercent is not null), metrics.All(item => item?.MaximumDrawdownPercent is not null),
-            metrics.All(item => item?.TradeCount is not null), metrics.All(item => item?.WinRate is not null));
+            metrics.All(item => item?.TradeCount is not null), metrics.All(item => item?.WinRate is not null),
+            metrics.All(item => item?.AnnualizedReturnPercent is not null), metrics.All(item => item?.AnnualizedVolatilityPercent is not null),
+            metrics.All(item => item?.SharpeRatio is not null), metrics.All(item => item?.SortinoRatio is not null),
+            metrics.All(item => item?.ProfitLossRatio is not null), metrics.All(item => item?.CalmarRatio is not null));
     }
     public IReadOnlyList<PersistedResearchExperimentRecord> Experiments { get; }
     public IReadOnlyList<ResearchExperimentComparableGroup> ComparableGroups { get; }

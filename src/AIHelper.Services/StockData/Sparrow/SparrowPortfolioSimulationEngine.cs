@@ -114,8 +114,8 @@ public sealed class SparrowPortfolioSimulationEngine : ISparrowPortfolioSimulati
             if (candidates.Count == 0)
                 continue;
 
-            decimal allocation = cash / candidates.Count;
-            foreach (EntryCandidate candidate in candidates)
+            decimal[] allocations = Allocate(candidates, request.PositionSizingMethod, dataset, date, cash, warnings);
+            foreach ((EntryCandidate candidate, decimal allocation) in candidates.Zip(allocations))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 long quantity = (long)decimal.Floor(allocation / candidate.ExecutionPrice);
@@ -232,7 +232,7 @@ public sealed class SparrowPortfolioSimulationEngine : ISparrowPortfolioSimulati
             }
 
             decimal executionPrice = close * (1m + slippageRate);
-            candidates.Add(new EntryCandidate(symbol, executionPrice, close));
+            candidates.Add(new EntryCandidate(symbol, executionPrice, close, selection.Selection.RankedCandidate.TotalScore));
         }
 
         return candidates;
@@ -255,6 +255,68 @@ public sealed class SparrowPortfolioSimulationEngine : ISparrowPortfolioSimulati
         }
 
         return SparrowTechnicalIndicators.TryAtr(window, lookback, out atr);
+    }
+
+    /// <summary>
+    /// Splits the available cash across the batch's entry candidates. Degenerate inputs (non-positive scores,
+    /// missing or zero volatility) fall the whole batch back to equal weight with an explicit warning so the
+    /// simulation never silently fabricates weights.
+    /// </summary>
+    private static decimal[] Allocate(IReadOnlyList<EntryCandidate> candidates, PortfolioPositionSizingMethod method, HistoricalMarketDataset dataset, DateOnly date, decimal cash, ICollection<string> warnings)
+    {
+        decimal[] weights = new decimal[candidates.Count];
+        switch (method)
+        {
+            case PortfolioPositionSizingMethod.EqualWeight:
+                return Enumerable.Repeat(cash / candidates.Count, candidates.Count).ToArray();
+            case PortfolioPositionSizingMethod.ScoreWeighted:
+                for (int index = 0; index < candidates.Count; index++) weights[index] = (decimal)Math.Max(candidates[index].Score, 0);
+                break;
+            case PortfolioPositionSizingMethod.InverseVolatility:
+                for (int index = 0; index < candidates.Count; index++)
+                {
+                    if (!TryGetVolatility(dataset, candidates[index].Symbol, date, SparrowConstants.PortfolioVolatilityLookback, out double sigma) || sigma <= 0)
+                    {
+                        warnings.Add($"{date:O}: InverseVolatilityUnavailable; equal weight retained.");
+                        return Enumerable.Repeat(cash / candidates.Count, candidates.Count).ToArray();
+                    }
+                    weights[index] = (decimal)(1d / sigma);
+                }
+                break;
+            default:
+                throw new NotSupportedException($"Unsupported portfolio position sizing method '{method}'.");
+        }
+
+        decimal total = weights.Sum();
+        if (total <= 0)
+        {
+            warnings.Add($"{date:O}: PositionWeightsUnavailable; equal weight retained.");
+            return Enumerable.Repeat(cash / candidates.Count, candidates.Count).ToArray();
+        }
+
+        return weights.Select(weight => cash * weight / total).ToArray();
+    }
+
+    /// <summary>Sample standard deviation of daily close-to-close returns over the newest lookback bars ending at the entry date.</summary>
+    private static bool TryGetVolatility(HistoricalMarketDataset dataset, string symbol, DateOnly date, int lookback, out double sigma)
+    {
+        sigma = default;
+        if (!dataset.Klines.TryGetValue(symbol, out KlineSeries? series)) return false;
+        var closes = new List<double>(lookback + 1);
+        foreach (KlineBar bar in series.Bars)
+        {
+            if (DateOnly.FromDateTime(bar.Date) > date) break;
+            if (bar.Close is > 0 && double.IsFinite(bar.Close.Value)) closes.Add(bar.Close.Value);
+            if (closes.Count > lookback + 1) closes.RemoveAt(0);
+        }
+        if (closes.Count < lookback + 1) return false;
+
+        double[] returns = new double[lookback];
+        for (int index = 1; index < closes.Count; index++) returns[index - 1] = closes[index] / closes[index - 1] - 1;
+        double mean = returns.Average();
+        double variance = returns.Sum(value => (value - mean) * (value - mean)) / (returns.Length - 1);
+        sigma = Math.Sqrt(variance);
+        return double.IsFinite(sigma);
     }
 
     private static long ReduceToAffordableQuantity(long quantity, decimal price, decimal commissionRate, decimal cash)
@@ -302,13 +364,11 @@ public sealed class SparrowPortfolioSimulationEngine : ISparrowPortfolioSimulati
             throw new ArgumentException("Portfolio request parameter fingerprint does not match the backtest result.", nameof(request));
         if (request.StartDate != backtest.Request.StartDate || request.EndDate != backtest.Request.EndDate || request.TopN != backtest.Request.TopN)
             throw new ArgumentException("Portfolio request schedule does not match the backtest result.", nameof(request));
-        if (request.PositionSizingMethod != PortfolioPositionSizingMethod.EqualWeight)
-            throw new NotSupportedException($"Unsupported portfolio position sizing method '{request.PositionSizingMethod}'.");
         if (request.ExecutionModel != PortfolioExecutionModel.CloseBased)
             throw new NotSupportedException($"Unsupported portfolio execution model '{request.ExecutionModel}'.");
     }
 
-    private sealed record EntryCandidate(string Symbol, decimal ExecutionPrice, decimal Close);
+    private sealed record EntryCandidate(string Symbol, decimal ExecutionPrice, decimal Close, double Score);
 
     private sealed record PositionState(string Symbol, DateOnly EntryDate, decimal EntryPrice, long Quantity, decimal EntryNotional, decimal EntryFee, DateOnly? ExitDate)
     {

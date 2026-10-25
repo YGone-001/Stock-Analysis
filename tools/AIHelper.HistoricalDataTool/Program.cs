@@ -542,7 +542,7 @@ async Task<int> RunResearchExperimentAsync(string experimentId)
     };
 
     if (!Enum.TryParse(Required("position-sizing").Trim(), ignoreCase: false, out PortfolioPositionSizingMethod positionSizing))
-        throw new ArgumentException($"--position-sizing must be {nameof(PortfolioPositionSizingMethod.EqualWeight)}.");
+        throw new ArgumentException($"--position-sizing must be {nameof(PortfolioPositionSizingMethod.EqualWeight)}, {nameof(PortfolioPositionSizingMethod.ScoreWeighted)} or {nameof(PortfolioPositionSizingMethod.InverseVolatility)}.");
     if (!Enum.TryParse(Required("execution-model").Trim(), ignoreCase: false, out PortfolioExecutionModel executionModel))
         throw new ArgumentException($"--execution-model must be {nameof(PortfolioExecutionModel.CloseBased)}.");
 

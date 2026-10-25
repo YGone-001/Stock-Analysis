@@ -54,7 +54,13 @@ public sealed class ResearchExperimentReportBuilder : IResearchExperimentReportB
             Metric("Total Return", ResearchReportMetricKind.Percentage, comparison.TotalReturnPercent, reversed),
             Metric("Maximum Drawdown", ResearchReportMetricKind.Percentage, comparison.MaximumDrawdownPercent, reversed),
             Metric("Trade Count", ResearchReportMetricKind.Count, comparison.TradeCount, reversed),
-            Metric("Win Rate", ResearchReportMetricKind.Ratio, comparison.WinRate, reversed)
+            Metric("Win Rate", ResearchReportMetricKind.Ratio, comparison.WinRate, reversed),
+            Metric("Annualized Return", ResearchReportMetricKind.Percentage, comparison.AnnualizedReturnPercent, reversed),
+            Metric("Annualized Volatility", ResearchReportMetricKind.Percentage, comparison.AnnualizedVolatilityPercent, reversed),
+            Metric("Sharpe Ratio", ResearchReportMetricKind.Ratio, comparison.SharpeRatio, reversed),
+            Metric("Sortino Ratio", ResearchReportMetricKind.Ratio, comparison.SortinoRatio, reversed),
+            Metric("Profit/Loss Ratio", ResearchReportMetricKind.Ratio, comparison.ProfitLossRatio, reversed),
+            Metric("Calmar Ratio", ResearchReportMetricKind.Ratio, comparison.CalmarRatio, reversed)
         };
         IReadOnlyList<ResearchReportWarning> warnings = comparison.PerformanceComparisonAvailable ? Array.Empty<ResearchReportWarning>() :
             new[] { new ResearchReportWarning("Performance comparison unavailable") };
@@ -79,7 +85,8 @@ public sealed class ResearchExperimentReportBuilder : IResearchExperimentReportB
         new ResearchReportMetric("Annualized Volatility", ResearchReportMetricKind.Percentage, performance?.AnnualizedVolatilityPercent),
         new ResearchReportMetric("Sharpe Ratio", ResearchReportMetricKind.Ratio, performance?.SharpeRatio),
         new ResearchReportMetric("Sortino Ratio", ResearchReportMetricKind.Ratio, performance?.SortinoRatio),
-        new ResearchReportMetric("Profit/Loss Ratio", ResearchReportMetricKind.Ratio, performance?.ProfitLossRatio)
+        new ResearchReportMetric("Profit/Loss Ratio", ResearchReportMetricKind.Ratio, performance?.ProfitLossRatio),
+        new ResearchReportMetric("Calmar Ratio", ResearchReportMetricKind.Ratio, performance?.CalmarRatio)
     };
 
     private static IReadOnlyList<ResearchReportWarning> Warnings(PersistedResearchExperimentRecord experiment, ResearchExperimentPerformanceSummary? performance)
@@ -91,8 +98,11 @@ public sealed class ResearchExperimentReportBuilder : IResearchExperimentReportB
         return facts.Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).Select(value => new ResearchReportWarning(value)).ToArray();
     }
 
-    private static ResearchReportComparisonMetric Metric(string name, ResearchReportMetricKind kind, ResearchExperimentMetricComparison metric, bool reversed) =>
-        new(name, kind, reversed ? metric.ExperimentB : metric.ExperimentA, reversed ? metric.ExperimentA : metric.ExperimentB, metric.Available);
+    /// <summary>Null comparisons (metrics predating a record) render as explicitly unavailable rows.</summary>
+    private static ResearchReportComparisonMetric Metric(string name, ResearchReportMetricKind kind, ResearchExperimentMetricComparison? metric, bool reversed) =>
+        metric is null
+            ? new(name, kind, null, null, false)
+            : new(name, kind, reversed ? metric.ExperimentB : metric.ExperimentA, reversed ? metric.ExperimentA : metric.ExperimentB, metric.Available);
 
     private static ResearchReportIdentity Identity(ResearchReportType type, IReadOnlyList<string> fingerprints, IEnumerable<(string Name, string? Value)> facts)
     {

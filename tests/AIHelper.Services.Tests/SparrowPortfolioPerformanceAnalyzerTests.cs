@@ -30,6 +30,7 @@ public sealed class SparrowPortfolioPerformanceAnalyzerTests
         Assert.Equal(30d, result.Metrics.TotalReturnPercent, 10);
         Assert.Equal(-25d, result.Metrics.MaximumDrawdownPercent, 10);
         Assert.Equal(dates[2], result.Metrics.MaximumDrawdownDate);
+        Assert.Equal(result.Metrics.AnnualizedReturnPercent!.Value / 25d, result.Metrics.CalmarRatio!.Value, 10);
         PortfolioAttribution attribution = Assert.Single(result.Attribution);
         Assert.Equal(3, attribution.HoldingPeriodTradingDays);
         Assert.Equal(30m, attribution.RealizedPnL);
@@ -200,6 +201,7 @@ public sealed class SparrowPortfolioPerformanceAnalyzerTests
         Assert.Equal(0, flatEquity.Metrics.AnnualizedVolatilityPercent!.Value, 10);
         Assert.Null(flatEquity.Metrics.SharpeRatio);
         Assert.Null(flatEquity.Metrics.SortinoRatio);
+        Assert.Null(flatEquity.Metrics.CalmarRatio);
 
         DateOnly[] rising = Dates(4);
         SparrowPortfolioPerformanceResult noDownside = await Analyze(Simulation(Dataset(rising, new[] { 100d, 110d, 115.5d, 133.1d }), 100,

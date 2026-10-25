@@ -144,6 +144,9 @@ public sealed class SparrowPortfolioPerformanceAnalyzer : ISparrowPortfolioPerfo
         double[] dailyReturns = curve.Points.Skip(1).Select(point => point.DailyReturn!.Value).ToArray();
         double? annualizedReturnPercent = dailyReturns.Length == 0 ? null
             : (Math.Pow((double)(finalEquity / initialCapital), (double)SparrowConstants.TradingDaysPerYear / dailyReturns.Length) - 1) * 100;
+        double? calmarRatio = annualizedReturnPercent.HasValue && maximumDrawdownPercent < 0
+            ? annualizedReturnPercent.Value / Math.Abs(maximumDrawdownPercent)
+            : null;
         double? annualizedVolatilityPercent = null;
         double? sharpeRatio = null;
         double? sortinoRatio = null;
@@ -170,7 +173,7 @@ public sealed class SparrowPortfolioPerformanceAnalyzer : ISparrowPortfolioPerfo
         return new PortfolioPerformanceMetrics(initialCapital, finalEquity, (double)(finalEquity / initialCapital * 100m - 100m),
             maximumDrawdownPercent, maximumDrawdownDate, tradeCount, winning, losing,
             tradeCount == 0 ? null : winning / (double)tradeCount,
-            annualizedReturnPercent, annualizedVolatilityPercent, sharpeRatio, sortinoRatio, profitLossRatio, recoveryTradingDays);
+            annualizedReturnPercent, annualizedVolatilityPercent, sharpeRatio, sortinoRatio, profitLossRatio, recoveryTradingDays, calmarRatio);
     }
 
     private static PortfolioBenchmarkComparison? BuildBenchmarkComparison(

@@ -45,4 +45,7 @@ public static class SparrowConstants
 
     /// <summary>Trading days per year used to annualize daily-return statistics (A-share calendar average).</summary>
     public const int TradingDaysPerYear = 244;
+
+    /// <summary>Daily closes used by the InverseVolatility position sizing to estimate per-candidate volatility.</summary>
+    public const int PortfolioVolatilityLookback = 20;
 }

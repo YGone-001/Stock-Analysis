@@ -8,8 +8,13 @@ public enum PortfolioPositionStatus { Open, Closed }
 /// <summary>Supported simulated transaction directions.</summary>
 public enum PortfolioTradeSide { Buy, Sell }
 
-/// <summary>Phase 3.4 V1 portfolio allocation method.</summary>
-public enum PortfolioPositionSizingMethod { EqualWeight }
+/// <summary>
+/// Phase 3.4 V2 portfolio allocation methods. EqualWeight is the frozen V1 behavior; ScoreWeighted splits
+/// available cash proportionally to each candidate's ranking score (non-positive scores fall back to equal
+/// weight); InverseVolatility splits proportionally to the inverse sample volatility of the recent daily closes
+/// (any candidate without computable positive volatility falls the whole batch back to equal weight).
+/// </summary>
+public enum PortfolioPositionSizingMethod { EqualWeight, ScoreWeighted, InverseVolatility }
 
 /// <summary>Phase 3.4 V1 execution assumption: historical close plus explicit slippage.</summary>
 public enum PortfolioExecutionModel { CloseBased }

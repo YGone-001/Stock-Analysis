@@ -84,6 +84,32 @@ public sealed class SparrowResearchExperimentReportingTests
     }
 
     [Fact]
+    public void Comparison_CarriesRiskAdjustedMetricsAndMarksLegacyRecordsUnavailable()
+    {
+        ResearchExperimentComparisonService comparisonService = new();
+        PersistedResearchExperimentRecord first = Record("EXP-002", dataset: "dataset-a",
+            performance: new(4.5, -2.1, 10, .6, annualizedReturnPercent: 30, annualizedVolatilityPercent: 15, sharpeRatio: 2, sortinoRatio: 3, profitLossRatio: 1.5, calmarRatio: 14.3));
+        PersistedResearchExperimentRecord second = Record("EXP-001", dataset: "dataset-a",
+            performance: new(2.5, -3.2, 8, .5, annualizedReturnPercent: 20, annualizedVolatilityPercent: 10, sharpeRatio: 1.5, sortinoRatio: 2.5, profitLossRatio: 1.2, calmarRatio: 6.25));
+
+        ResearchExperimentComparisonResult result = comparisonService.Compare(first, second);
+
+        Assert.True(result.PerformanceComparisonAvailable);
+        Assert.True(result.SharpeRatio!.Available);
+        Assert.Equal(2d, result.SharpeRatio.ExperimentA!.Value, 10);
+        Assert.Equal(1.5d, result.SharpeRatio.ExperimentB!.Value, 10);
+        Assert.True(result.CalmarRatio!.Available);
+        Assert.Equal(6.25d, result.CalmarRatio.ExperimentB!.Value, 10);
+        ResearchExperimentComparisonReport report = new ResearchExperimentReportBuilder().BuildComparisonReport(result);
+        Assert.Contains(report.Metrics, metric => metric.Name == "Calmar Ratio" && metric.Available);
+
+        PersistedResearchExperimentRecord legacy = Record("EXP-003", dataset: "dataset-a", performance: new(2.5, -3.2, 8, .5));
+        ResearchExperimentComparisonResult mixed = comparisonService.Compare(first, legacy);
+        Assert.NotNull(mixed.SharpeRatio);
+        Assert.False(mixed.SharpeRatio!.Available);
+    }
+
+    [Fact]
     public void Summary_RendersUnavailableMetricsAsTheCanonicalLiteral()
     {
         ResearchExperimentReport report = new ResearchExperimentReportBuilder().BuildExperimentReport(Record("EXP-001", performance: new ResearchExperimentPerformanceSummary()));

@@ -137,7 +137,8 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
             execution, new ResearchExperimentPerformanceSummary(artifact.PerformanceSummary.TotalReturnPercent,
                 artifact.PerformanceSummary.MaximumDrawdownPercent, artifact.PerformanceSummary.TradeCount, artifact.PerformanceSummary.WinRate,
                 artifact.PerformanceSummary.AnnualizedReturnPercent, artifact.PerformanceSummary.AnnualizedVolatilityPercent,
-                artifact.PerformanceSummary.SharpeRatio, artifact.PerformanceSummary.SortinoRatio, artifact.PerformanceSummary.ProfitLossRatio));
+                artifact.PerformanceSummary.SharpeRatio, artifact.PerformanceSummary.SortinoRatio, artifact.PerformanceSummary.ProfitLossRatio,
+                artifact.PerformanceSummary.CalmarRatio));
 
         PersistedResearchExperimentRecord record = ResearchExperimentRecordFactory.CreateCurrent(
             definition, summary, artifact, completedAt, provenance, executionEnvironmentProvenance);

@@ -8,7 +8,8 @@ namespace AIHelper.Core.Sparrow;
 public sealed class ResearchExperimentPerformanceSummary
 {
     public ResearchExperimentPerformanceSummary(double? totalReturnPercent = null, double? maximumDrawdownPercent = null, int? tradeCount = null, double? winRate = null,
-        double? annualizedReturnPercent = null, double? annualizedVolatilityPercent = null, double? sharpeRatio = null, double? sortinoRatio = null, double? profitLossRatio = null)
+        double? annualizedReturnPercent = null, double? annualizedVolatilityPercent = null, double? sharpeRatio = null, double? sortinoRatio = null, double? profitLossRatio = null,
+        double? calmarRatio = null)
     {
         if (totalReturnPercent.HasValue && !double.IsFinite(totalReturnPercent.Value)) throw new ArgumentOutOfRangeException(nameof(totalReturnPercent));
         if (maximumDrawdownPercent.HasValue && (!double.IsFinite(maximumDrawdownPercent.Value) || maximumDrawdownPercent.Value > 0)) throw new ArgumentOutOfRangeException(nameof(maximumDrawdownPercent));
@@ -21,6 +22,7 @@ public sealed class ResearchExperimentPerformanceSummary
         if (sharpeRatio.HasValue && !double.IsFinite(sharpeRatio.Value)) throw new ArgumentOutOfRangeException(nameof(sharpeRatio));
         if (sortinoRatio.HasValue && !double.IsFinite(sortinoRatio.Value)) throw new ArgumentOutOfRangeException(nameof(sortinoRatio));
         if (profitLossRatio.HasValue && (!double.IsFinite(profitLossRatio.Value) || profitLossRatio.Value <= 0)) throw new ArgumentOutOfRangeException(nameof(profitLossRatio));
+        if (calmarRatio.HasValue && !double.IsFinite(calmarRatio.Value)) throw new ArgumentOutOfRangeException(nameof(calmarRatio));
 
         TotalReturnPercent = totalReturnPercent;
         MaximumDrawdownPercent = maximumDrawdownPercent;
@@ -31,6 +33,7 @@ public sealed class ResearchExperimentPerformanceSummary
         SharpeRatio = sharpeRatio;
         SortinoRatio = sortinoRatio;
         ProfitLossRatio = profitLossRatio;
+        CalmarRatio = calmarRatio;
     }
 
     public double? TotalReturnPercent { get; }
@@ -42,6 +45,7 @@ public sealed class ResearchExperimentPerformanceSummary
     public double? SharpeRatio { get; }
     public double? SortinoRatio { get; }
     public double? ProfitLossRatio { get; }
+    public double? CalmarRatio { get; }
 }
 
 /// <summary>Persistence-safe immutable execution facts. It intentionally contains no executable runtime dependency.</summary>
@@ -695,7 +699,10 @@ public sealed class ResearchExperimentComparisonResult
     public ResearchExperimentComparisonResult(PersistedResearchExperimentRecord experimentA, PersistedResearchExperimentRecord experimentB,
         bool datasetComparable, bool strategyComparable, bool portfolioComparable, bool performanceComparisonAvailable,
         ResearchExperimentMetricComparison totalReturnPercent, ResearchExperimentMetricComparison maximumDrawdownPercent,
-        ResearchExperimentMetricComparison tradeCount, ResearchExperimentMetricComparison winRate)
+        ResearchExperimentMetricComparison tradeCount, ResearchExperimentMetricComparison winRate,
+        ResearchExperimentMetricComparison? annualizedReturnPercent = null, ResearchExperimentMetricComparison? annualizedVolatilityPercent = null,
+        ResearchExperimentMetricComparison? sharpeRatio = null, ResearchExperimentMetricComparison? sortinoRatio = null,
+        ResearchExperimentMetricComparison? profitLossRatio = null, ResearchExperimentMetricComparison? calmarRatio = null)
     {
         ArgumentNullException.ThrowIfNull(experimentA);
         ArgumentNullException.ThrowIfNull(experimentB);
@@ -713,6 +720,12 @@ public sealed class ResearchExperimentComparisonResult
         MaximumDrawdownPercent = maximumDrawdownPercent;
         TradeCount = tradeCount;
         WinRate = winRate;
+        AnnualizedReturnPercent = annualizedReturnPercent;
+        AnnualizedVolatilityPercent = annualizedVolatilityPercent;
+        SharpeRatio = sharpeRatio;
+        SortinoRatio = sortinoRatio;
+        ProfitLossRatio = profitLossRatio;
+        CalmarRatio = calmarRatio;
     }
 
     public PersistedResearchExperimentRecord ExperimentA { get; }
@@ -725,6 +738,13 @@ public sealed class ResearchExperimentComparisonResult
     public ResearchExperimentMetricComparison MaximumDrawdownPercent { get; }
     public ResearchExperimentMetricComparison TradeCount { get; }
     public ResearchExperimentMetricComparison WinRate { get; }
+    /// <summary>Risk-adjusted extension metrics; null when compared against legacy records that predate them.</summary>
+    public ResearchExperimentMetricComparison? AnnualizedReturnPercent { get; }
+    public ResearchExperimentMetricComparison? AnnualizedVolatilityPercent { get; }
+    public ResearchExperimentMetricComparison? SharpeRatio { get; }
+    public ResearchExperimentMetricComparison? SortinoRatio { get; }
+    public ResearchExperimentMetricComparison? ProfitLossRatio { get; }
+    public ResearchExperimentMetricComparison? CalmarRatio { get; }
 }
 
 public sealed class ResearchExperimentComparisonService
@@ -742,7 +762,13 @@ public sealed class ResearchExperimentComparisonService
             Metric(left?.TotalReturnPercent, right?.TotalReturnPercent, performanceAvailable),
             Metric(left?.MaximumDrawdownPercent, right?.MaximumDrawdownPercent, performanceAvailable),
             Metric(left?.TradeCount, right?.TradeCount, performanceAvailable),
-            Metric(left?.WinRate, right?.WinRate, performanceAvailable));
+            Metric(left?.WinRate, right?.WinRate, performanceAvailable),
+            Metric(left?.AnnualizedReturnPercent, right?.AnnualizedReturnPercent, performanceAvailable),
+            Metric(left?.AnnualizedVolatilityPercent, right?.AnnualizedVolatilityPercent, performanceAvailable),
+            Metric(left?.SharpeRatio, right?.SharpeRatio, performanceAvailable),
+            Metric(left?.SortinoRatio, right?.SortinoRatio, performanceAvailable),
+            Metric(left?.ProfitLossRatio, right?.ProfitLossRatio, performanceAvailable),
+            Metric(left?.CalmarRatio, right?.CalmarRatio, performanceAvailable));
     }
 
     private static ResearchExperimentMetricComparison Metric(double? first, double? second, bool comparisonAvailable) =>

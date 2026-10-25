@@ -205,11 +205,12 @@ public sealed class SparrowPortfolioSimulationEngineTests
         PortfolioPositionSizingMethod.EqualWeight, 0, 0, exitPolicy: exitPolicy);
 
     private static async Task<SparrowPortfolioSimulationResult> Simulate(HistoricalMarketDataset dataset, SparrowBacktestResult backtest, decimal initialCapital = 1_000_000, int horizon = 1, decimal commissionRate = 0, decimal slippageRate = 0,
-        PortfolioExitPolicy exitPolicy = PortfolioExitPolicy.ScheduledHorizon, int atrStopLookback = 20, decimal atrStopMultiple = 2m)
+        PortfolioExitPolicy exitPolicy = PortfolioExitPolicy.ScheduledHorizon, int atrStopLookback = 20, decimal atrStopMultiple = 2m,
+        PortfolioPositionSizingMethod sizing = PortfolioPositionSizingMethod.EqualWeight)
     {
         PortfolioSimulationRequest request = new(dataset.DatasetId, dataset.Fingerprint, backtest.Request.StrategyMode, backtest.Request.StrategyVersion,
             backtest.ParameterFingerprint, backtest.Request.StartDate, backtest.Request.EndDate, backtest.Request.TopN, horizon, initialCapital,
-            PortfolioPositionSizingMethod.EqualWeight, commissionRate, slippageRate, PortfolioExecutionModel.CloseBased, exitPolicy, atrStopLookback, atrStopMultiple);
+            sizing, commissionRate, slippageRate, PortfolioExecutionModel.CloseBased, exitPolicy, atrStopLookback, atrStopMultiple);
         return await new SparrowPortfolioSimulationEngine().SimulateAsync(backtest, request, dataset, CancellationToken.None);
     }
 
@@ -228,7 +229,7 @@ public sealed class SparrowPortfolioSimulationEngineTests
             selections.ToArray(), Array.Empty<SparrowHorizonMetrics>(), Array.Empty<string>());
     }
 
-    private static SparrowBacktestSelection Selection(DateOnly date, string symbol, int rank)
+    private static SparrowBacktestSelection Selection(DateOnly date, string symbol, int rank, double? score = null)
     {
         SparrowRankingFeatures features = new() { Code = symbol, Name = symbol };
         SparrowRankedCandidate candidate = new()
@@ -237,12 +238,124 @@ public sealed class SparrowPortfolioSimulationEngineTests
             Code = symbol,
             Name = symbol,
             Rank = rank,
-            TotalScore = 100 - rank,
+            TotalScore = score ?? 100 - rank,
             Features = features,
             IsDataComplete = true
         };
         return new SparrowBacktestSelection(date, new SparrowReplaySelection(symbol, symbol, candidate, "FIXTURE", "fixture"), Array.Empty<ForwardReturn>());
     }
+
+    [Fact]
+    public async Task SimulateAsync_ScoreWeighted_SplitsCashProportionallyToCandidateScores()
+    {
+        DateOnly entry = new(2026, 1, 2); DateOnly exit = new(2026, 1, 5);
+        HistoricalMarketDataset dataset = Dataset(new[] { entry, exit }, new Dictionary<string, double[]>
+        {
+            ["600000"] = new[] { 100d, 110d },
+            ["600001"] = new[] { 100d, 110d }
+        });
+        SparrowBacktestResult backtest = Backtest(dataset, new[]
+        {
+            Selection(entry, "600000", 1, score: 75),
+            Selection(entry, "600001", 2, score: 25)
+        });
+
+        SparrowPortfolioSimulationResult result = await Simulate(dataset, backtest, sizing: PortfolioPositionSizingMethod.ScoreWeighted);
+
+        Assert.Equal(7_500, result.Trades.Single(trade => trade.Symbol == "600000" && trade.Side == PortfolioTradeSide.Buy).Quantity);
+        Assert.Equal(2_500, result.Trades.Single(trade => trade.Symbol == "600001" && trade.Side == PortfolioTradeSide.Buy).Quantity);
+    }
+
+    [Fact]
+    public async Task SimulateAsync_ScoreWeighted_FallsBackToEqualWeightForNonPositiveScores()
+    {
+        DateOnly entry = new(2026, 1, 2); DateOnly exit = new(2026, 1, 5);
+        HistoricalMarketDataset dataset = Dataset(new[] { entry, exit }, new Dictionary<string, double[]>
+        {
+            ["600000"] = new[] { 100d, 110d },
+            ["600001"] = new[] { 100d, 110d }
+        });
+        SparrowBacktestResult backtest = Backtest(dataset, new[]
+        {
+            Selection(entry, "600000", 1, score: 0),
+            Selection(entry, "600001", 2, score: -5)
+        });
+
+        SparrowPortfolioSimulationResult result = await Simulate(dataset, backtest, sizing: PortfolioPositionSizingMethod.ScoreWeighted);
+
+        Assert.Equal(5_000, result.Trades.Single(trade => trade.Symbol == "600000" && trade.Side == PortfolioTradeSide.Buy).Quantity);
+        Assert.Equal(5_000, result.Trades.Single(trade => trade.Symbol == "600001" && trade.Side == PortfolioTradeSide.Buy).Quantity);
+        Assert.Contains(result.Warnings, warning => warning.Contains("PositionWeightsUnavailable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SimulateAsync_InverseVolatility_AllocatesMoreToTheCalmerSeries()
+    {
+        DateOnly entry = new(2026, 1, 2); DateOnly exit = new(2026, 1, 5);
+        HistoricalMarketDataset dataset = Dataset(new[] { entry, exit }, new Dictionary<string, IReadOnlyList<KlineBar>>
+        {
+            ["600000"] = Bars(entry, exit, alternate: 0.5),
+            ["600001"] = Bars(entry, exit, alternate: 10)
+        });
+        SparrowBacktestResult backtest = Backtest(dataset, new[] { Selection(entry, "600000", 1), Selection(entry, "600001", 2) });
+
+        SparrowPortfolioSimulationResult result = await Simulate(dataset, backtest, sizing: PortfolioPositionSizingMethod.InverseVolatility);
+
+        long calm = result.Trades.Single(trade => trade.Symbol == "600000" && trade.Side == PortfolioTradeSide.Buy).Quantity;
+        long wild = result.Trades.Single(trade => trade.Symbol == "600001" && trade.Side == PortfolioTradeSide.Buy).Quantity;
+        Assert.True(calm > 9_000, $"calm series should dominate, got {calm} vs {wild}");
+        Assert.True(wild < 1_000, $"wild series should be small, got {wild}");
+        Assert.True(calm + wild <= 10_000);
+        Assert.DoesNotContain(result.Warnings, warning => warning.Contains("InverseVolatilityUnavailable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SimulateAsync_InverseVolatility_FallsBackToEqualWeightOnMissingOrFlatHistory()
+    {
+        DateOnly entry = new(2026, 1, 2); DateOnly exit = new(2026, 1, 5);
+        // 600001 has no pre-entry history and 600002 has a perfectly flat (zero-volatility) history.
+        HistoricalMarketDataset dataset = Dataset(new[] { entry, exit }, new Dictionary<string, IReadOnlyList<KlineBar>>
+        {
+            ["600000"] = Bars(entry, exit, alternate: 0.5),
+            ["600001"] = new[] { BarAt(entry, 100), BarAt(exit, 105) },
+            ["600002"] = FlatBars(entry, exit)
+        });
+        SparrowBacktestResult backtest = Backtest(dataset, new[] { Selection(entry, "600000", 1), Selection(entry, "600001", 2), Selection(entry, "600002", 3) });
+
+        SparrowPortfolioSimulationResult result = await Simulate(dataset, backtest, sizing: PortfolioPositionSizingMethod.InverseVolatility);
+
+        Assert.All(result.Trades.Where(trade => trade.Side == PortfolioTradeSide.Buy), trade => Assert.Equal(3_333, trade.Quantity));
+        Assert.Contains(result.Warnings, warning => warning.Contains("InverseVolatilityUnavailable", StringComparison.Ordinal));
+    }
+
+    /// <summary>20 alternating pre-entry bars plus the entry and exit bars; both entry prices are 100 so quantities mirror allocations.</summary>
+    private static IReadOnlyList<KlineBar> Bars(DateOnly entry, DateOnly exit, double alternate)
+    {
+        List<KlineBar> bars = new();
+        for (int index = 20; index >= 1; index--)
+            bars.Add(BarAt(entry.AddDays(-index), index % 2 == 0 ? 100 : 100 + alternate));
+        bars.Add(BarAt(entry, 100));
+        bars.Add(BarAt(exit, 105));
+        return bars;
+    }
+
+    private static IReadOnlyList<KlineBar> FlatBars(DateOnly entry, DateOnly exit)
+    {
+        List<KlineBar> bars = new();
+        for (int index = 20; index >= 1; index--) bars.Add(BarAt(entry.AddDays(-index), 100));
+        bars.Add(BarAt(entry, 100));
+        bars.Add(BarAt(exit, 105));
+        return bars;
+    }
+
+    private static KlineBar BarAt(DateOnly date, double close) => new(date.ToDateTime(TimeOnly.MinValue), null, null, null, close, null, null, null, null, null);
+
+    private static HistoricalMarketDataset Dataset(IReadOnlyList<DateOnly> dates, IReadOnlyDictionary<string, IReadOnlyList<KlineBar>> barsBySymbol) => new(
+        "portfolio-fixture",
+        dates,
+        Array.Empty<HistoricalQuoteObservation>(),
+        barsBySymbol.Select(pair => new KlineSeries(pair.Key, pair.Value.ToArray())).ToArray(),
+        source: "InMemory");
 
     private static HistoricalMarketDataset Dataset(IReadOnlyList<DateOnly> dates, IReadOnlyDictionary<string, double[]> closes) => new(
         "portfolio-fixture",
