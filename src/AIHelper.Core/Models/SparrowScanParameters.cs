@@ -51,7 +51,8 @@ public sealed record SparrowMomentumGateConfig(
     int RsiPeriod = 14,
     int MacdFastPeriod = 12,
     int MacdSlowPeriod = 26,
-    int MacdSignalPeriod = 9)
+    int MacdSignalPeriod = 9,
+    double MacdRelativeTolerance = 1e-9)
 {
     public void Validate()
     {
@@ -60,5 +61,7 @@ public sealed record SparrowMomentumGateConfig(
         if (RsiMin.HasValue && RsiMax.HasValue && RsiMin.Value > RsiMax.Value) throw new ArgumentException("RsiMin must not exceed RsiMax.");
         if (RsiPeriod <= 0 || MacdFastPeriod <= 0 || MacdSlowPeriod <= MacdFastPeriod || MacdSignalPeriod <= 0)
             throw new InvalidOperationException("Momentum gate periods are invalid.");
+        if (!double.IsFinite(MacdRelativeTolerance) || MacdRelativeTolerance < 0)
+            throw new ArgumentOutOfRangeException(nameof(MacdRelativeTolerance));
     }
 }

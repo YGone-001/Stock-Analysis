@@ -75,6 +75,27 @@ public sealed class SparrowV3RuleEvaluatorTests
         Assert.Equal(SparrowComparisonReasonCodes.Pass, result.Rule.ReasonCode);
     }
 
+    [Fact]
+    public void Evaluate_MacdGateToleratesFloatNoiseAtExactEquality()
+    {
+        // A perfectly linear series leaves DIF mathematically equal to DEA; the strict comparison could flip on
+        // floating-point noise, so the relative tolerance must accept it deterministically.
+        double[] linear = Enumerable.Range(0, 120).Select(index => 20d + index * 0.01).Reverse().ToArray();
+        var snapshot = new SparrowKlineSnapshot(linear, linear[0], 0);
+
+        SparrowTechnicalEvaluation result = SparrowV3RuleEvaluator.Evaluate(snapshot, 0, LooseParameters(),
+            new SparrowMomentumGateConfig(RsiMin: null, RsiMax: null, RequireMacdBullish: true));
+
+        Assert.True(result.Rule.Passed);
+        Assert.Equal(SparrowComparisonReasonCodes.Pass, result.Rule.ReasonCode);
+
+        // A clearly separated cross-down still rejects.
+        SparrowTechnicalEvaluation rejected = SparrowV3RuleEvaluator.Evaluate(FadingRallySnapshot(), 0, LooseParameters(),
+            new SparrowMomentumGateConfig(RsiMin: null, RsiMax: null, RequireMacdBullish: true));
+        Assert.False(rejected.Rule.Passed);
+        Assert.Equal(SparrowComparisonReasonCodes.P3Macd, rejected.Rule.ReasonCode);
+    }
+
     private static SparrowScanParameters Parameters() => new()
     {
         MacroDef = false,

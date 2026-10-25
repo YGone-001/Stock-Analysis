@@ -43,7 +43,10 @@ public static class SparrowV3RuleEvaluator
             if (!SparrowTechnicalIndicators.TryMacd(closesOldestFirst, momentumGates.MacdFastPeriod, momentumGates.MacdSlowPeriod, momentumGates.MacdSignalPeriod,
                     out double dif, out double dea, out _))
                 return Unavailable("MACD is unavailable for the supplied close series");
-            if (dif < dea)
+            // DIF >= DEA is the frozen rule; the relative tolerance only absorbs floating-point noise at
+            // exact equality (e.g. constant-DIF linear series) so the outcome cannot flip on representation error.
+            double tolerance = momentumGates.MacdRelativeTolerance * Math.Max(Math.Max(Math.Abs(dif), Math.Abs(dea)), 1d);
+            if (dif < dea - tolerance)
                 return Reject(SparrowComparisonReasonCodes.P3Macd, $"MACD DIF {dif:F6} is below DEA {dea:F6}", v2);
         }
 
