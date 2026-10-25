@@ -7,7 +7,8 @@ namespace AIHelper.Core.Sparrow;
 /// <summary>Optional factual performance values copied from a completed artifact; this type never recalculates performance.</summary>
 public sealed class ResearchExperimentPerformanceSummary
 {
-    public ResearchExperimentPerformanceSummary(double? totalReturnPercent = null, double? maximumDrawdownPercent = null, int? tradeCount = null, double? winRate = null)
+    public ResearchExperimentPerformanceSummary(double? totalReturnPercent = null, double? maximumDrawdownPercent = null, int? tradeCount = null, double? winRate = null,
+        double? annualizedReturnPercent = null, double? annualizedVolatilityPercent = null, double? sharpeRatio = null, double? sortinoRatio = null, double? profitLossRatio = null)
     {
         if (totalReturnPercent.HasValue && !double.IsFinite(totalReturnPercent.Value)) throw new ArgumentOutOfRangeException(nameof(totalReturnPercent));
         if (maximumDrawdownPercent.HasValue && (!double.IsFinite(maximumDrawdownPercent.Value) || maximumDrawdownPercent.Value > 0)) throw new ArgumentOutOfRangeException(nameof(maximumDrawdownPercent));
@@ -15,17 +16,32 @@ public sealed class ResearchExperimentPerformanceSummary
         if (winRate.HasValue && (!double.IsFinite(winRate.Value) || winRate.Value < 0 || winRate.Value > 1)) throw new ArgumentOutOfRangeException(nameof(winRate));
         if (tradeCount == 0 && winRate.HasValue) throw new ArgumentException("Win rate is unavailable when trade count is zero.", nameof(winRate));
         if (tradeCount > 0 && !winRate.HasValue) throw new ArgumentException("Win rate is required when trade count is available and positive.", nameof(winRate));
+        if (annualizedReturnPercent.HasValue && !double.IsFinite(annualizedReturnPercent.Value)) throw new ArgumentOutOfRangeException(nameof(annualizedReturnPercent));
+        if (annualizedVolatilityPercent.HasValue && (!double.IsFinite(annualizedVolatilityPercent.Value) || annualizedVolatilityPercent.Value < 0)) throw new ArgumentOutOfRangeException(nameof(annualizedVolatilityPercent));
+        if (sharpeRatio.HasValue && !double.IsFinite(sharpeRatio.Value)) throw new ArgumentOutOfRangeException(nameof(sharpeRatio));
+        if (sortinoRatio.HasValue && !double.IsFinite(sortinoRatio.Value)) throw new ArgumentOutOfRangeException(nameof(sortinoRatio));
+        if (profitLossRatio.HasValue && (!double.IsFinite(profitLossRatio.Value) || profitLossRatio.Value <= 0)) throw new ArgumentOutOfRangeException(nameof(profitLossRatio));
 
         TotalReturnPercent = totalReturnPercent;
         MaximumDrawdownPercent = maximumDrawdownPercent;
         TradeCount = tradeCount;
         WinRate = winRate;
+        AnnualizedReturnPercent = annualizedReturnPercent;
+        AnnualizedVolatilityPercent = annualizedVolatilityPercent;
+        SharpeRatio = sharpeRatio;
+        SortinoRatio = sortinoRatio;
+        ProfitLossRatio = profitLossRatio;
     }
 
     public double? TotalReturnPercent { get; }
     public double? MaximumDrawdownPercent { get; }
     public int? TradeCount { get; }
     public double? WinRate { get; }
+    public double? AnnualizedReturnPercent { get; }
+    public double? AnnualizedVolatilityPercent { get; }
+    public double? SharpeRatio { get; }
+    public double? SortinoRatio { get; }
+    public double? ProfitLossRatio { get; }
 }
 
 /// <summary>Persistence-safe immutable execution facts. It intentionally contains no executable runtime dependency.</summary>

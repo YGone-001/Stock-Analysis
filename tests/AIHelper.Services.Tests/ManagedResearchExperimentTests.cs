@@ -185,7 +185,7 @@ public sealed class ManagedResearchExperimentTests
         foreach (string key in ResearchExperimentParameterSnapshotFactory.StrategyEnvelopeKeys) Assert.Contains(key, snapshot.StrategyParameters.Keys);
         foreach (string key in ResearchExperimentParameterSnapshotFactory.PortfolioKeys) Assert.Contains(key, snapshot.PortfolioParameters.Keys);
         Assert.Equal(ResearchExperimentParameterSnapshotFactory.ParameterVersion, snapshot.ParameterVersion);
-        Assert.Equal("PortfolioPerformanceAnalyzerV1", snapshot.AnalysisParameters["AnalyzerContract"]);
+        Assert.Equal("PortfolioPerformanceAnalyzerV2", snapshot.AnalysisParameters["AnalyzerContract"]);
     }
 
     [Fact]

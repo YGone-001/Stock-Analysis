@@ -15,8 +15,8 @@ public static class ResearchExperimentParameterSnapshotFactory
     /// <summary>Versioned contract for the managed experiment parameter mapping.</summary>
     public const string ParameterVersion = "research-experiment-parameters-v1";
 
-    /// <summary>Established analysis-contract token used by the portfolio research analysis fingerprint preimage.</summary>
-    public const string AnalysisAnalyzerContract = "PortfolioPerformanceAnalyzerV1";
+    /// <summary>Analysis-contract token recorded with managed experiment parameters; V2 adds risk-adjusted metrics and portfolio benchmark overlays.</summary>
+    public const string AnalysisAnalyzerContract = "PortfolioPerformanceAnalyzerV2";
 
     /// <summary>Canonical strategy-section keys owned by the execution envelope (not by a typed snapshot).</summary>
     public static readonly IReadOnlyList<string> StrategyEnvelopeKeys = Array.AsReadOnly(new[]

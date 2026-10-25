@@ -74,7 +74,12 @@ public sealed class ResearchExperimentReportBuilder : IResearchExperimentReportB
         new ResearchReportMetric("Total Return", ResearchReportMetricKind.Percentage, performance?.TotalReturnPercent),
         new ResearchReportMetric("Maximum Drawdown", ResearchReportMetricKind.Percentage, performance?.MaximumDrawdownPercent),
         new ResearchReportMetric("Trade Count", ResearchReportMetricKind.Count, performance?.TradeCount),
-        new ResearchReportMetric("Win Rate", ResearchReportMetricKind.Ratio, performance?.WinRate)
+        new ResearchReportMetric("Win Rate", ResearchReportMetricKind.Ratio, performance?.WinRate),
+        new ResearchReportMetric("Annualized Return", ResearchReportMetricKind.Percentage, performance?.AnnualizedReturnPercent),
+        new ResearchReportMetric("Annualized Volatility", ResearchReportMetricKind.Percentage, performance?.AnnualizedVolatilityPercent),
+        new ResearchReportMetric("Sharpe Ratio", ResearchReportMetricKind.Ratio, performance?.SharpeRatio),
+        new ResearchReportMetric("Sortino Ratio", ResearchReportMetricKind.Ratio, performance?.SortinoRatio),
+        new ResearchReportMetric("Profit/Loss Ratio", ResearchReportMetricKind.Ratio, performance?.ProfitLossRatio)
     };
 
     private static IReadOnlyList<ResearchReportWarning> Warnings(PersistedResearchExperimentRecord experiment, ResearchExperimentPerformanceSummary? performance)

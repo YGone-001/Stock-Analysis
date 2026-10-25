@@ -179,7 +179,7 @@ public sealed class SparrowResearchReexecutionValidator : ISparrowResearchReexec
         Pass(PortfolioReexecuted, "Completed", "Completed", "Portfolio simulation engine executed successfully.");
 
         SparrowPortfolioPerformanceResult performanceResult;
-        try { performanceResult = await new SparrowPortfolioPerformanceAnalyzer().AnalyzeAsync(simulationResult, loadedDataset, cancellationToken).ConfigureAwait(false); }
+        try { performanceResult = await new SparrowPortfolioPerformanceAnalyzer().AnalyzeAsync(simulationResult, loadedDataset, benchmarkId: null, cancellationToken).ConfigureAwait(false); }
         catch (Exception ex)
         {
             Fail(PerformanceReanalyzed, "Completed", "AnalysisFailed", $"Portfolio performance analysis failed: {ex.Message}", PerformanceAnalysisFailed);

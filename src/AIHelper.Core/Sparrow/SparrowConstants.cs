@@ -42,4 +42,7 @@ public static class SparrowConstants
 
     /// <summary>CSI 1000 index code used by Classic market-regime intraday trend.</summary>
     public const string Csi1000IndexTrendCode = "1.000852";
+
+    /// <summary>Trading days per year used to annualize daily-return statistics (A-share calendar average).</summary>
+    public const int TradingDaysPerYear = 244;
 }

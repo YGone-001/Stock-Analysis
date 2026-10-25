@@ -110,7 +110,7 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
             backtest.ParameterFingerprint, request.StartDate, request.EndDate, request.TopN, request.HorizonTradingDays,
             request.InitialCapital, request.PositionSizingMethod, request.CommissionRate, request.PortfolioSlippageRate, request.ExecutionModel);
         SparrowPortfolioSimulationResult simulation = await _simulationEngine.SimulateAsync(backtest, portfolioRequest, dataset, cancellationToken).ConfigureAwait(false);
-        SparrowPortfolioPerformanceResult performance = await _performanceAnalyzer.AnalyzeAsync(simulation, dataset, cancellationToken).ConfigureAwait(false);
+        SparrowPortfolioPerformanceResult performance = await _performanceAnalyzer.AnalyzeAsync(simulation, dataset, benchmarkId: null, cancellationToken).ConfigureAwait(false);
 
         SparrowPortfolioResearchArtifact artifact = new("AIHelper.HistoricalDataTool", performance);
         DateTimeOffset completedAt = _timeProvider.GetUtcNow();
@@ -128,7 +128,9 @@ public sealed class ManagedResearchExperimentRunner : IManagedResearchExperiment
 
         ResearchExperimentExecutionSummary summary = ResearchExperimentExecutionSummary.FromCompletedExecution(
             execution, new ResearchExperimentPerformanceSummary(artifact.PerformanceSummary.TotalReturnPercent,
-                artifact.PerformanceSummary.MaximumDrawdownPercent, artifact.PerformanceSummary.TradeCount, artifact.PerformanceSummary.WinRate));
+                artifact.PerformanceSummary.MaximumDrawdownPercent, artifact.PerformanceSummary.TradeCount, artifact.PerformanceSummary.WinRate,
+                artifact.PerformanceSummary.AnnualizedReturnPercent, artifact.PerformanceSummary.AnnualizedVolatilityPercent,
+                artifact.PerformanceSummary.SharpeRatio, artifact.PerformanceSummary.SortinoRatio, artifact.PerformanceSummary.ProfitLossRatio));
 
         PersistedResearchExperimentRecord record = ResearchExperimentRecordFactory.CreateCurrent(
             definition, summary, artifact, completedAt, provenance, executionEnvironmentProvenance);

@@ -155,8 +155,156 @@ public sealed class SparrowPortfolioPerformanceAnalyzerTests
         Assert.Empty(typeof(SparrowPortfolioPerformanceAnalyzer).GetConstructors().Single().GetParameters());
     }
 
-    private static async Task<SparrowPortfolioPerformanceResult> Analyze(SparrowPortfolioSimulationResult simulation, HistoricalMarketDataset dataset) =>
-        await new SparrowPortfolioPerformanceAnalyzer().AnalyzeAsync(simulation, dataset, CancellationToken.None);
+    [Fact]
+    public async Task AnalyzeAsync_ComputesAnnualizedRiskAdjustedMetricsFromDailyReturns()
+    {
+        DateOnly[] dates = Dates(4);
+        HistoricalMarketDataset dataset = Dataset(dates, new[] { 100d, 110d, 99d, 108.9d });
+        SparrowPortfolioPerformanceResult result = await Analyze(Simulation(dataset, 100, new[]
+        {
+            new PortfolioTrade("600000", dates[0], PortfolioTradeSide.Buy, 100, 1, 100, 0),
+            new PortfolioTrade("600000", dates[3], PortfolioTradeSide.Sell, 108.9m, 1, 108.9m, 0)
+        }, new[] { ClosedPosition(dates[0], dates[3], 1, 100, 108.9m, 8.9m, 8.9) }), dataset);
+
+        double[] returns = { .1, -.1, .1 };
+        double mean = returns.Average();
+        double deviation = Math.Sqrt(returns.Sum(value => (value - mean) * (value - mean)) / (returns.Length - 1));
+        double downside = Math.Sqrt(returns.Sum(value => Math.Min(value, 0) * Math.Min(value, 0)) / returns.Length);
+        double annualizationFactor = Math.Sqrt(SparrowConstants.TradingDaysPerYear);
+
+        Assert.Equal((Math.Pow(108.9 / 100d, (double)SparrowConstants.TradingDaysPerYear / returns.Length) - 1) * 100,
+            result.Metrics.AnnualizedReturnPercent!.Value, 10);
+        Assert.Equal(deviation * annualizationFactor * 100, result.Metrics.AnnualizedVolatilityPercent!.Value, 10);
+        Assert.Equal(mean / deviation * annualizationFactor, result.Metrics.SharpeRatio!.Value, 10);
+        Assert.Equal(mean / downside * annualizationFactor, result.Metrics.SortinoRatio!.Value, 10);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_HandlesRiskMetricAvailabilityBoundaries()
+    {
+        DateOnly[] single = Dates(1);
+        SparrowPortfolioPerformanceResult singlePoint = await Analyze(Simulation(Dataset(single, new[] { 100d }), 100,
+            new[] { new PortfolioTrade("600000", single[0], PortfolioTradeSide.Buy, 100, 1, 100, 0) },
+            new[] { new PortfolioPosition("600000", single[0], 100, 1, 100, 0, PortfolioPositionStatus.Open) }), Dataset(single, new[] { 100d }));
+        Assert.Null(singlePoint.Metrics.AnnualizedReturnPercent);
+        Assert.Null(singlePoint.Metrics.AnnualizedVolatilityPercent);
+        Assert.Null(singlePoint.Metrics.SharpeRatio);
+        Assert.Null(singlePoint.Metrics.SortinoRatio);
+        Assert.Equal(0, singlePoint.Metrics.MaximumDrawdownRecoveryTradingDays);
+
+        DateOnly[] flat = Dates(3);
+        SparrowPortfolioPerformanceResult flatEquity = await Analyze(Simulation(Dataset(flat, new[] { 100d, 100d, 100d }), 100,
+            new[] { new PortfolioTrade("600000", flat[0], PortfolioTradeSide.Buy, 100, 1, 100, 0) },
+            new[] { new PortfolioPosition("600000", flat[0], 100, 1, 100, 0, PortfolioPositionStatus.Open) }), Dataset(flat, new[] { 100d, 100d, 100d }));
+        Assert.Equal(0, flatEquity.Metrics.AnnualizedReturnPercent!.Value, 10);
+        Assert.Equal(0, flatEquity.Metrics.AnnualizedVolatilityPercent!.Value, 10);
+        Assert.Null(flatEquity.Metrics.SharpeRatio);
+        Assert.Null(flatEquity.Metrics.SortinoRatio);
+
+        DateOnly[] rising = Dates(4);
+        SparrowPortfolioPerformanceResult noDownside = await Analyze(Simulation(Dataset(rising, new[] { 100d, 110d, 115.5d, 133.1d }), 100,
+            new[] { new PortfolioTrade("600000", rising[0], PortfolioTradeSide.Buy, 100, 1, 100, 0) },
+            new[] { new PortfolioPosition("600000", rising[0], 100, 1, 100, 0, PortfolioPositionStatus.Open) }), Dataset(rising, new[] { 100d, 110d, 115.5d, 133.1d }));
+        Assert.NotNull(noDownside.Metrics.AnnualizedVolatilityPercent);
+        Assert.NotNull(noDownside.Metrics.SharpeRatio);
+        Assert.Null(noDownside.Metrics.SortinoRatio);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_ComputesProfitLossRatioFromRealizedAttribution()
+    {
+        DateOnly[] dates = Dates(2);
+        HistoricalMarketDataset dataset = Dataset(dates, new[] { 100d, 100d });
+        PortfolioPosition[] positions = new[]
+        {
+            ClosedPosition(dates[0], dates[1], 1, 100, 110, 10, 10),
+            ClosedPosition(dates[0], dates[1], 1, 100, 110, 5, 5),
+            ClosedPosition(dates[0], dates[1], 1, 100, 110, 1, 1),
+            ClosedPosition(dates[0], dates[1], 1, 100, 90, -2, -2),
+            ClosedPosition(dates[0], dates[1], 1, 100, 90, -4, -4)
+        };
+        SparrowPortfolioPerformanceResult result = await Analyze(Simulation(dataset, 1_000, Array.Empty<PortfolioTrade>(), positions), dataset);
+
+        Assert.Equal(16d / 9, result.Metrics.ProfitLossRatio!.Value, 10);
+
+        PortfolioPosition[] onlyWins = { ClosedPosition(dates[0], dates[1], 1, 100, 110, 10, 10) };
+        SparrowPortfolioPerformanceResult winOnly = await Analyze(Simulation(dataset, 1_000, Array.Empty<PortfolioTrade>(), onlyWins), dataset);
+        Assert.Null(winOnly.Metrics.ProfitLossRatio);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_TracksMaximumDrawdownRecoveryTradingDays()
+    {
+        DateOnly[] dates = Dates(4);
+        HistoricalMarketDataset dataset = Dataset(dates, new[] { 100d, 120d, 90d, 130d });
+        SparrowPortfolioPerformanceResult recovered = await Analyze(Simulation(dataset, 100,
+            new[] { new PortfolioTrade("600000", dates[0], PortfolioTradeSide.Buy, 100, 1, 100, 0) },
+            new[] { new PortfolioPosition("600000", dates[0], 100, 1, 100, 0, PortfolioPositionStatus.Open) }), dataset);
+        Assert.Equal(-25d, recovered.Metrics.MaximumDrawdownPercent, 10);
+        Assert.Equal(1, recovered.Metrics.MaximumDrawdownRecoveryTradingDays);
+
+        HistoricalMarketDataset unrecovered = Dataset(dates, new[] { 100d, 120d, 90d, 95d });
+        SparrowPortfolioPerformanceResult stillBelow = await Analyze(Simulation(unrecovered, 100,
+            new[] { new PortfolioTrade("600000", dates[0], PortfolioTradeSide.Buy, 100, 1, 100, 0) },
+            new[] { new PortfolioPosition("600000", dates[0], 100, 1, 100, 0, PortfolioPositionStatus.Open) }), unrecovered);
+        Assert.Null(stillBelow.Metrics.MaximumDrawdownRecoveryTradingDays);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_BuildsPortfolioBenchmarkComparisonWhenRequested()
+    {
+        DateOnly[] dates = Dates(3);
+        HistoricalMarketDataset dataset = Dataset(dates, new[] { 100d, 110d, 99d },
+            new[] { BenchmarkObservation(dates[0], 200d), BenchmarkObservation(dates[1], 220d), BenchmarkObservation(dates[2], 210d) });
+        SparrowPortfolioSimulationResult simulation = Simulation(dataset, 1_000, new[]
+        {
+            new PortfolioTrade("600000", dates[0], PortfolioTradeSide.Buy, 100, 10, 1_000, 0),
+            new PortfolioTrade("600000", dates[2], PortfolioTradeSide.Sell, 99, 10, 990, 0)
+        }, new[] { ClosedPosition(dates[0], dates[2], 10, 100, 99, -10, -1) });
+
+        SparrowPortfolioPerformanceResult result = await Analyze(simulation, dataset, "fixture-index");
+
+        Assert.NotNull(result.BenchmarkComparison);
+        Assert.Equal("fixture-index", result.BenchmarkComparison!.BenchmarkId);
+        Assert.Equal(new[] { 1_000m, 1_100m, 1_050m }, result.BenchmarkComparison.Points.Select(point => point.BenchmarkEquity));
+        Assert.Null(result.BenchmarkComparison.Points[0].DailyReturn);
+        Assert.Equal(.1, result.BenchmarkComparison.Points[1].DailyReturn!.Value, 10);
+        Assert.Equal(5d, result.BenchmarkComparison.TotalReturnPercent, 10);
+        Assert.Equal(-6d, result.BenchmarkComparison.ExcessReturnPercent, 10);
+        Assert.DoesNotContain(result.Warnings, warning => warning.Contains("partial", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_BenchmarkComparisonDisclosesUnavailabilityAndPartialCoverage()
+    {
+        DateOnly[] dates = Dates(2);
+        HistoricalMarketDataset withoutSeries = Dataset(dates, new[] { 100d, 110d });
+        SparrowPortfolioPerformanceResult missing = await Analyze(Simulation(withoutSeries, 100,
+            new[] { new PortfolioTrade("600000", dates[0], PortfolioTradeSide.Buy, 100, 1, 100, 0) },
+            new[] { new PortfolioPosition("600000", dates[0], 100, 1, 100, 0, PortfolioPositionStatus.Open) }), withoutSeries, "missing-index");
+        Assert.Null(missing.BenchmarkComparison);
+        Assert.Contains(missing.Warnings, warning => warning.Contains(SparrowBenchmarkReasonCodes.BenchmarkSeriesNotFound, StringComparison.Ordinal));
+
+        HistoricalMarketDataset partial = Dataset(dates, new[] { 100d, 110d }, new[] { BenchmarkObservation(dates[0], 300d) },
+            HistoricalFieldCoverage.Partial, "partial-index");
+        SparrowPortfolioPerformanceResult partialResult = await Analyze(Simulation(partial, 100,
+            new[] { new PortfolioTrade("600000", dates[0], PortfolioTradeSide.Buy, 100, 1, 100, 0) },
+            new[] { new PortfolioPosition("600000", dates[0], 100, 1, 100, 0, PortfolioPositionStatus.Open) }), partial, "partial-index");
+        Assert.NotNull(partialResult.BenchmarkComparison);
+        Assert.Contains(partialResult.Warnings, warning => warning.Contains("partial", StringComparison.OrdinalIgnoreCase));
+
+        HistoricalMarketDataset unrequested = Dataset(dates, new[] { 100d, 110d });
+        SparrowPortfolioPerformanceResult noBenchmark = await Analyze(Simulation(unrequested, 100,
+            new[] { new PortfolioTrade("600000", dates[0], PortfolioTradeSide.Buy, 100, 1, 100, 0) },
+            new[] { new PortfolioPosition("600000", dates[0], 100, 1, 100, 0, PortfolioPositionStatus.Open) }), unrequested);
+        Assert.Null(noBenchmark.BenchmarkComparison);
+        Assert.DoesNotContain(noBenchmark.Warnings, warning => warning.Contains("Benchmark", StringComparison.Ordinal));
+    }
+
+    private static HistoricalBenchmarkObservation BenchmarkObservation(DateOnly date, double close) => new(date, close);
+
+    private static async Task<SparrowPortfolioPerformanceResult> Analyze(SparrowPortfolioSimulationResult simulation, HistoricalMarketDataset dataset, string? benchmarkId = null) =>
+        await new SparrowPortfolioPerformanceAnalyzer().AnalyzeAsync(simulation, dataset, benchmarkId, CancellationToken.None);
 
     private static PortfolioPosition ClosedPosition(DateOnly entry, DateOnly exit, long quantity, decimal entryPrice, decimal exitPrice, decimal pnl, double returnPercent) =>
         new("600000", entry, entryPrice, quantity, entryPrice * quantity, 0, PortfolioPositionStatus.Closed,
@@ -172,8 +320,17 @@ public sealed class SparrowPortfolioPerformanceAnalyzerTests
 
     private static DateOnly[] Dates(int count) => Enumerable.Range(0, count).Select(index => new DateOnly(2026, 1, 2).AddDays(index)).ToArray();
 
-    private static HistoricalMarketDataset Dataset(IReadOnlyList<DateOnly> dates, IReadOnlyList<double> closes) => new(
+    private static HistoricalMarketDataset Dataset(IReadOnlyList<DateOnly> dates, IReadOnlyList<double> closes,
+        IEnumerable<HistoricalBenchmarkObservation>? benchmarkObservations = null,
+        HistoricalFieldCoverage benchmarkCoverage = HistoricalFieldCoverage.Full,
+        string benchmarkId = "fixture-index") => new(
         "performance-fixture", dates, Array.Empty<HistoricalQuoteObservation>(),
         new[] { new KlineSeries("600000", closes.Select((close, index) => new KlineBar(dates[index].ToDateTime(TimeOnly.MinValue), null, null, null, close, null, null, null, null, null)).ToArray()) },
+        benchmarks: benchmarkObservations is null ? null : new[]
+        {
+            new HistoricalBenchmarkSeries(benchmarkId, HistoricalBenchmarkPriceBasis.IndexClose, "InMemory",
+                benchmarkObservations.ToArray(), benchmarkCoverage,
+                new HistoricalBenchmarkProvenance("InMemory", dates[0], dates[^1], "fixture coverage proof"))
+        },
         source: "InMemory");
 }

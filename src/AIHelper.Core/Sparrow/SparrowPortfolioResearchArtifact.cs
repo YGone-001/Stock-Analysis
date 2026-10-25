@@ -19,8 +19,8 @@ public sealed class SparrowPortfolioResearchArtifact
     public const string CurrentArtifactVersion = "portfolio-research-v2";
     /// <summary>Stable token retained from the V1 analysis-identity preimage.</summary>
     public const string AnalysisFingerprintContractVersion = LegacyArtifactVersion;
-    /// <summary>Versioned contract for canonical portfolio-research artifact payloads.</summary>
-    public const string ArtifactFingerprintContractVersion = "portfolio-research-artifact-fingerprint-v1";
+    /// <summary>Versioned contract for canonical portfolio-research artifact payloads; v2 adds risk-adjusted performance metrics and available benchmark summaries.</summary>
+    public const string ArtifactFingerprintContractVersion = "portfolio-research-artifact-fingerprint-v2";
     public SparrowPortfolioResearchArtifact(
         string createdBy,
         SparrowPortfolioPerformanceResult performanceResult,
@@ -40,7 +40,11 @@ public sealed class SparrowPortfolioResearchArtifact
         SimulationSummary = new SparrowPortfolioResearchSimulationSummary(simulation.Trades.Count,
             simulation.Positions.Count(position => position.Status == PortfolioPositionStatus.Open), simulation.Positions.Count(position => position.Status == PortfolioPositionStatus.Closed));
         PerformanceSummary = performanceResult.Metrics;
-        BenchmarkSummary = new SparrowPortfolioResearchBenchmarkSummary("Unavailable", null, null, null);
+        BenchmarkSummary = performanceResult.BenchmarkComparison is { } comparison
+            ? new SparrowPortfolioResearchBenchmarkSummary("Available", comparison.BenchmarkId,
+                comparison.TotalReturnPercent.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                comparison.ExcessReturnPercent.ToString("R", System.Globalization.CultureInfo.InvariantCulture))
+            : new SparrowPortfolioResearchBenchmarkSummary("Unavailable", null, null, null);
         Trades = Array.AsReadOnly(simulation.Trades.OrderBy(trade => trade.TradeDate).ThenBy(trade => trade.Symbol, StringComparer.Ordinal).ThenBy(trade => trade.Side).ToArray());
         Positions = Array.AsReadOnly(simulation.Positions.OrderBy(position => position.EntryDate).ThenBy(position => position.Symbol, StringComparer.Ordinal).ToArray());
         EquityCurve = Array.AsReadOnly(performanceResult.EquityCurve.Points.OrderBy(point => point.Date).ToArray());

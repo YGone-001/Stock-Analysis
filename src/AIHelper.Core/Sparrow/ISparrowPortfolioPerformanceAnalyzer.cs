@@ -6,5 +6,6 @@ public interface ISparrowPortfolioPerformanceAnalyzer
     Task<SparrowPortfolioPerformanceResult> AnalyzeAsync(
         SparrowPortfolioSimulationResult simulationResult,
         HistoricalMarketDataset dataset,
+        string? benchmarkId = null,
         CancellationToken cancellationToken = default);
 }
