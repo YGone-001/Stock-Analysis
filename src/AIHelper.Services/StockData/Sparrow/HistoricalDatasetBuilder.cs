@@ -180,7 +180,8 @@ public sealed class HistoricalDatasetBuilder
             new(HistoricalField.Amount, HistoricalFieldOrigin.Observed, Coverage(quotes, quote => quote.Amount.HasValue), HistoricalValueUnit.CurrencyThousands),
             new(HistoricalField.Turnover, wantsTurnover ? HistoricalFieldOrigin.Observed : HistoricalFieldOrigin.Unavailable, wantsTurnover ? Coverage(quotes, quote => quote.Turnover.HasValue) : HistoricalFieldCoverage.None, HistoricalValueUnit.Percentage),
             new(HistoricalField.OuterVolume, HistoricalFieldOrigin.Unavailable, HistoricalFieldCoverage.None, HistoricalValueUnit.Hands),
-            new(HistoricalField.InnerVolume, HistoricalFieldOrigin.Unavailable, HistoricalFieldCoverage.None, HistoricalValueUnit.Hands)];
+            new(HistoricalField.InnerVolume, HistoricalFieldOrigin.Unavailable, HistoricalFieldCoverage.None, HistoricalValueUnit.Hands),
+            new(HistoricalField.Volume, HistoricalFieldOrigin.Observed, Coverage(quotes, quote => quote.Volume.HasValue), HistoricalValueUnit.Hands)];
         HistoricalDatasetQualitySummary quality = new(HistoricalUniverseQuality.Partial, HistoricalLifecycleQuality.Partial,
                 StCoverage(stAvailable, dates, evidence),
                 suspensionAvailable ? HistoricalFieldCoverage.Partial : HistoricalFieldCoverage.None,

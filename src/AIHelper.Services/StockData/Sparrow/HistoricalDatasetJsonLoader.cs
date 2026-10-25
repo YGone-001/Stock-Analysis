@@ -158,7 +158,8 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
                 errors.Add($"覆盖度为 None 的字段「{capability.Field}」必须声明来源为 Unavailable。");
         }
         foreach (HistoricalField field in Enum.GetValues<HistoricalField>())
-            if (!capabilities.ContainsKey(field)) errors.Add($"模式 V2 必须为字段「{field}」提供能力声明。");
+            // Kline Volume joined the vocabulary after schema V2 shipped; legacy files without the row stay loadable and simply declare nothing.
+            if (field != HistoricalField.Volume && !capabilities.ContainsKey(field)) errors.Add($"模式 V2 必须为字段「{field}」提供能力声明。");
         foreach (HistoricalFieldCapability capability in capabilities.Values.Where(item => item.Coverage == HistoricalFieldCoverage.Full))
             if (file.Quotes!.Any(quote => !HasQuoteField(quote, capability.Field))) errors.Add($"字段「{capability.Field}」声明为完整覆盖（Full），但存在缺少该字段取值的行情观测。");
 
@@ -241,6 +242,7 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
         HistoricalField.Turnover => quote.Turnover.HasValue,
         HistoricalField.OuterVolume => quote.OuterVolume.HasValue,
         HistoricalField.InnerVolume => quote.InnerVolume.HasValue,
+        HistoricalField.Volume => quote.Volume.HasValue,
         _ => false
     };
 

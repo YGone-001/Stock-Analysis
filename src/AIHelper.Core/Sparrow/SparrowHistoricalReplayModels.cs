@@ -232,7 +232,7 @@ public sealed class HistoricalMarketDataset
             {
                 HistoricalField.Amount => HistoricalValueUnit.CurrencyBaseUnit,
                 HistoricalField.Turnover or HistoricalField.ChangePercent => HistoricalValueUnit.Percentage,
-                HistoricalField.OuterVolume or HistoricalField.InnerVolume => HistoricalValueUnit.Hands,
+                HistoricalField.Volume or HistoricalField.OuterVolume or HistoricalField.InnerVolume => HistoricalValueUnit.Hands,
                 _ => HistoricalValueUnit.Unknown
             };
             return new HistoricalFieldCapability(field, origin, coverage, unit);
@@ -248,6 +248,7 @@ public sealed class HistoricalMarketDataset
         HistoricalField.Turnover => quote.Turnover.HasValue,
         HistoricalField.OuterVolume => quote.OuterVolume.HasValue,
         HistoricalField.InnerVolume => quote.InnerVolume.HasValue,
+        HistoricalField.Volume => quote.Volume.HasValue,
         _ => false
     };
 

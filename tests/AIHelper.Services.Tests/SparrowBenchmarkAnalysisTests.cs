@@ -220,7 +220,7 @@ public sealed class SparrowBenchmarkAnalysisTests
     {
         string[] symbols = ["600000", "600001"];
         HistoricalQuoteObservation[] quotes = dates.SelectMany(date => symbols.Select((symbol, index) => new HistoricalQuoteObservation(date,
-            new QuoteSnapshot(symbol, symbol, 10.3, 10, 3, null, index == 0 ? 100_000_000 : 200_000_000, 10, index == 0 ? 1500 : 3000, 1000, null, null, null)))).ToArray();
+            new QuoteSnapshot(symbol, symbol, 10.3, 10, 3, index == 0 ? 1500 : 3000, index == 0 ? 100_000_000 : 200_000_000, 10, index == 0 ? 1500 : 3000, 1000, null, null, null)))).ToArray();
         KlineSeries[] klines = symbols.Select(symbol => new KlineSeries(symbol, dates.Select((date, index) => new KlineBar(date.ToDateTime(TimeOnly.MinValue), null, null, null, 8 + index * .02, null, null, null, null, null)).ToArray())).ToArray();
         HistoricalSecurity[] securities = symbols.Select(symbol => new HistoricalSecurity(symbol, symbol, HistoricalSecurityType.Stock, HistoricalSecurityMarket.Shanghai, dates[0], null, HistoricalLifecycleQuality.Partial, dates[0])).ToArray();
         HistoricalUniverseSnapshot[] universes = dates.Select(date => new HistoricalUniverseSnapshot(date, symbols, HistoricalUniverseQuality.Partial, "fixture")).ToArray();

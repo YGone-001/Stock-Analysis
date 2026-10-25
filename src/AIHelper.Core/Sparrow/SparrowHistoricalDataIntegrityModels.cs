@@ -77,7 +77,9 @@ public enum HistoricalField
     Amount,
     Turnover,
     OuterVolume,
-    InnerVolume
+    InnerVolume,
+    /// <summary>Daily K-line traded volume (hands); declared from kline bar coverage, not quote observations.</summary>
+    Volume
 }
 
 public enum HistoricalFieldOrigin { Unknown, Observed, Derived, Declared, LegacyDeclared, Unavailable }

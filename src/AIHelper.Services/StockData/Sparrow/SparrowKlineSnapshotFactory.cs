@@ -19,6 +19,7 @@ public static class SparrowKlineSnapshotFactory
 
         IReadOnlyList<KlineBar> bars = series.Bars;
         var closesNewestFirst = new List<double>();
+        var volumesNewestFirst = new List<double>();
         double latestPrice = 0;
         double latestPercent = 0;
         for (int index = bars.Count - 1; index >= 0; index--)
@@ -32,6 +33,8 @@ public static class SparrowKlineSnapshotFactory
             if (close.Value > 0)
             {
                 closesNewestFirst.Add(close.Value);
+                double? volume = bars[index].Volume;
+                volumesNewestFirst.Add(volume.HasValue && double.IsFinite(volume.Value) && volume.Value >= 0 ? volume.Value : double.NaN);
             }
             if (index == bars.Count - 1)
             {
@@ -43,7 +46,7 @@ public static class SparrowKlineSnapshotFactory
             }
         }
 
-        return new SparrowKlineSnapshot(closesNewestFirst, latestPrice, latestPercent);
+        return new SparrowKlineSnapshot(closesNewestFirst, latestPrice, latestPercent, volumesNewestFirst);
     }
 
     /// <summary>Reads a yuan-unit cached K-line payload; never call from a rule evaluator.</summary>
@@ -74,6 +77,7 @@ public static class SparrowKlineSnapshotFactory
 
             JsonElement[] elements = data.EnumerateArray().ToArray();
             var closesNewestFirst = new List<double>();
+            var volumesNewestFirst = new List<double>();
             double latestPrice = 0;
             double latestPercent = 0;
             for (int index = elements.Length - 1; index >= 0; index--)
@@ -86,6 +90,8 @@ public static class SparrowKlineSnapshotFactory
                 if (close > 0)
                 {
                     closesNewestFirst.Add(close);
+                    // Older cache entries predate the volume field; a missing or invalid value becomes NaN.
+                    volumesNewestFirst.Add(TryGetDouble(elements[index], "Volume", out double volume) && double.IsFinite(volume) && volume >= 0 ? volume : double.NaN);
                 }
                 if (index == elements.Length - 1)
                 {
@@ -97,7 +103,7 @@ public static class SparrowKlineSnapshotFactory
                 }
             }
 
-            return new SparrowKlineSnapshot(closesNewestFirst, latestPrice, latestPercent);
+            return new SparrowKlineSnapshot(closesNewestFirst, latestPrice, latestPercent, volumesNewestFirst);
         }
         catch (JsonException)
         {
