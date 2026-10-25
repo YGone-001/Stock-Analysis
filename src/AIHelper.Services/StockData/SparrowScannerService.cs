@@ -63,7 +63,8 @@ public class SparrowScannerService
         IProgress<SparrowScanReport>? progress,
         CancellationToken ct,
         SparrowMomentumGateConfig? momentumGates = null,
-        SparrowVolumeGateConfig? volumeGates = null)
+        SparrowVolumeGateConfig? volumeGates = null,
+        SparrowWeeklyGateConfig? weeklyGates = null)
     {
         // Scan-local session state: quotes are fresh per scan and never frozen across scans
         var quoteCache = new ConcurrentDictionary<string, SparrowQuoteData>(StringComparer.Ordinal);
@@ -353,17 +354,21 @@ public class SparrowScannerService
 
             SparrowKlineSnapshot snapshot = klineData[item.Code];
             SparrowQuoteData quote = rankingQuotes[item.Code];
-            // V2 stays on the frozen evaluator; gate configs route P3 through V3 (momentum) or V4 (momentum + volume patterns).
+            // V2 stays on the frozen evaluator; gate configs route P3 through V3 (momentum), V4 (+volume) or V5 (+weekly trend).
             SparrowRuleComparison p2 = SparrowV2CandidateEvaluator.EvaluateQuote(quote, parameters);
             SparrowTechnicalEvaluation technical = !p2.Passed
                 ? new SparrowTechnicalEvaluation(SparrowRuleComparison.NotRun("P3", "P2 did not pass"))
-                : volumeGates is null
-                    ? momentumGates is null
-                        ? SparrowV2RuleEvaluator.Evaluate(snapshot, shIndexPctChg, parameters)
-                        : SparrowV3RuleEvaluator.Evaluate(snapshot, shIndexPctChg, parameters, momentumGates)
-                    : SparrowV4RuleEvaluator.Evaluate(snapshot, shIndexPctChg, parameters, momentumGates, volumeGates);
+                : weeklyGates is null
+                    ? volumeGates is null
+                        ? momentumGates is null
+                            ? SparrowV2RuleEvaluator.Evaluate(snapshot, shIndexPctChg, parameters)
+                            : SparrowV3RuleEvaluator.Evaluate(snapshot, shIndexPctChg, parameters, momentumGates)
+                        : SparrowV4RuleEvaluator.Evaluate(snapshot, shIndexPctChg, parameters, momentumGates, volumeGates)
+                    : SparrowV5RuleEvaluator.Evaluate(snapshot, shIndexPctChg, parameters, momentumGates, volumeGates, weeklyGates);
             SparrowV2CandidateEvaluation evidence = new(item.Code, p2, technical.Rule,
-                StrategyVersion: volumeGates is not null ? SparrowStrategyVersions.V4 : momentumGates is null ? SparrowStrategyVersions.V2 : SparrowStrategyVersions.V3);
+                StrategyVersion: weeklyGates is not null ? SparrowStrategyVersions.V5
+                    : volumeGates is not null ? SparrowStrategyVersions.V4
+                    : momentumGates is null ? SparrowStrategyVersions.V2 : SparrowStrategyVersions.V3);
             if (evidence.Passed)
             {
                 string reason = $"黏合:{technical.Adhesion * 100.0:F1}% 动量:{technical.Momentum * 100.0:F1}%";

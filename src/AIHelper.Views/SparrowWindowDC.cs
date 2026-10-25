@@ -45,6 +45,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
     internal NumericUpDown NumVolBreakout;
     internal NumericUpDown NumVolContraction;
     internal CheckBox ChkVolumeGates;
+    internal CheckBox ChkWeeklyUptrend;
     internal Button BtnStart;
     internal Button BtnTest;
     internal NumericUpDown NumConcurrency;
@@ -102,9 +103,10 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumRsiMin.SetBinding(NumericUpDown.ValueProperty, new Binding("MomentumGateParameters.RsiMin") { Mode = BindingMode.TwoWay });
         NumRsiMax.SetBinding(NumericUpDown.ValueProperty, new Binding("MomentumGateParameters.RsiMax") { Mode = BindingMode.TwoWay });
         ChkMacdBullish.SetBinding(CheckBox.IsCheckedProperty, new Binding("MomentumGateParameters.RequireMacdBullish") { Mode = BindingMode.TwoWay });
-        NumVolBreakout.SetBinding(NumericUpDown.ValueProperty, new Binding("V4Parameters.VolBreakoutMultiple") { Mode = BindingMode.TwoWay });
-        NumVolContraction.SetBinding(NumericUpDown.ValueProperty, new Binding("V4Parameters.VolContractionMaxRatio") { Mode = BindingMode.TwoWay });
-        ChkVolumeGates.SetBinding(CheckBox.IsCheckedProperty, new Binding("V4Parameters.VolumeGatesEnabled") { Mode = BindingMode.TwoWay });
+        NumVolBreakout.SetBinding(NumericUpDown.ValueProperty, new Binding("VolumeGateParameters.VolBreakoutMultiple") { Mode = BindingMode.TwoWay });
+        NumVolContraction.SetBinding(NumericUpDown.ValueProperty, new Binding("VolumeGateParameters.VolContractionMaxRatio") { Mode = BindingMode.TwoWay });
+        ChkVolumeGates.SetBinding(CheckBox.IsCheckedProperty, new Binding("VolumeGateParameters.VolumeGatesEnabled") { Mode = BindingMode.TwoWay });
+        ChkWeeklyUptrend.SetBinding(CheckBox.IsCheckedProperty, new Binding("V5Parameters.RequireWeeklyUptrend") { Mode = BindingMode.TwoWay });
         NumConcurrency.SetBinding(NumericUpDown.ValueProperty, new Binding("SystemSettings.MaxConcurrency") { Mode = BindingMode.TwoWay });
         NumTopN.SetBinding(NumericUpDown.ValueProperty, new Binding("TopN") { Mode = BindingMode.TwoWay });
 
@@ -304,6 +306,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumVolBreakout = new NumericUpDown { Minimum = 0.1, Maximum = 10, Increment = 0.1, Width = 65 };
         NumVolContraction = new NumericUpDown { Minimum = 0.1, Maximum = 2, Increment = 0.05, Width = 65 };
         ChkVolumeGates = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
+        ChkWeeklyUptrend = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
 
         var modePanel = new StackPanel
         {
@@ -539,6 +542,36 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
             Converter = new BooleanToVisibilityConverter()
         });
 
+        var v5Panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        v5Panel.Children.Add(new TextBlock
+        {
+            Text = "要求周线 MA20 趋势向上：",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        });
+        v5Panel.Children.Add(ChkWeeklyUptrend);
+
+        var v5Content = new StackPanel();
+        v5Content.Children.Add(v5Panel);
+        v5Content.Children.Add(new TextBlock
+        {
+            Text = "V5 = 冻结的 V4 规则 + 周线共振；按日历周重采样（周收盘=每周最后交易日收盘），历史不足 21 周时该股显式记为数据不可用。",
+            Foreground = System.Windows.Media.Brushes.Gray,
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var v5Group = new GroupBox
+        {
+            Header = "V5 周线共振",
+            Content = v5Content,
+            Margin = new Thickness(0, 0, 0, 8),
+            Padding = new Thickness(8)
+        };
+        v5Group.SetBinding(UIElement.VisibilityProperty, new Binding("ShowV5Parameters")
+        {
+            Converter = new BooleanToVisibilityConverter()
+        });
+
         var compareHint = new TextBlock
         {
             Foreground = System.Windows.Media.Brushes.SteelBlue,
@@ -620,6 +653,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         root.Children.Add(v2Group);
         root.Children.Add(v3Group);
         root.Children.Add(v4Group);
+        root.Children.Add(v5Group);
         root.Children.Add(compareHint);
         root.Children.Add(outputPanel);
         root.Children.Add(resultSummary);

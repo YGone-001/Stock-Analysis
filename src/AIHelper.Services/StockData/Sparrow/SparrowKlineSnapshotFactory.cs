@@ -20,6 +20,7 @@ public static class SparrowKlineSnapshotFactory
         IReadOnlyList<KlineBar> bars = series.Bars;
         var closesNewestFirst = new List<double>();
         var volumesNewestFirst = new List<double>();
+        var datesNewestFirst = new List<DateOnly>();
         double latestPrice = 0;
         double latestPercent = 0;
         for (int index = bars.Count - 1; index >= 0; index--)
@@ -35,6 +36,7 @@ public static class SparrowKlineSnapshotFactory
                 closesNewestFirst.Add(close.Value);
                 double? volume = bars[index].Volume;
                 volumesNewestFirst.Add(volume.HasValue && double.IsFinite(volume.Value) && volume.Value >= 0 ? volume.Value : double.NaN);
+                datesNewestFirst.Add(DateOnly.FromDateTime(bars[index].Date));
             }
             if (index == bars.Count - 1)
             {
@@ -46,7 +48,7 @@ public static class SparrowKlineSnapshotFactory
             }
         }
 
-        return new SparrowKlineSnapshot(closesNewestFirst, latestPrice, latestPercent, volumesNewestFirst);
+        return new SparrowKlineSnapshot(closesNewestFirst, latestPrice, latestPercent, volumesNewestFirst, datesNewestFirst);
     }
 
     /// <summary>Reads a yuan-unit cached K-line payload; never call from a rule evaluator.</summary>
@@ -78,6 +80,7 @@ public static class SparrowKlineSnapshotFactory
             JsonElement[] elements = data.EnumerateArray().ToArray();
             var closesNewestFirst = new List<double>();
             var volumesNewestFirst = new List<double>();
+            var datesNewestFirst = new List<DateOnly>();
             double latestPrice = 0;
             double latestPercent = 0;
             for (int index = elements.Length - 1; index >= 0; index--)
@@ -92,6 +95,7 @@ public static class SparrowKlineSnapshotFactory
                     closesNewestFirst.Add(close);
                     // Older cache entries predate the volume field; a missing or invalid value becomes NaN.
                     volumesNewestFirst.Add(TryGetDouble(elements[index], "Volume", out double volume) && double.IsFinite(volume) && volume >= 0 ? volume : double.NaN);
+                    if (TryGetDate(elements[index], out DateOnly barDate)) datesNewestFirst.Add(barDate);
                 }
                 if (index == elements.Length - 1)
                 {
@@ -103,7 +107,9 @@ public static class SparrowKlineSnapshotFactory
                 }
             }
 
-            return new SparrowKlineSnapshot(closesNewestFirst, latestPrice, latestPercent, volumesNewestFirst);
+            // Dates are only usable when they align with every close; partial capture drops them entirely.
+            IReadOnlyList<DateOnly>? alignedDates = datesNewestFirst.Count == closesNewestFirst.Count ? datesNewestFirst : null;
+            return new SparrowKlineSnapshot(closesNewestFirst, latestPrice, latestPercent, volumesNewestFirst, alignedDates);
         }
         catch (JsonException)
         {
@@ -141,5 +147,18 @@ public static class SparrowKlineSnapshotFactory
         }
         return property.ValueKind == JsonValueKind.String
             && double.TryParse(property.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static bool TryGetDate(JsonElement element, out DateOnly date)
+    {
+        date = default;
+        if (!TryGetPropertyIgnoreCase(element, "Date", out JsonElement property))
+        {
+            return false;
+        }
+        string? raw = property.ValueKind == JsonValueKind.String ? property.GetString() : null;
+        return raw is not null
+            && (DateOnly.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date)
+                || DateOnly.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out date));
     }
 }

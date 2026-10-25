@@ -274,7 +274,9 @@ public sealed class HistoricalDatasetBuilder
             v4.Add("KLINE_VOLUME_UNAVAILABLE");
         else if (volume.Coverage == HistoricalFieldCoverage.Partial)
             v4.Add("KLINE_VOLUME_PARTIAL");
-        return [.. qualityBased, new(SparrowStrategyMode.V4, HistoricalReplaySupport.Partial, v4)];
+        // V5 additionally needs enough kline depth to resample 21+ calendar weeks; per-security depth is judged by the evaluator.
+        var v5 = new List<string>(v4) { "KLINE_WEEKLY_DEPTH_UNVERIFIED" };
+        return [.. qualityBased, new(SparrowStrategyMode.V4, HistoricalReplaySupport.Partial, v4), new(SparrowStrategyMode.V5, HistoricalReplaySupport.Partial, v5)];
     }
 
     private static HistoricalStrategyCapabilityExplanation[] Capabilities(HistoricalDatasetQualitySummary quality)

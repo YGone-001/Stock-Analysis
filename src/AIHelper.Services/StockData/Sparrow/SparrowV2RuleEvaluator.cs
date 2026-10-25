@@ -3,17 +3,22 @@ using AIHelper.Core.Sparrow;
 
 namespace AIHelper.Services.StockData.Sparrow;
 
-/// <summary>Bar-level evidence handed to the technical evaluators. Volumes align index-for-index with closes (hands); NaN marks a bar whose volume is unavailable.</summary>
+/// <summary>Bar-level evidence handed to the technical evaluators. Volumes and dates align index-for-index with closes (volumes in hands, NaN marks unavailable volume).</summary>
 public sealed record SparrowKlineSnapshot(
     IReadOnlyList<double> ClosesNewestFirst,
     double LatestPrice,
     double LatestPercent,
-    IReadOnlyList<double>? VolumesNewestFirst = null)
+    IReadOnlyList<double>? VolumesNewestFirst = null,
+    IReadOnlyList<DateOnly>? DatesNewestFirst = null)
 {
     /// <summary>Empty when no bar carried volume; otherwise element-wise aligned with <see cref="ClosesNewestFirst"/>.</summary>
     public IReadOnlyList<double> Volumes => VolumesNewestFirst ?? Array.Empty<double>();
+    /// <summary>Empty when dates were not captured; otherwise element-wise aligned with <see cref="ClosesNewestFirst"/>.</summary>
+    public IReadOnlyList<DateOnly> Dates => DatesNewestFirst ?? Array.Empty<DateOnly>();
     /// <summary>True when at least one bar carries a usable (non-NaN, finite, non-negative) volume.</summary>
     public bool HasVolumeData => VolumesNewestFirst is { Count: > 0 } && VolumesNewestFirst.Any(value => !double.IsNaN(value) && double.IsFinite(value) && value >= 0);
+    /// <summary>True when dates align with every close, which weekly-resampling gates require.</summary>
+    public bool HasDates => DatesNewestFirst is { Count: > 0 } && DatesNewestFirst.Count == ClosesNewestFirst.Count;
 }
 
 public sealed record SparrowTechnicalEvaluation(

@@ -41,7 +41,7 @@ public sealed class SparrowWindowRealUiTests
     }
 
     [Fact]
-    public void SparrowWindowDC_InitializesStrategyAwareUi_AndRendersAllFiveModes()
+    public void SparrowWindowDC_InitializesStrategyAwareUi_AndRendersAllSixModes()
     {
         RunWindowTest((window, vm) =>
         {
@@ -68,12 +68,13 @@ public sealed class SparrowWindowRealUiTests
 
             var options = modeSelector.ItemsSource as IReadOnlyList<SparrowStrategyModeOption>;
             Assert.NotNull(options);
-            Assert.Equal(5, options.Count);
+            Assert.Equal(6, options.Count);
             Assert.Equal("Classic（原始麻雀）", options[0].DisplayName);
             Assert.Equal("V2（东财增强）", options[1].DisplayName);
             Assert.Equal("Classic + V2 双选", options[2].DisplayName);
             Assert.Equal("V3（动量门限）", options[3].DisplayName);
             Assert.Equal("V4（量价形态）", options[4].DisplayName);
+            Assert.Equal("V5（周线共振）", options[5].DisplayName);
 
             string artifactDir = @"C:\Users\YGone\.gemini\antigravity\brain\61802ae4-a116-4387-b1a8-996a03966bd0";
             Directory.CreateDirectory(artifactDir);
@@ -131,6 +132,18 @@ public sealed class SparrowWindowRealUiTests
             Assert.Equal(1.5d, vm.V4Parameters.VolBreakoutMultiple);
             Assert.Equal(.8d, vm.V4Parameters.VolContractionMaxRatio);
             SaveWindowScreenshot(window, Path.Combine(artifactDir, "sparrow_v4.png"));
+
+            // 7. Mode: V5
+            vm.StrategyMode = SparrowStrategyMode.V5;
+            window.UpdateLayout();
+            Assert.True(vm.ShowV2Parameters);
+            Assert.True(vm.ShowV3Parameters);
+            Assert.True(vm.ShowV4Parameters);
+            Assert.True(vm.ShowV5Parameters);
+            Assert.True(vm.IsV5Mode);
+            Assert.Equal("周线共振麻雀：V4 + 周线 MA20 趋势向上", vm.StrategyDescription);
+            Assert.True(vm.V5Parameters.RequireWeeklyUptrend);
+            SaveWindowScreenshot(window, Path.Combine(artifactDir, "sparrow_v5.png"));
         });
     }
 

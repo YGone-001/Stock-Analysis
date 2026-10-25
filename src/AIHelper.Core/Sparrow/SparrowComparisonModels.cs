@@ -45,6 +45,8 @@ public static class SparrowComparisonReasonCodes
     public const string P3VolBreakout = "P3_VOL_BREAKOUT";
     public const string P3VolContraction = "P3_VOL_CONTRACTION";
     public const string P3VolUnavailable = "P3_VOL_UNAVAILABLE";
+    public const string P3WeeklyTrend = "P3_WEEKLY_TREND";
+    public const string P3WeeklyUnavailable = "P3_WEEKLY_UNAVAILABLE";
 }
 
 public sealed class SparrowRuleComparison

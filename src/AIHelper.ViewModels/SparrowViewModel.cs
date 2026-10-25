@@ -49,7 +49,8 @@ public partial class SparrowViewModel : ObservableObject
             new(SparrowStrategyMode.V2),
             new(SparrowStrategyMode.Compare),
             new(SparrowStrategyMode.V3),
-            new(SparrowStrategyMode.V4)
+            new(SparrowStrategyMode.V4),
+            new(SparrowStrategyMode.V5)
         };
 
     public SparrowStrategyMode StrategyMode
@@ -63,8 +64,10 @@ public partial class SparrowViewModel : ObservableObject
     public SparrowV2UiParameters V2Parameters => _parameterState.V2Parameters;
     public SparrowV3UiParameters V3Parameters => _parameterState.V3Parameters;
     public SparrowV4UiParameters V4Parameters => _parameterState.V4Parameters;
+    public SparrowV5UiParameters V5Parameters => _parameterState.V5Parameters;
     public SparrowV2UiParameters EnhancementParameters => _parameterState.EnhancementParameters;
     public SparrowV3UiParameters MomentumGateParameters => _parameterState.MomentumGateParameters;
+    public SparrowV4UiParameters VolumeGateParameters => _parameterState.VolumeGateParameters;
     public SparrowSystemSettings SystemSettings => _parameterState.SystemSettings;
     public SparrowRankingSettings RankingSettings => _rankingSettings;
     public int TopN
@@ -77,10 +80,12 @@ public partial class SparrowViewModel : ObservableObject
     public bool IsCompareMode => _parameterState.IsCompareMode;
     public bool IsV3Mode => _parameterState.IsV3Mode;
     public bool IsV4Mode => _parameterState.IsV4Mode;
+    public bool IsV5Mode => _parameterState.IsV5Mode;
     public bool ShowBaseParameters => _parameterState.ShowBaseParameters;
     public bool ShowV2Parameters => _parameterState.ShowV2Parameters;
     public bool ShowV3Parameters => _parameterState.ShowV3Parameters;
     public bool ShowV4Parameters => _parameterState.ShowV4Parameters;
+    public bool ShowV5Parameters => _parameterState.ShowV5Parameters;
     public bool ShowSystemParameters => _parameterState.ShowSystemParameters;
     public string StrategyDescription => _parameterState.StrategyDescription;
     public string BaseParametersHeader => _parameterState.BaseParametersHeader;
@@ -251,7 +256,8 @@ public partial class SparrowViewModel : ObservableObject
         SparrowParameterValidationResult validation = SparrowParameterValidator.Validate(
             StrategyMode, ClassicParameters, V2Parameters, SystemSettings,
             StrategyMode == SparrowStrategyMode.V3 ? V3Parameters : null,
-            StrategyMode == SparrowStrategyMode.V4 ? V4Parameters : null);
+            StrategyMode == SparrowStrategyMode.V4 ? V4Parameters : null,
+            StrategyMode == SparrowStrategyMode.V5 ? V5Parameters : null);
         if (!validation.IsValid)
         {
             AppendLog("❌ 参数校验失败：" + validation.Error, true);
@@ -278,6 +284,7 @@ public partial class SparrowViewModel : ObservableObject
         SparrowScanParameters activeParams;
         SparrowMomentumGateConfig? momentumGates = null;
         SparrowVolumeGateConfig? volumeGates = null;
+        SparrowWeeklyGateConfig? weeklyGates = null;
         if (StrategyMode == SparrowStrategyMode.Compare)
         {
             (classicParams, activeParams) = SparrowParameterMapper.ToComparison(
@@ -295,6 +302,14 @@ public partial class SparrowViewModel : ObservableObject
             activeParams = SparrowParameterMapper.ToV4(V4Parameters, SystemSettings);
             momentumGates = SparrowParameterMapper.ToMomentumGates(V4Parameters);
             volumeGates = SparrowParameterMapper.ToVolumeGates(V4Parameters);
+        }
+        else if (StrategyMode == SparrowStrategyMode.V5)
+        {
+            classicParams = SparrowParameterMapper.ToClassic(ClassicParameters, SystemSettings);
+            activeParams = SparrowParameterMapper.ToV5(V5Parameters, SystemSettings);
+            momentumGates = SparrowParameterMapper.ToMomentumGates(V5Parameters);
+            volumeGates = SparrowParameterMapper.ToVolumeGates(V5Parameters);
+            weeklyGates = SparrowParameterMapper.ToWeeklyGates(V5Parameters);
         }
         else
         {
@@ -464,6 +479,31 @@ public partial class SparrowViewModel : ObservableObject
                     }
                     break;
                 }
+                case SparrowStrategyMode.V5:
+                {
+                    List<SparrowV2Candidate> results = await _scannerService.ScanWithFeaturesAsync(
+                        targetPool, activeParams, v2Progress, _cts.Token, momentumGates, volumeGates, weeklyGates);
+                    if (!_cts.Token.IsCancellationRequested)
+                    {
+                        SparrowRankingFeatures[] frozen = results
+                            .Select(item => item.RankingFeatures)
+                            .OrderBy(feature => feature.Code, StringComparer.Ordinal)
+                            .ToArray();
+                        _lastV2Ranking = _rankingEngine.RankV2(
+                            frozen, activeParams.MinRise, activeParams.MaxRise, activeParams.CheckAlpha);
+                        _lastClassicRanking = Array.Empty<SparrowRankedCandidate>();
+                        _lastComparisonRows = Array.Empty<SparrowComparisonRow>();
+                        _lastCompletedMode = SparrowStrategyMode.V5;
+                        _lastCompletedAt = DateTime.Now;
+                        string csv = await SparrowRankingCsvExporter.ExportV2Async(
+                            _lastV2Ranking, TopN, _cts.Token);
+                        AppendLog($"V5 Ranking CSV: {csv}");
+                        ReportRanking("V5", _lastV2Ranking);
+                        ApplyCachedTopN();
+                        Growl.Success($"Sparrow V5 完成：候选池 {results.Count}，精选 {Math.Min(TopN, results.Count)} 只。");
+                    }
+                    break;
+                }
             }
         }
         catch (OperationCanceledException) when (_cts.Token.IsCancellationRequested)
@@ -535,6 +575,15 @@ public partial class SparrowViewModel : ObservableObject
                         _lastV2Ranking.Take(topN).Select(item => (item.Code, item.Name)));
                 }
                 ResultSummary = $"V4 完成 · 候选池 {_lastV2Ranking.Count} · Top{topN} 已生成（{Math.Min(topN, _lastV2Ranking.Count)}只）";
+                break;
+            case SparrowStrategyMode.V5:
+                PopulateResults(_lastV2Ranking, topN);
+                if (_lastV2Ranking.Count > 0)
+                {
+                    SetResultGroup("V5", $"麻雀_V5_Top{topN}_{_lastCompletedAt:MMdd}",
+                        _lastV2Ranking.Take(topN).Select(item => (item.Code, item.Name)));
+                }
+                ResultSummary = $"V5 完成 · 候选池 {_lastV2Ranking.Count} · Top{topN} 已生成（{Math.Min(topN, _lastV2Ranking.Count)}只）";
                 break;
             case SparrowStrategyMode.Compare:
                 ApplyComparisonTopN(topN);

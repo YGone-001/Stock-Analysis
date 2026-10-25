@@ -22,6 +22,17 @@ public class SparrowScanParameters
     public bool UseCache { get; set; }
 }
 
+/// <summary>Optional V5 weekly-trend gate: the calendar-week resampled MA must be rising so entries follow the multi-month trend.</summary>
+public sealed record SparrowWeeklyGateConfig(
+    bool RequireWeeklyUptrend = true,
+    int WeeklyMaPeriod = 20)
+{
+    public void Validate()
+    {
+        if (WeeklyMaPeriod <= 0) throw new ArgumentOutOfRangeException(nameof(WeeklyMaPeriod));
+    }
+}
+
 /// <summary>Optional V4 volume-pattern gates evaluated on the newest-first volume series after the V3 rules passed.</summary>
 /// <param name="VolBreakoutMultiple">Today's volume must reach this multiple of the recent-window mean; null disables the breakout gate.</param>
 /// <param name="VolContractionMaxRatio">The pre-breakout window mean must stay at or below this ratio of the baseline-window mean; null disables the contraction gate.</param>

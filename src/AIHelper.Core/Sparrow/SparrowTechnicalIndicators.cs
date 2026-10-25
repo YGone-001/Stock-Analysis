@@ -109,6 +109,37 @@ public static class SparrowTechnicalIndicators
     }
 
     /// <summary>
+    /// Weekly moving-average trend over calendar-week resampled closes. Weeks are keyed by their Monday; each
+    /// week's close is its latest daily close (the in-progress week included, mirroring live-chart convention).
+    /// Rising means the newest weekly MA strictly exceeds the previous week's weekly MA. Requires maPeriod + 1
+    /// weekly closes and an element-wise aligned date series.
+    /// </summary>
+    public static bool TryWeeklyMaRising(IReadOnlyList<DateOnly> datesNewestFirst, IReadOnlyList<double> closesNewestFirst, int maPeriod, out bool rising)
+    {
+        rising = false;
+        if (maPeriod <= 0 || datesNewestFirst.Count != closesNewestFirst.Count) return false;
+
+        // Newest-first iteration: the first close seen per week key is that week's latest close.
+        List<double> weeklyClosesNewestFirst = new();
+        int? currentWeekMonday = null;
+        foreach ((DateOnly date, double close) in datesNewestFirst.Zip(closesNewestFirst))
+        {
+            int monday = date.DayNumber - ((int)date.DayOfWeek + 6) % 7;
+            if (currentWeekMonday == monday) continue;
+            if (!double.IsFinite(close) || close <= 0) return false;
+            currentWeekMonday = monday;
+            weeklyClosesNewestFirst.Add(close);
+        }
+        if (weeklyClosesNewestFirst.Count < maPeriod + 1) return false;
+
+        double newest = 0, previous = 0;
+        for (int index = 0; index < maPeriod; index++) newest += weeklyClosesNewestFirst[index];
+        for (int index = 1; index <= maPeriod; index++) previous += weeklyClosesNewestFirst[index];
+        rising = newest > previous;
+        return true;
+    }
+
+    /// <summary>
     /// Mean of a contiguous window on a newest-first series. Any NaN inside the window makes the result
     /// unavailable (returns false) so callers surface an explicit DataUnavailable outcome instead of a
     /// silently truncated average.

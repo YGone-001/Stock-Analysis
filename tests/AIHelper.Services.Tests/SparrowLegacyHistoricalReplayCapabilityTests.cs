@@ -100,7 +100,7 @@ public sealed class SparrowLegacyHistoricalReplayCapabilityTests
     [Fact]
     public void LegacyIsNotAddedToRunnableReplayOrBacktestStrategyMode()
     {
-        Assert.Equal(new[] { "Classic", "V2", "Compare", "V3", "V4" }, Enum.GetNames<SparrowStrategyMode>());
+        Assert.Equal(new[] { "Classic", "V2", "Compare", "V3", "V4", "V5" }, Enum.GetNames<SparrowStrategyMode>());
         Assert.DoesNotContain(typeof(SparrowLegacyHistoricalReplayCapability).Assembly.GetReferencedAssemblies(),
             reference => string.Equals(reference.Name, "AIHelper.Services", StringComparison.Ordinal));
         Assert.DoesNotContain(typeof(SparrowLegacyHistoricalReplayCapability).Assembly.GetTypes(),

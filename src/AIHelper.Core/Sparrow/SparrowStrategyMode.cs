@@ -6,5 +6,6 @@ public enum SparrowStrategyMode
     V2,
     Compare,
     V3,
-    V4
+    V4,
+    V5
 }

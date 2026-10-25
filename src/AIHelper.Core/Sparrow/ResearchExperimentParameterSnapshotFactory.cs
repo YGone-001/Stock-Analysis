@@ -49,7 +49,8 @@ public static class ResearchExperimentParameterSnapshotFactory
         decimal portfolioSlippageRate,
         PortfolioExecutionModel executionModel,
         SparrowV3ParameterSnapshot? v3Parameters = null,
-        SparrowV4ParameterSnapshot? v4Parameters = null)
+        SparrowV4ParameterSnapshot? v4Parameters = null,
+        SparrowV5ParameterSnapshot? v5Parameters = null)
     {
         Dictionary<string, string> strategy = new(StringComparer.Ordinal)
         {
@@ -66,6 +67,7 @@ public static class ResearchExperimentParameterSnapshotFactory
         AddV2(strategy, v2Parameters);
         AddV3(strategy, v3Parameters);
         AddV4(strategy, v4Parameters);
+        AddV5(strategy, v5Parameters);
 
         Dictionary<string, string> portfolio = new(StringComparer.Ordinal)
         {
@@ -179,12 +181,46 @@ public static class ResearchExperimentParameterSnapshotFactory
         target["V4.VolContractionBaselineDays"] = Integer(parameters.VolContractionBaselineDays);
     }
 
+    /// <summary>Explicit V5 mapping. Every semantic field of <see cref="SparrowV5ParameterSnapshot"/> must appear here.</summary>
+    public static void AddV5(IDictionary<string, string> target, SparrowV5ParameterSnapshot? parameters)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (parameters is null) return;
+        target["V5.MacroDef"] = Boolean(parameters.MacroDef);
+        target["V5.MinRise"] = Double(parameters.MinRise);
+        target["V5.MaxRise"] = Double(parameters.MaxRise);
+        target["V5.VolRatio"] = Double(parameters.VolRatio);
+        target["V5.MinAmount"] = Double(parameters.MinAmount);
+        target["V5.CheckMA60"] = Boolean(parameters.CheckMA60);
+        target["V5.MinAdhesion"] = Double(parameters.MinAdhesion);
+        target["V5.MaxAdhesion"] = Double(parameters.MaxAdhesion);
+        target["V5.MinTurnover"] = Double(parameters.MinTurnover);
+        target["V5.MaxTurnover"] = Double(parameters.MaxTurnover);
+        target["V5.MomentumThreshold"] = Double(parameters.MomentumThreshold);
+        target["V5.CheckAlpha"] = Boolean(parameters.CheckAlpha);
+        target["V5.RsiMin"] = parameters.RsiMin.HasValue ? Double(parameters.RsiMin.Value) : "null";
+        target["V5.RsiMax"] = parameters.RsiMax.HasValue ? Double(parameters.RsiMax.Value) : "null";
+        target["V5.RequireMacdBullish"] = Boolean(parameters.RequireMacdBullish);
+        target["V5.RsiPeriod"] = Integer(parameters.RsiPeriod);
+        target["V5.MacdFastPeriod"] = Integer(parameters.MacdFastPeriod);
+        target["V5.MacdSlowPeriod"] = Integer(parameters.MacdSlowPeriod);
+        target["V5.MacdSignalPeriod"] = Integer(parameters.MacdSignalPeriod);
+        target["V5.VolBreakoutMultiple"] = parameters.VolBreakoutMultiple.HasValue ? Double(parameters.VolBreakoutMultiple.Value) : "null";
+        target["V5.VolContractionMaxRatio"] = parameters.VolContractionMaxRatio.HasValue ? Double(parameters.VolContractionMaxRatio.Value) : "null";
+        target["V5.VolBreakoutLookbackDays"] = Integer(parameters.VolBreakoutLookbackDays);
+        target["V5.VolContractionLookbackDays"] = Integer(parameters.VolContractionLookbackDays);
+        target["V5.VolContractionBaselineDays"] = Integer(parameters.VolContractionBaselineDays);
+        target["V5.RequireWeeklyUptrend"] = Boolean(parameters.RequireWeeklyUptrend);
+        target["V5.WeeklyMaPeriod"] = Integer(parameters.WeeklyMaPeriod);
+    }
+
     /// <summary>Canonical typed-snapshot key prefix for a strategy mode.</summary>
     public static string TypedKeyPrefix(SparrowStrategyMode strategyMode) => strategyMode switch
     {
         SparrowStrategyMode.V2 => "V2.",
         SparrowStrategyMode.V3 => "V3.",
         SparrowStrategyMode.V4 => "V4.",
+        SparrowStrategyMode.V5 => "V5.",
         _ => "Classic."
     };
 
