@@ -40,6 +40,8 @@ public static class SparrowComparisonReasonCodes
     public const string P3MaInvalid = "P3_MA_INVALID";
     public const string P3AdhesionLow = "P3_ADHESION_LOW";
     public const string P3AdhesionHigh = "P3_ADHESION_HIGH";
+    public const string P3Rsi = "P3_RSI";
+    public const string P3Macd = "P3_MACD";
 }
 
 public sealed class SparrowRuleComparison

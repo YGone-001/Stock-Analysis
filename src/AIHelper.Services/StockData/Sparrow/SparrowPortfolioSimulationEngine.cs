@@ -27,12 +27,52 @@ public sealed class SparrowPortfolioSimulationEngine : ISparrowPortfolioSimulati
         var warnings = new List<string>();
         var openPositions = new Dictionary<string, PositionState>(StringComparer.Ordinal);
         var scheduledExits = new Dictionary<DateOnly, List<PositionState>>();
+        var stopDistances = new Dictionary<string, decimal>(StringComparer.Ordinal);
+        var trailingHighestClose = new Dictionary<string, decimal>(StringComparer.Ordinal);
         decimal cash = request.InitialCapital;
 
         for (int dateIndex = 0; dateIndex < dataset.TradingDates.Count; dateIndex++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             DateOnly date = dataset.TradingDates[dateIndex];
+
+            if (request.ExitPolicy == PortfolioExitPolicy.AtrTrailingStop && stopDistances.Count > 0)
+            {
+                foreach (PositionState position in openPositions.Values.ToArray())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!stopDistances.TryGetValue(position.Symbol, out decimal stopDistance)) continue;
+                    if (!TryGetClose(dataset, position.Symbol, date, out decimal close)) continue;
+                    decimal highest = trailingHighestClose.TryGetValue(position.Symbol, out decimal tracked) ? tracked : position.EntryPrice;
+                    if (close > highest)
+                    {
+                        highest = close;
+                        trailingHighestClose[position.Symbol] = close;
+                    }
+
+                    if (close >= highest - stopDistance) continue;
+
+                    decimal executionPrice = close * (1m - request.SlippageRate);
+                    if (executionPrice <= 0)
+                    {
+                        warnings.Add($"{date:O}: {position.Symbol}: AtrStopExecutionPriceInvalid; position remains open.");
+                        continue;
+                    }
+
+                    decimal notional = executionPrice * position.Quantity;
+                    decimal fee = notional * request.CommissionRate;
+                    trades.Add(new PortfolioTrade(position.Symbol, date, PortfolioTradeSide.Sell, executionPrice, position.Quantity, notional, fee));
+                    cash += notional - fee;
+                    decimal realizedPnL = notional - fee - position.EntryNotional - position.EntryFee;
+                    double returnPercent = (double)(realizedPnL / (position.EntryNotional + position.EntryFee) * 100m);
+                    positions.Add(position.Close(date, executionPrice, notional, fee, realizedPnL, returnPercent));
+                    openPositions.Remove(position.Symbol);
+                    stopDistances.Remove(position.Symbol);
+                    trailingHighestClose.Remove(position.Symbol);
+                    warnings.Add($"{date:O}: {position.Symbol}: AtrTrailingStopExecuted.");
+                    ValidateBalances(date, cash, openPositions, dataset);
+                }
+            }
 
             if (scheduledExits.TryGetValue(date, out List<PositionState>? due))
             {
@@ -99,6 +139,19 @@ public sealed class SparrowPortfolioSimulationEngine : ISparrowPortfolioSimulati
                     : null;
                 var position = new PositionState(candidate.Symbol, date, candidate.ExecutionPrice, quantity, notional, fee, exitDate);
                 openPositions.Add(candidate.Symbol, position);
+                if (request.ExitPolicy == PortfolioExitPolicy.AtrTrailingStop)
+                {
+                    if (TryComputeEntryAtr(dataset, candidate.Symbol, date, request.AtrStopLookback, out double entryAtr))
+                    {
+                        stopDistances[candidate.Symbol] = (decimal)entryAtr * request.AtrStopMultiple;
+                        trailingHighestClose[candidate.Symbol] = candidate.Close;
+                    }
+                    else
+                    {
+                        warnings.Add($"{date:O}: {candidate.Symbol}: AtrStopUnavailable; scheduled exit retained.");
+                    }
+                }
+
                 if (exitDate.HasValue)
                 {
                     if (!scheduledExits.TryGetValue(exitDate.Value, out List<PositionState>? scheduled))
@@ -179,10 +232,29 @@ public sealed class SparrowPortfolioSimulationEngine : ISparrowPortfolioSimulati
             }
 
             decimal executionPrice = close * (1m + slippageRate);
-            candidates.Add(new EntryCandidate(symbol, executionPrice));
+            candidates.Add(new EntryCandidate(symbol, executionPrice, close));
         }
 
         return candidates;
+    }
+
+    /// <summary>Entry-anchored ATR over the newest lookback bars whose date does not exceed the entry date; invalid bars are treated as gaps.</summary>
+    private static bool TryComputeEntryAtr(HistoricalMarketDataset dataset, string symbol, DateOnly date, int lookback, out double atr)
+    {
+        atr = default;
+        if (!dataset.Klines.TryGetValue(symbol, out KlineSeries? series)) return false;
+        var window = new List<(double High, double Low, double Close)>(lookback + 1);
+        foreach (KlineBar bar in series.Bars)
+        {
+            if (DateOnly.FromDateTime(bar.Date) > date) break;
+            if (bar.High is not > 0 || bar.Low is not > 0 || bar.Close is not > 0
+                || !double.IsFinite(bar.High.Value) || !double.IsFinite(bar.Low.Value) || !double.IsFinite(bar.Close.Value))
+                continue;
+            window.Add((bar.High.Value, bar.Low.Value, bar.Close.Value));
+            if (window.Count > lookback + 1) window.RemoveAt(0);
+        }
+
+        return SparrowTechnicalIndicators.TryAtr(window, lookback, out atr);
     }
 
     private static long ReduceToAffordableQuantity(long quantity, decimal price, decimal commissionRate, decimal cash)
@@ -236,7 +308,7 @@ public sealed class SparrowPortfolioSimulationEngine : ISparrowPortfolioSimulati
             throw new NotSupportedException($"Unsupported portfolio execution model '{request.ExecutionModel}'.");
     }
 
-    private sealed record EntryCandidate(string Symbol, decimal ExecutionPrice);
+    private sealed record EntryCandidate(string Symbol, decimal ExecutionPrice, decimal Close);
 
     private sealed record PositionState(string Symbol, DateOnly EntryDate, decimal EntryPrice, long Quantity, decimal EntryNotional, decimal EntryFee, DateOnly? ExitDate)
     {

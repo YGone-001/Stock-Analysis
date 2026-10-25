@@ -116,13 +116,109 @@ public sealed class SparrowPortfolioSimulationEngineTests
         Assert.Empty(typeof(SparrowPortfolioSimulationEngine).GetConstructors().Single().GetParameters());
     }
 
-    private static async Task<SparrowPortfolioSimulationResult> Simulate(HistoricalMarketDataset dataset, SparrowBacktestResult backtest, decimal initialCapital = 1_000_000, int horizon = 1, decimal commissionRate = 0, decimal slippageRate = 0)
+    [Fact]
+    public async Task SimulateAsync_AtrTrailingStop_ExitsBeforeTheScheduledHorizon()
+    {
+        DateOnly[] dates = { new(2026, 1, 2), new(2026, 1, 5), new(2026, 1, 6), new(2026, 1, 7), new(2026, 1, 8) };
+        // Two pre-entry bars seed ATR(2) = 2, so the stop distance is 2 * 2 = 4 below the highest close.
+        (DateOnly Date, double High, double Low, double Close)[] bars =
+        {
+            (new(2025, 12, 30), 100, 98, 99),
+            (new(2025, 12, 31), 101, 99, 100),
+            (dates[0], 102, 100, 100),
+            (dates[1], 104, 102, 103),
+            (dates[2], 99, 97, 98),
+            (dates[3], 100, 98, 99),
+            (dates[4], 101, 99, 100)
+        };
+        HistoricalMarketDataset dataset = DatasetWithBars(dates, bars);
+        SparrowBacktestResult backtest = Backtest(dataset, new[] { Selection(dates[0], "600000", 1) });
+
+        SparrowPortfolioSimulationResult result = await Simulate(dataset, backtest, horizon: 4, exitPolicy: PortfolioExitPolicy.AtrTrailingStop, atrStopLookback: 2, atrStopMultiple: 2m);
+
+        PortfolioTrade sell = Assert.Single(result.Trades, trade => trade.Side == PortfolioTradeSide.Sell);
+        Assert.Equal(dates[2], sell.TradeDate);
+        Assert.Equal(98m, sell.Price);
+        PortfolioPosition position = Assert.Single(result.Positions);
+        Assert.Equal(dates[2], position.ExitDate);
+        Assert.Equal(-20_000m, position.RealizedPnL);
+        Assert.Contains(result.Warnings, warning => warning.Contains("AtrTrailingStopExecuted", StringComparison.Ordinal));
+        Assert.DoesNotContain(result.Warnings, warning => warning.Contains("AtrStopUnavailable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SimulateAsync_AtrTrailingStop_RatchetsToTheHighestCloseSinceEntry()
+    {
+        DateOnly[] dates = { new(2026, 1, 2), new(2026, 1, 5), new(2026, 1, 6), new(2026, 1, 7), new(2026, 1, 8) };
+        // ATR(2) = 2 gives a distance of 4: the peak close 110 ratchets the stop to 106, so 105 stops out
+        // even though it sits far above the original 96 stop anchored at the entry close.
+        (DateOnly Date, double High, double Low, double Close)[] bars =
+        {
+            (new(2025, 12, 30), 100, 98, 99),
+            (new(2025, 12, 31), 101, 99, 100),
+            (dates[0], 102, 100, 100),
+            (dates[1], 111, 109, 110),
+            (dates[2], 106, 104, 105),
+            (dates[3], 100, 98, 99),
+            (dates[4], 101, 99, 100)
+        };
+        HistoricalMarketDataset dataset = DatasetWithBars(dates, bars);
+        SparrowBacktestResult backtest = Backtest(dataset, new[] { Selection(dates[0], "600000", 1) });
+
+        SparrowPortfolioSimulationResult result = await Simulate(dataset, backtest, horizon: 4, exitPolicy: PortfolioExitPolicy.AtrTrailingStop, atrStopLookback: 2, atrStopMultiple: 2m);
+
+        PortfolioTrade sell = Assert.Single(result.Trades, trade => trade.Side == PortfolioTradeSide.Sell);
+        Assert.Equal(dates[2], sell.TradeDate);
+        Assert.Equal(105m, sell.Price);
+    }
+
+    [Fact]
+    public async Task SimulateAsync_AtrTrailingStop_RetainsScheduledExitWhenAtrIsUnavailable()
+    {
+        DateOnly entry = new(2026, 1, 2); DateOnly exit = new(2026, 1, 5);
+        // Close-only bars cannot produce a true range, so the stop stays unavailable.
+        HistoricalMarketDataset dataset = Dataset(new[] { entry, exit }, new Dictionary<string, double[]> { ["600000"] = new[] { 100d, 110d } });
+        SparrowBacktestResult backtest = Backtest(dataset, new[] { Selection(entry, "600000", 1) });
+
+        SparrowPortfolioSimulationResult result = await Simulate(dataset, backtest, horizon: 1, exitPolicy: PortfolioExitPolicy.AtrTrailingStop);
+
+        PortfolioTrade sell = Assert.Single(result.Trades, trade => trade.Side == PortfolioTradeSide.Sell);
+        Assert.Equal(exit, sell.TradeDate);
+        Assert.Equal(110m, sell.Price);
+        Assert.Contains(result.Warnings, warning => warning.Contains("AtrStopUnavailable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PortfolioFingerprint_IsSensitiveToTheExitPolicyConfiguration()
+    {
+        PortfolioSimulationRequest scheduled = Request(PortfolioExitPolicy.ScheduledHorizon);
+        PortfolioSimulationRequest scheduledRepeat = Request(PortfolioExitPolicy.ScheduledHorizon);
+        PortfolioSimulationRequest stopped = Request(PortfolioExitPolicy.AtrTrailingStop);
+
+        Assert.Equal(SparrowPortfolioResearchFingerprint.Portfolio(scheduled), SparrowPortfolioResearchFingerprint.Portfolio(scheduledRepeat));
+        Assert.NotEqual(SparrowPortfolioResearchFingerprint.Portfolio(scheduled), SparrowPortfolioResearchFingerprint.Portfolio(stopped));
+    }
+
+    private static PortfolioSimulationRequest Request(PortfolioExitPolicy exitPolicy) => new(
+        "portfolio-fixture", "fingerprint", SparrowStrategyMode.V2, SparrowStrategyVersions.V2, "parameter-fingerprint",
+        new DateOnly(2026, 1, 2), new DateOnly(2026, 1, 5), 10, 1, 1_000_000m,
+        PortfolioPositionSizingMethod.EqualWeight, 0, 0, exitPolicy: exitPolicy);
+
+    private static async Task<SparrowPortfolioSimulationResult> Simulate(HistoricalMarketDataset dataset, SparrowBacktestResult backtest, decimal initialCapital = 1_000_000, int horizon = 1, decimal commissionRate = 0, decimal slippageRate = 0,
+        PortfolioExitPolicy exitPolicy = PortfolioExitPolicy.ScheduledHorizon, int atrStopLookback = 20, decimal atrStopMultiple = 2m)
     {
         PortfolioSimulationRequest request = new(dataset.DatasetId, dataset.Fingerprint, backtest.Request.StrategyMode, backtest.Request.StrategyVersion,
             backtest.ParameterFingerprint, backtest.Request.StartDate, backtest.Request.EndDate, backtest.Request.TopN, horizon, initialCapital,
-            PortfolioPositionSizingMethod.EqualWeight, commissionRate, slippageRate);
+            PortfolioPositionSizingMethod.EqualWeight, commissionRate, slippageRate, PortfolioExecutionModel.CloseBased, exitPolicy, atrStopLookback, atrStopMultiple);
         return await new SparrowPortfolioSimulationEngine().SimulateAsync(backtest, request, dataset, CancellationToken.None);
     }
+
+    private static HistoricalMarketDataset DatasetWithBars(IReadOnlyList<DateOnly> dates, IReadOnlyList<(DateOnly Date, double High, double Low, double Close)> bars) => new(
+        "portfolio-fixture",
+        dates,
+        Array.Empty<HistoricalQuoteObservation>(),
+        new[] { new KlineSeries("600000", bars.Select(bar => new KlineBar(bar.Date.ToDateTime(TimeOnly.MinValue), null, bar.High, bar.Low, bar.Close, null, null, null, null, null)).ToArray()) },
+        source: "InMemory");
 
     private static SparrowBacktestResult Backtest(HistoricalMarketDataset dataset, IEnumerable<SparrowBacktestSelection> selections)
     {

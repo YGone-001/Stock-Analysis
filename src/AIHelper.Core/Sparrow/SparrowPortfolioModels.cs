@@ -14,6 +14,13 @@ public enum PortfolioPositionSizingMethod { EqualWeight }
 /// <summary>Phase 3.4 V1 execution assumption: historical close plus explicit slippage.</summary>
 public enum PortfolioExecutionModel { CloseBased }
 
+/// <summary>
+/// Phase 3.4 V2 portfolio exit policy. ScheduledHorizon is the frozen V1 behavior; AtrTrailingStop
+/// closes a position on the first close below the highest close since entry minus a fixed
+/// entry-anchored ATR distance. Stops are close-based and evaluated from the trading day after entry.
+/// </summary>
+public enum PortfolioExitPolicy { ScheduledHorizon, AtrTrailingStop }
+
 /// <summary>Immutable input identity and assumptions for a future deterministic portfolio simulation.</summary>
 public sealed class PortfolioSimulationRequest
 {
@@ -31,7 +38,10 @@ public sealed class PortfolioSimulationRequest
         PortfolioPositionSizingMethod positionSizingMethod,
         decimal commissionRate,
         decimal slippageRate,
-        PortfolioExecutionModel executionModel = PortfolioExecutionModel.CloseBased)
+        PortfolioExecutionModel executionModel = PortfolioExecutionModel.CloseBased,
+        PortfolioExitPolicy exitPolicy = PortfolioExitPolicy.ScheduledHorizon,
+        int atrStopLookback = 20,
+        decimal atrStopMultiple = 2m)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(datasetId);
         ArgumentException.ThrowIfNullOrWhiteSpace(datasetFingerprint);
@@ -40,12 +50,15 @@ public sealed class PortfolioSimulationRequest
         if (!Enum.IsDefined(strategyMode)) throw new ArgumentOutOfRangeException(nameof(strategyMode));
         if (!Enum.IsDefined(positionSizingMethod)) throw new ArgumentOutOfRangeException(nameof(positionSizingMethod));
         if (!Enum.IsDefined(executionModel)) throw new ArgumentOutOfRangeException(nameof(executionModel));
+        if (!Enum.IsDefined(exitPolicy)) throw new ArgumentOutOfRangeException(nameof(exitPolicy));
         if (startDate > endDate) throw new ArgumentException("StartDate must not be after EndDate.");
         if (topN <= 0) throw new ArgumentOutOfRangeException(nameof(topN));
         if (horizonTradingDays <= 0) throw new ArgumentOutOfRangeException(nameof(horizonTradingDays));
         if (initialCapital <= 0) throw new ArgumentOutOfRangeException(nameof(initialCapital));
         if (commissionRate < 0) throw new ArgumentOutOfRangeException(nameof(commissionRate));
         if (slippageRate < 0) throw new ArgumentOutOfRangeException(nameof(slippageRate));
+        if (atrStopLookback <= 0) throw new ArgumentOutOfRangeException(nameof(atrStopLookback));
+        if (atrStopMultiple <= 0) throw new ArgumentOutOfRangeException(nameof(atrStopMultiple));
 
         DatasetId = datasetId;
         DatasetFingerprint = datasetFingerprint;
@@ -61,6 +74,9 @@ public sealed class PortfolioSimulationRequest
         CommissionRate = commissionRate;
         SlippageRate = slippageRate;
         ExecutionModel = executionModel;
+        ExitPolicy = exitPolicy;
+        AtrStopLookback = atrStopLookback;
+        AtrStopMultiple = atrStopMultiple;
     }
 
     public string DatasetId { get; }
@@ -77,6 +93,12 @@ public sealed class PortfolioSimulationRequest
     public decimal CommissionRate { get; }
     public decimal SlippageRate { get; }
     public PortfolioExecutionModel ExecutionModel { get; }
+    /// <summary>Exit policy; ScheduledHorizon preserves the frozen V1 fixed-horizon behavior.</summary>
+    public PortfolioExitPolicy ExitPolicy { get; }
+    /// <summary>ATR lookback in trading bars for AtrTrailingStop; inert under ScheduledHorizon.</summary>
+    public int AtrStopLookback { get; }
+    /// <summary>ATR stop distance as a multiple of entry ATR for AtrTrailingStop; inert under ScheduledHorizon.</summary>
+    public decimal AtrStopMultiple { get; }
 }
 
 /// <summary>Immutable simulated transaction. It contains no provider, broker, or execution-service dependency.</summary>

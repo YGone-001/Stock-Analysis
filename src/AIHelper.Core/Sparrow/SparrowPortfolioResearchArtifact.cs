@@ -142,7 +142,8 @@ public static class SparrowPortfolioResearchFingerprint
 
     public static string Strategy(PortfolioSimulationRequest request) => Hash($"{request.StrategyMode}|{request.StrategyVersion}|{request.StrategyParameterFingerprint}");
     public static string Portfolio(PortfolioSimulationRequest request) => Hash(string.Join('|', request.StartDate.ToString("O"), request.EndDate.ToString("O"), request.TopN, request.HorizonTradingDays,
-        request.InitialCapital.ToString(System.Globalization.CultureInfo.InvariantCulture), request.PositionSizingMethod, request.CommissionRate.ToString(System.Globalization.CultureInfo.InvariantCulture), request.SlippageRate.ToString(System.Globalization.CultureInfo.InvariantCulture), request.ExecutionModel));
+        request.InitialCapital.ToString(System.Globalization.CultureInfo.InvariantCulture), request.PositionSizingMethod, request.CommissionRate.ToString(System.Globalization.CultureInfo.InvariantCulture), request.SlippageRate.ToString(System.Globalization.CultureInfo.InvariantCulture), request.ExecutionModel,
+        request.ExitPolicy, request.AtrStopLookback, request.AtrStopMultiple.ToString(System.Globalization.CultureInfo.InvariantCulture)));
     public static string Analysis(string datasetFingerprint, string strategyFingerprint, string portfolioConfigurationFingerprint) => Hash($"{SparrowPortfolioResearchArtifact.AnalysisFingerprintContractVersion}|PortfolioPerformanceAnalyzerV1|{datasetFingerprint}|{strategyFingerprint}|{portfolioConfigurationFingerprint}");
 
     /// <summary>Hashes an explicit, self-excluding canonical payload rather than serialized output bytes.</summary>

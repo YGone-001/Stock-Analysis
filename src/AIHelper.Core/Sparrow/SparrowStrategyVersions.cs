@@ -10,5 +10,6 @@ public static class SparrowStrategyVersions
 {
     public const string Classic = "classic-v1";
     public const string V2 = "v2";
+    public const string V3 = "v3";
     public const string Legacy = "legacy";
 }
