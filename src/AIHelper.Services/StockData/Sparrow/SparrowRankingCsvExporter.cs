@@ -36,7 +36,7 @@ public static class SparrowRankingCsvExporter
         DateTimeOffset? capturedAt = null) =>
         ExportAsync(ranking, topN, cancellationToken, directory, capturedAt,
             "sparrow_v2_rank_",
-            "RankingProfile,Rank,Code,Name,TotalScore,Momentum,MomentumScore,BuyPressureRatio,BuyPressureScore,AlphaMargin,AlphaStrengthScore,Amount,LiquidityScore,RisePercent,RiseQualityScore,Turnover,Adhesion,IsDataComplete,MissingFactors,IsTopN",
+            "RankingProfile,Rank,Code,Name,TotalScore,Momentum,MomentumScore,BuyPressureRatio,BuyPressureScore,AlphaMargin,AlphaStrengthScore,Amount,LiquidityScore,RisePercent,RiseQualityScore,SectorHeatPercentile,SectorHeatScore,Turnover,Adhesion,IsDataComplete,MissingFactors,IsTopN",
             candidate => new[]
             {
                 Csv(candidate.RankingProfile), Integer(candidate.Rank), Csv(candidate.Code), Csv(candidate.Name),
@@ -46,9 +46,16 @@ public static class SparrowRankingCsvExporter
                 Number(candidate.Features.AlphaMargin), Number(candidate.Factor(SparrowRankingFactorNames.AlphaStrength).Percentile),
                 Number(candidate.Features.Amount), Number(candidate.Factor(SparrowRankingFactorNames.Liquidity).Percentile),
                 Number(candidate.Features.RisePercent), Number(candidate.Factor(SparrowRankingFactorNames.RiseQuality).Percentile),
+                Number(candidate.Features.SectorHeatPercentile), OptionalFactor(candidate, SparrowRankingFactorNames.SectorHeat),
                 Number(candidate.Features.Turnover), Number(candidate.Features.Adhesion),
                 Boolean(candidate.IsDataComplete), Csv(candidate.MissingFactors ?? ""), Boolean(candidate.Rank <= NormalizeTopN(topN))
             });
+
+    /// <summary>The sector-heat factor exists only under the Rank-V2 profile; V1 candidates export an empty cell.</summary>
+    private static string OptionalFactor(SparrowRankedCandidate candidate, string factorName) =>
+        candidate.Factors.FirstOrDefault(factor => string.Equals(factor.Factor, factorName, StringComparison.Ordinal)) is { } factor
+            ? Number(factor.Percentile)
+            : "";
 
     private static async Task<string> ExportAsync(
         IReadOnlyList<SparrowRankedCandidate> ranking,

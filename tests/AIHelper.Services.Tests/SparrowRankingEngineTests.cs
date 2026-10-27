@@ -149,6 +149,58 @@ public sealed class SparrowRankingEngineTests
     }
 
     [Fact]
+    public void SectorHeatDisabled_KeepsTheFrozenV1ProfileBitForBit()
+    {
+        SparrowRankingFeatures[] candidates = { Feature("A", momentum: .02), Feature("B", momentum: .01) };
+
+        IReadOnlyList<SparrowRankedCandidate> withHeatFeatures = _engine.RankV2(
+            candidates.Select(feature => feature with { SectorHeatPercentile = 80 }), 1, 5, checkAlpha: true);
+        IReadOnlyList<SparrowRankedCandidate> baseline = _engine.RankV2(candidates, 1, 5, checkAlpha: true);
+
+        // The flag decides: even with heat values present, the disabled path stays on Rank-V1 with identical scores.
+        Assert.All(withHeatFeatures, candidate => Assert.Equal(SparrowRankingProfileV1.Name, candidate.RankingProfile));
+        Assert.Equal(baseline.Select(Item), withHeatFeatures.Select(Item));
+        Assert.DoesNotContain(withHeatFeatures[0].Factors, factor => factor.Factor == SparrowRankingFactorNames.SectorHeat);
+    }
+
+    [Fact]
+    public void SectorHeatEnabled_SeparatesByBoardHeatAndRenamesTheProfile()
+    {
+        SparrowRankingFeatures[] candidates =
+        {
+            Feature("Hot", momentum: .01),
+            Feature("Cold", momentum: .01)
+        };
+        candidates = new[]
+        {
+            candidates[0] with { SectorHeatPercentile = 95 },
+            candidates[1] with { SectorHeatPercentile = 5 }
+        };
+
+        IReadOnlyList<SparrowRankedCandidate> ranking = _engine.RankV2(candidates, 1, 5, checkAlpha: true, sectorHeatEnabled: true);
+
+        Assert.All(ranking, candidate => Assert.Equal(SparrowRankingProfileV2.Name, candidate.RankingProfile));
+        Assert.Equal(new[] { "Hot", "Cold" }, ranking.Select(candidate => candidate.Code));
+        SparrowFactorScore heat = Assert.Single(ranking, candidate => candidate.Code == "Hot")
+            .Factor(SparrowRankingFactorNames.SectorHeat);
+        Assert.Equal(100, heat.Percentile, 10);
+        Assert.Equal(SparrowRankingWeights.V2.SectorHeat / 1.20, heat.Weight, 12);
+    }
+
+    [Fact]
+    public void SectorHeatEnabled_MissingValueIsNeutralAndReported()
+    {
+        SparrowRankedCandidate candidate = Assert.Single(_engine.RankV2(
+            new[] { Feature("A") }, 1, 5, checkAlpha: true, sectorHeatEnabled: true));
+
+        SparrowFactorScore heat = candidate.Factor(SparrowRankingFactorNames.SectorHeat);
+        Assert.Equal(SparrowRankingProfileV1.MissingFactorScore, heat.Percentile, 10);
+        Assert.False(candidate.IsDataComplete);
+        Assert.Equal(SparrowRankingFactorNames.SectorHeat, candidate.MissingFactors);
+        Assert.Equal(1.0, candidate.Factors.Sum(factor => factor.Weight), 12);
+    }
+
+    [Fact]
     public void MissingActiveFactor_IsNeutralAndReportedWithoutRejectingCandidate()
     {
         SparrowRankedCandidate candidate = Assert.Single(_engine.RankClassic(

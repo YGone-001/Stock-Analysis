@@ -444,7 +444,8 @@ public partial class SparrowViewModel : ObservableObject
                             .OrderBy(feature => feature.Code, StringComparer.Ordinal)
                             .ToArray();
                         _lastV2Ranking = _rankingEngine.RankV2(
-                            frozen, activeParams.MinRise, activeParams.MaxRise, activeParams.CheckAlpha);
+                            frozen, activeParams.MinRise, activeParams.MaxRise, activeParams.CheckAlpha,
+                            sectorHeatEnabled: activeParams.SectorHeatEnabled && frozen.Any(feature => feature.SectorHeatPercentile.HasValue));
                         _lastClassicRanking = Array.Empty<SparrowRankedCandidate>();
                         _lastComparisonRows = Array.Empty<SparrowComparisonRow>();
                         _lastCompletedMode = SparrowStrategyMode.V2;
@@ -469,7 +470,8 @@ public partial class SparrowViewModel : ObservableObject
                             .OrderBy(feature => feature.Code, StringComparer.Ordinal)
                             .ToArray();
                         _lastV2Ranking = _rankingEngine.RankV2(
-                            frozen, activeParams.MinRise, activeParams.MaxRise, activeParams.CheckAlpha);
+                            frozen, activeParams.MinRise, activeParams.MaxRise, activeParams.CheckAlpha,
+                            sectorHeatEnabled: activeParams.SectorHeatEnabled && frozen.Any(feature => feature.SectorHeatPercentile.HasValue));
                         _lastClassicRanking = Array.Empty<SparrowRankedCandidate>();
                         _lastComparisonRows = Array.Empty<SparrowComparisonRow>();
                         _lastCompletedMode = SparrowStrategyMode.V3;
@@ -494,7 +496,8 @@ public partial class SparrowViewModel : ObservableObject
                             .OrderBy(feature => feature.Code, StringComparer.Ordinal)
                             .ToArray();
                         _lastV2Ranking = _rankingEngine.RankV2(
-                            frozen, activeParams.MinRise, activeParams.MaxRise, activeParams.CheckAlpha);
+                            frozen, activeParams.MinRise, activeParams.MaxRise, activeParams.CheckAlpha,
+                            sectorHeatEnabled: activeParams.SectorHeatEnabled && frozen.Any(feature => feature.SectorHeatPercentile.HasValue));
                         _lastClassicRanking = Array.Empty<SparrowRankedCandidate>();
                         _lastComparisonRows = Array.Empty<SparrowComparisonRow>();
                         _lastCompletedMode = SparrowStrategyMode.V4;
@@ -519,7 +522,8 @@ public partial class SparrowViewModel : ObservableObject
                             .OrderBy(feature => feature.Code, StringComparer.Ordinal)
                             .ToArray();
                         _lastV2Ranking = _rankingEngine.RankV2(
-                            frozen, activeParams.MinRise, activeParams.MaxRise, activeParams.CheckAlpha);
+                            frozen, activeParams.MinRise, activeParams.MaxRise, activeParams.CheckAlpha,
+                            sectorHeatEnabled: activeParams.SectorHeatEnabled && frozen.Any(feature => feature.SectorHeatPercentile.HasValue));
                         _lastClassicRanking = Array.Empty<SparrowRankedCandidate>();
                         _lastComparisonRows = Array.Empty<SparrowComparisonRow>();
                         _lastCompletedMode = SparrowStrategyMode.V5;

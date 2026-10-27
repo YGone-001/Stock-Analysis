@@ -143,6 +143,8 @@ public class SparrowV2UiParameters : SparrowStrategyUiParameters
     public double MomentumThreshold { get => _momentumThreshold; set => Set(ref _momentumThreshold, value); }
     public bool CheckAlpha { get => _checkAlpha; set => Set(ref _checkAlpha, value); }
     public bool StrictTurnover { get => _strictTurnover; set => Set(ref _strictTurnover, value); }
+    public bool SectorHeatEnabled { get => _sectorHeatEnabled; set => Set(ref _sectorHeatEnabled, value); }
+    private bool _sectorHeatEnabled;
 }
 
 /// <summary>V3 inherits every V2 enhancement and adds the close-based momentum-quality gates. Unsealed so V4 can inherit verbatim.</summary>
@@ -269,6 +271,7 @@ public static class SparrowParameterDefaults
     public const double MomentumThreshold = 0.0;
     public const bool CheckAlpha = true;
     public const bool StrictTurnover = false;
+    public const bool SectorHeatEnabled = false;
     public const double RsiMin = 25.0;
     public const double RsiMax = 75.0;
     public const bool RequireMacdBullish = true;
@@ -340,6 +343,7 @@ public static class SparrowParameterDefaults
         parameters.MomentumThreshold = MomentumThreshold;
         parameters.CheckAlpha = CheckAlpha;
         parameters.StrictTurnover = StrictTurnover;
+        parameters.SectorHeatEnabled = SectorHeatEnabled;
         parameters.MarkRecommended();
     }
 
@@ -351,6 +355,7 @@ public static class SparrowParameterDefaults
         parameters.MomentumThreshold = MomentumThreshold;
         parameters.CheckAlpha = CheckAlpha;
         parameters.StrictTurnover = StrictTurnover;
+        parameters.SectorHeatEnabled = SectorHeatEnabled;
     }
 
     public static bool AreV2EnhancementsRecommended(SparrowV2UiParameters parameters) =>
@@ -358,7 +363,8 @@ public static class SparrowParameterDefaults
         && parameters.MaxTurnover == MaxTurnover
         && parameters.MomentumThreshold == MomentumThreshold
         && parameters.CheckAlpha == CheckAlpha
-        && parameters.StrictTurnover == StrictTurnover;
+        && parameters.StrictTurnover == StrictTurnover
+        && parameters.SectorHeatEnabled == SectorHeatEnabled;
 
     public static void ResetV3(SparrowV3UiParameters parameters)
     {
@@ -722,6 +728,7 @@ public static class SparrowParameterMapper
         MomentumThreshold = enhancements.MomentumThreshold,
         CheckAlpha = enhancements.CheckAlpha,
         StrictTurnover = enhancements.StrictTurnover,
+        SectorHeatEnabled = enhancements.SectorHeatEnabled,
         MaxConcurrency = system.MaxConcurrency,
         UseCache = system.UseCache
     };

@@ -18,6 +18,12 @@ public class SparrowScanParameters
     /// When true, a missing or non-positive turnover rejects the candidate instead of fail-open.
     /// </summary>
     public bool StrictTurnover { get; set; }
+    /// <summary>
+    /// When true, the scanner additionally fetches the industry-board heat map and injects per-symbol
+    /// heat percentiles into the ranking features (Rank-V2 profile). Fail-open: fetch failure leaves
+    /// every feature null and the scan proceeds without the factor. Ignored by the frozen Classic rules.
+    /// </summary>
+    public bool SectorHeatEnabled { get; set; }
     public int MaxConcurrency { get; set; } = 8;
     public bool UseCache { get; set; }
 }

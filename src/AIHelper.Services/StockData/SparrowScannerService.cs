@@ -30,6 +30,7 @@ public class SparrowScannerService
     private readonly IQuoteService _quoteService;
     private readonly SparrowMarketDataCache _klineCache;
     private readonly SparrowMarketRegimeService _marketRegimeService;
+    private readonly SparrowBoardHeatService _boardHeatService;
 
     public SparrowMarketDataCache KlineCache => _klineCache;
 
@@ -38,13 +39,15 @@ public class SparrowScannerService
         SparrowMarketDataCache? klineCache = null,
         IKlineService? klineService = null,
         IQuoteService? quoteService = null,
-        SparrowMarketRegimeService? marketRegimeService = null)
+        SparrowMarketRegimeService? marketRegimeService = null,
+        SparrowBoardHeatService? boardHeatService = null)
     {
         _dataProvider = dataProvider ?? throw new ArgumentNullException(nameof(dataProvider));
         _klineCache = klineCache ?? new SparrowMarketDataCache();
         _klineService = klineService ?? new KlineService(dataProvider);
         _quoteService = quoteService ?? new QuoteService(dataProvider);
         _marketRegimeService = marketRegimeService ?? new SparrowMarketRegimeService(dataProvider);
+        _boardHeatService = boardHeatService ?? new SparrowBoardHeatService(dataProvider, _klineCache);
     }
 
     public async Task<List<(string Code, string Name, string Reason)>> ScanAsync(
@@ -86,6 +89,16 @@ public class SparrowScannerService
             // Alpha 基准：上证日涨跌幅，独立于熔断取数；缺失时显式记为 null（跳过 Alpha、AlphaMargin 置空）。
             shIndexPctChg = await GetShanghaiDailyPercentAsync(!parameters.UseCache, ct);
             ReportLog(progress, $"✅ [第一阶段通过] 大盘环境正常；上证今日涨幅: {(shIndexPctChg.HasValue ? shIndexPctChg.Value.ToString("F2") + "%" : "N/A")}, 已设为 Alpha 参照基准。");
+        }
+
+        // 板块热度（可选加成）：与大盘基准同为 scan 级上下文；fail-open，失败时保持 Unavailable。
+        SparrowBoardHeatResult boardHeat = SparrowBoardHeatResult.Unavailable;
+        if (parameters.SectorHeatEnabled)
+        {
+            boardHeat = await _boardHeatService.GetAsync(parameters.UseCache, ct);
+            ReportLog(progress, boardHeat.Available
+                ? $"✅ [板块热度] 行业热度图已加载（覆盖 {boardHeat.HeatPercentileBySymbol.Count} 只）。"
+                : "⚠️ [板块热度] 数据不可用，本次按无板块加成处理。");
         }
 
         if (targetPool.Count >= SparrowConstants.FullMarketQuoteThreshold)
@@ -392,6 +405,9 @@ public class SparrowScannerService
                         Momentum = technical.Momentum,
                         AlphaMargin = parameters.CheckAlpha && shIndexPctChg.HasValue
                             ? technical.LatestPercent - shIndexPctChg.Value
+                            : null,
+                        SectorHeatPercentile = boardHeat.Available && boardHeat.HeatPercentileBySymbol.TryGetValue(item.Code, out double sectorHeat)
+                            ? sectorHeat
                             : null
                     }
                 };

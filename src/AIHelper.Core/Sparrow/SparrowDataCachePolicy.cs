@@ -27,6 +27,15 @@ public static class SparrowDataCachePolicy
     public static readonly TimeSpan DefaultQuoteTtl = TimeSpan.Zero;
 
     /// <summary>
+    /// TTL for the sector board-heat snapshot (5 minutes): board rankings move intraday but a
+    /// per-scan refetch would add two full-market sweeps to every scan.
+    /// </summary>
+    public static readonly TimeSpan BoardHeatTtl = TimeSpan.FromMinutes(5);
+
+    /// <summary>Canonical cache key for the combined board-heat + industry-map snapshot.</summary>
+    public const string BoardHeatCacheKey = "board-heat:v1";
+
+    /// <summary>
     /// Generates a normalized cache key for K-lines.
     /// Format: kline:{normalizedCode}:{period}:{limit}
     /// </summary>

@@ -42,10 +42,11 @@ public sealed class SparrowRankingEngine
         IEnumerable<SparrowRankingFeatures> source,
         double minRise,
         double maxRise,
-        bool checkAlpha)
+        bool checkAlpha,
+        bool sectorHeatEnabled = false)
     {
         double target = (minRise + maxRise) / 2.0;
-        FactorDefinition[] factors =
+        var factors = new List<FactorDefinition>
         {
             new(SparrowRankingFactorNames.Momentum, SparrowRankingWeights.V2.Momentum,
                 feature => feature.Momentum, feature => feature.Momentum),
@@ -59,7 +60,12 @@ public sealed class SparrowRankingEngine
                 feature => feature.RisePercent,
                 feature => IsFinite(feature.RisePercent) ? -Math.Abs(feature.RisePercent!.Value - target) : null)
         };
-        return Rank(source, factors, v2: true);
+        if (sectorHeatEnabled)
+        {
+            factors.Add(new(SparrowRankingFactorNames.SectorHeat, SparrowRankingWeights.V2.SectorHeat,
+                feature => feature.SectorHeatPercentile, feature => feature.SectorHeatPercentile));
+        }
+        return Rank(source, factors, v2: true, rankingProfile: sectorHeatEnabled ? SparrowRankingProfileV2.Name : SparrowRankingProfileV1.Name);
     }
 
     public static IReadOnlyList<double> PercentileRank(IReadOnlyList<double?> values)
@@ -141,7 +147,8 @@ public sealed class SparrowRankingEngine
     private static IReadOnlyList<SparrowRankedCandidate> Rank(
         IEnumerable<SparrowRankingFeatures> source,
         IReadOnlyList<FactorDefinition> definitions,
-        bool v2)
+        bool v2,
+        string rankingProfile = SparrowRankingProfileV1.Name)
     {
         ArgumentNullException.ThrowIfNull(source);
         SparrowRankingFeatures[] candidates = source
@@ -207,7 +214,7 @@ public sealed class SparrowRankingEngine
             .ThenBy(candidate => candidate.Features.Code, StringComparer.Ordinal)
             .Select((candidate, index) => new SparrowRankedCandidate
             {
-                RankingProfile = SparrowRankingProfileV1.Name,
+                RankingProfile = rankingProfile,
                 Code = candidate.Features.Code,
                 Name = candidate.Features.Name,
                 Rank = index + 1,
@@ -242,7 +249,8 @@ public sealed class SparrowRankingEngine
             Adhesion = FiniteOrNull(feature.Adhesion),
             Turnover = FiniteOrNull(feature.Turnover),
             Momentum = FiniteOrNull(feature.Momentum),
-            AlphaMargin = FiniteOrNull(feature.AlphaMargin)
+            AlphaMargin = FiniteOrNull(feature.AlphaMargin),
+            SectorHeatPercentile = FiniteOrNull(feature.SectorHeatPercentile)
         };
     }
 

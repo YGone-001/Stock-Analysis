@@ -26,7 +26,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 
 	private static readonly HashSet<string> SupportedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 	{
-		"/api/quote", "/api/quote-all", "/api/kline-all", "/api/index", "/api/minute", "/api/minute-trade-all", "/api/trend", "/api/search", "/api/codes", "/api/etf", "/api/workday"
+		"/api/quote", "/api/quote-all", "/api/kline-all", "/api/index", "/api/minute", "/api/minute-trade-all", "/api/trend", "/api/search", "/api/codes", "/api/etf", "/api/workday", "/api/board-heat", "/api/industry-map"
 	};
 
 	public EastMoneyStockDataProvider(HttpClient client, IStockDataCache cache)
@@ -58,6 +58,8 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			"/api/codes" => await SyncCodeTableAsync(request, "stock", cancellationToken),
 			"/api/etf" => await SyncCodeTableAsync(request, "etf", cancellationToken),
 			"/api/workday" => await GetWorkdayAsync(request, cancellationToken),
+			"/api/board-heat" => await GetBoardHeatAsync(request, cancellationToken),
+			"/api/industry-map" => await GetIndustryMapAsync(request, cancellationToken),
 			_ => StockDataResult.NotHandled(request.Endpoint)
 		};
 	}
@@ -200,6 +202,115 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			}
 		}
 		return new QuoteMarketResult(rows, failedPages, lastUrl);
+	}
+
+	/// <summary>Industry-board ranking (fs=m:90+t:2) with percent change and main inflow, used for sector-heat percentiles.</summary>
+	private async Task<StockDataResult> GetBoardHeatAsync(StockDataRequest request, CancellationToken cancellationToken)
+	{
+		const int pageSize = 100;
+		string url = "https://push2.eastmoney.com/api/qt/clist/get?po=1&np=1&fltt=2&invt=2&fid=f3&fields=f12,f14,f3,f62&pn=1&pz=" + pageSize + "&fs=" + Uri.EscapeDataString("m:90+t:2");
+		try
+		{
+			using JsonDocument document = JsonDocument.Parse(
+				await SendGetWithRetryAsync(url, cancellationToken, maxAttempts: 3, timeoutSeconds: 5));
+			if (!document.RootElement.TryGetProperty("data", out JsonElement data)
+				|| data.ValueKind != JsonValueKind.Object
+				|| !data.TryGetProperty("diff", out JsonElement diff)
+				|| diff.ValueKind != JsonValueKind.Array)
+			{
+				return Failure(request, "{\"data\":[]}", "Unexpected board-heat response schema", url);
+			}
+
+			var boards = new List<object>();
+			foreach (JsonElement item in diff.EnumerateArray())
+			{
+				string? code = GetString(item, "f12");
+				if (string.IsNullOrWhiteSpace(code)) continue;
+				boards.Add(new
+				{
+					Code = code,
+					Name = GetString(item, "f14"),
+					Percent = item.TryGetProperty("f3", out JsonElement percent) && percent.ValueKind == JsonValueKind.Number ? percent.GetDouble() : (double?)null,
+					MainInflow = item.TryGetProperty("f62", out JsonElement inflow) && inflow.ValueKind == JsonValueKind.Number ? inflow.GetDouble() : (double?)null
+				});
+			}
+			if (boards.Count == 0)
+			{
+				return Failure(request, "{\"data\":[]}", "Board-heat response carried no boards", url);
+			}
+			return Success(request, JsonSerializer.Serialize(new { data = boards }), url, "-", "boards=" + boards.Count);
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			Serilog.Log.Warning(ex, "East Money board-heat request failed");
+			return Failure(request, "{\"data\":[]}", "Board-heat request failed: " + ex.Message, url);
+		}
+	}
+
+	/// <summary>Full-market symbol-to-industry-board mapping (clist f100), one paginated sweep.</summary>
+	private async Task<StockDataResult> GetIndustryMapAsync(StockDataRequest request, CancellationToken cancellationToken)
+	{
+		const int pageSize = 100;
+		MarketDefinition[] markets = new MarketDefinition[]
+		{
+			new("sz-main", "stock", "m:0+t:6"),
+			new("sz-gem", "stock", "m:0+t:80"),
+			new("sh-main", "stock", "m:1+t:2")
+		};
+		var entries = new List<object>();
+		string lastUrl = "https://push2.eastmoney.com/api/qt/clist/get";
+		foreach (MarketDefinition market in markets)
+		{
+			int totalPages = 1;
+			int failedPages = 0;
+			for (int page = 1; page <= totalPages; page++)
+			{
+				string url = "https://push2.eastmoney.com/api/qt/clist/get?po=1&np=1&fltt=2&invt=2&fid=f12&fields=f12,f100&pn=" + page + "&pz=" + pageSize + "&fs=" + Uri.EscapeDataString(market.Filter);
+				lastUrl = url;
+				try
+				{
+					using JsonDocument document = JsonDocument.Parse(
+						await SendGetWithRetryAsync(url, cancellationToken, maxAttempts: 3, timeoutSeconds: 5));
+					if (!document.RootElement.TryGetProperty("data", out JsonElement data)
+						|| data.ValueKind != JsonValueKind.Object
+						|| !data.TryGetProperty("diff", out JsonElement diff)
+						|| diff.ValueKind != JsonValueKind.Array)
+					{
+						failedPages++;
+						continue;
+					}
+					if (page == 1 && data.TryGetProperty("total", out JsonElement totalElement) && totalElement.TryGetInt32(out int total))
+					{
+						totalPages = Math.Max(1, (int)Math.Ceiling(total / (double)pageSize));
+					}
+					foreach (JsonElement item in diff.EnumerateArray())
+					{
+						string? code = GetString(item, "f12");
+						if (string.IsNullOrWhiteSpace(code)) continue;
+						entries.Add(new { Code = code, Industry = GetString(item, "f100") });
+					}
+				}
+				catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+				{
+					throw;
+				}
+				catch (Exception ex)
+				{
+					failedPages++;
+					Serilog.Log.Warning(ex, "East Money industry-map page failed for {Market} page {Page}", market.Key, page);
+				}
+			}
+		}
+
+		if (entries.Count == 0)
+		{
+			return Failure(request, "{\"data\":[]}", "Industry-map unavailable for all markets", lastUrl);
+		}
+		return Success(request, JsonSerializer.Serialize(new { data = entries }), lastUrl, "-", $"entries={entries.Count}");
 	}
 
 	private async Task<StockDataResult> GetSingleQuoteAsync(StockDataRequest request, string code, CancellationToken cancellationToken)

@@ -9,6 +9,12 @@ public static class SparrowRankingProfileV1
     public const double ZeroInnerVolumeRatioSentinel = 1_000_000.0;
 }
 
+/// <summary>Extended profile used only when the optional sector-heat factor is active; V1 stays frozen.</summary>
+public static class SparrowRankingProfileV2
+{
+    public const string Name = "Sparrow-Rank-V2";
+}
+
 public static class SparrowRankingWeights
 {
     public static class Classic
@@ -25,6 +31,8 @@ public static class SparrowRankingWeights
         public const double AlphaStrength = 0.20;
         public const double Liquidity = 0.15;
         public const double RiseQuality = 0.10;
+        /// <summary>Active only under the Rank-V2 profile (sector heat enabled); the engine renormalizes the rest.</summary>
+        public const double SectorHeat = 0.20;
     }
 }
 
@@ -35,6 +43,7 @@ public static class SparrowRankingFactorNames
     public const string RiseQuality = "RiseQuality";
     public const string Momentum = "Momentum";
     public const string AlphaStrength = "AlphaStrength";
+    public const string SectorHeat = "SectorHeat";
 }
 
 public sealed record SparrowRankingFeatures
@@ -50,6 +59,8 @@ public sealed record SparrowRankingFeatures
     public double? Turnover { get; init; }
     public double? Momentum { get; init; }
     public double? AlphaMargin { get; init; }
+    /// <summary>Industry-board heat percentile (0-100); null when the board data is unavailable or the factor is off.</summary>
+    public double? SectorHeatPercentile { get; init; }
 
     public static double? CalculateBuyPressureRatio(double? outerVolume, double? innerVolume)
     {

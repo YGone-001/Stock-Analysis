@@ -40,4 +40,12 @@ public static class SparrowEndpoints
     /// <summary>Intraday trend endpoint.</summary>
     public static string Trend(string code, bool refresh) =>
         "/api/trend?code=" + code + (refresh ? "&" + RefreshQuery : "");
+
+    /// <summary>Industry-board heat ranking endpoint (EastMoney clist, fs=m:90+t:2).</summary>
+    public static string BoardHeat(bool refresh) =>
+        "/api/board-heat" + (refresh ? "?" + RefreshQuery : "");
+
+    /// <summary>Full-market symbol-to-industry-board mapping endpoint (EastMoney clist, f100).</summary>
+    public static string IndustryMap(bool refresh) =>
+        "/api/industry-map" + (refresh ? "?" + RefreshQuery : "");
 }

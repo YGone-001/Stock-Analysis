@@ -56,9 +56,11 @@ public sealed class SparrowPairComparisonService
         cancellationToken.ThrowIfCancellationRequested();
 
         IReadOnlyList<SparrowRankedCandidate> leftRanking = _ranking.RankV2(
-            leftCandidates.Select(candidate => candidate.RankingFeatures), leftParameters.MinRise, leftParameters.MaxRise, leftParameters.CheckAlpha);
+            leftCandidates.Select(candidate => candidate.RankingFeatures), leftParameters.MinRise, leftParameters.MaxRise, leftParameters.CheckAlpha,
+            sectorHeatEnabled: leftParameters.SectorHeatEnabled && leftCandidates.Any(candidate => candidate.RankingFeatures.SectorHeatPercentile.HasValue));
         IReadOnlyList<SparrowRankedCandidate> rightRanking = _ranking.RankV2(
-            rightCandidates.Select(candidate => candidate.RankingFeatures), rightParameters.MinRise, rightParameters.MaxRise, rightParameters.CheckAlpha);
+            rightCandidates.Select(candidate => candidate.RankingFeatures), rightParameters.MinRise, rightParameters.MaxRise, rightParameters.CheckAlpha,
+            sectorHeatEnabled: rightParameters.SectorHeatEnabled && rightCandidates.Any(candidate => candidate.RankingFeatures.SectorHeatPercentile.HasValue));
 
         Dictionary<string, (SparrowV2Candidate Candidate, SparrowRankedCandidate? Ranked)> leftByCode = Join(leftCandidates, leftRanking);
         Dictionary<string, (SparrowV2Candidate Candidate, SparrowRankedCandidate? Ranked)> rightByCode = Join(rightCandidates, rightRanking);
