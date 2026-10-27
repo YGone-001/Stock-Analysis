@@ -110,7 +110,6 @@
     <None Remove="views\turtlewindowdc.baml" />
     <None Remove="assets\pic.png" />
     <None Remove="views\chatview.baml" />
-    <None Remove="views\sparrowwindowdc.baml" />
     <None Remove="views\loginwindow.baml" />
     <None Remove="app.baml" />
     <None Remove="views\imageviewerwindow.baml" />
@@ -203,7 +202,6 @@
     <Resource Include="views\turtlewindowdc.baml" />
     <Resource Include="assets\pic.png" />
     <Resource Include="views\chatview.baml" />
-    <Resource Include="views\sparrowwindowdc.baml" />
     <Resource Include="views\loginwindow.baml" />
     <Resource Include="app.baml" />
     <Resource Include="views\imageviewerwindow.baml" />
