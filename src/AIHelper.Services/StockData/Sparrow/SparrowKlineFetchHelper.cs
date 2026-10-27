@@ -109,12 +109,37 @@ internal static class SparrowKlineFetchHelper
 		bool forceRefresh,
 		CancellationToken callerToken)
 	{
+		return await FetchByPeriodAsync(klineService, code, "day", limit, forceRefresh, callerToken);
+	}
+
+	/// <summary>Fetches one code's intraday (30/60-minute) K-line with the same retry skeleton as the daily path.</summary>
+	public static async Task<SparrowKlineFetchOutcome> FetchIntradayAsync(
+		IKlineService klineService,
+		string code,
+		int periodMinutes,
+		int limit,
+		bool forceRefresh,
+		CancellationToken callerToken)
+	{
+		if (periodMinutes != 30 && periodMinutes != 60)
+			throw new ArgumentOutOfRangeException(nameof(periodMinutes));
+		return await FetchByPeriodAsync(klineService, code, periodMinutes == 30 ? "30min" : "60min", limit, forceRefresh, callerToken);
+	}
+
+	private static async Task<SparrowKlineFetchOutcome> FetchByPeriodAsync(
+		IKlineService klineService,
+		string code,
+		string type,
+		int limit,
+		bool forceRefresh,
+		CancellationToken callerToken)
+	{
 		ArgumentNullException.ThrowIfNull(klineService);
 		SparrowKlineFetchOutcome? last = null;
 		await SparrowRetryPolicy.RetryAsync(
 			async token =>
 			{
-				last = await AttemptFetchDailyAsync(klineService, code, limit, forceRefresh, token);
+				last = await AttemptFetchByPeriodAsync(klineService, code, type, limit, forceRefresh, token);
 				return last.Success;
 			},
 			SparrowRetryPolicy.DefaultMaxAttempts,
@@ -130,10 +155,23 @@ internal static class SparrowKlineFetchHelper
 		bool forceRefresh,
 		CancellationToken callerToken)
 	{
+		return await AttemptFetchByPeriodAsync(klineService, code, "day", limit, forceRefresh, callerToken);
+	}
+
+	private static async Task<SparrowKlineFetchOutcome> AttemptFetchByPeriodAsync(
+		IKlineService klineService,
+		string code,
+		string type,
+		int limit,
+		bool forceRefresh,
+		CancellationToken callerToken)
+	{
 		try
 		{
 			callerToken.ThrowIfCancellationRequested();
-			MarketDataResult<KlineSeries?> response = await klineService.GetDailyAsync(code, limit, forceRefresh, callerToken);
+			MarketDataResult<KlineSeries?> response = type == "day"
+				? await klineService.GetDailyAsync(code, limit, forceRefresh, callerToken)
+				: await klineService.GetIntradayAsync(code, type == "30min" ? 30 : 60, limit, forceRefresh, callerToken);
 			if (!response.Success)
 			{
 				Log.Warning("Sparrow typed Kline request failed for {Code}; Error={Error}", code, response.Error);

@@ -134,6 +134,16 @@ SparrowV5ParameterSnapshot DefaultV5Snapshot()
         v4.VolBreakoutMultiple, v4.VolContractionMaxRatio, v4.VolBreakoutLookbackDays, v4.VolContractionLookbackDays, v4.VolContractionBaselineDays,
         SparrowParameterDefaults.RequireWeeklyUptrend, SparrowParameterDefaults.WeeklyMaPeriod);
 }
+SparrowV6ParameterSnapshot DefaultV6Snapshot()
+{
+    SparrowV5ParameterSnapshot v5 = DefaultV5Snapshot();
+    return new SparrowV6ParameterSnapshot(v5.MacroDef, v5.MinRise, v5.MaxRise, v5.VolRatio, v5.MinAmount, v5.CheckMA60,
+        v5.MinAdhesion, v5.MaxAdhesion, v5.MinTurnover, v5.MaxTurnover, v5.MomentumThreshold, v5.CheckAlpha,
+        v5.RsiMin, v5.RsiMax, v5.RequireMacdBullish, v5.RsiPeriod, v5.MacdFastPeriod, v5.MacdSlowPeriod, v5.MacdSignalPeriod,
+        v5.VolBreakoutMultiple, v5.VolContractionMaxRatio, v5.VolBreakoutLookbackDays, v5.VolContractionLookbackDays, v5.VolContractionBaselineDays,
+        v5.RequireWeeklyUptrend, v5.WeeklyMaPeriod,
+        IntradayGateEnabled: false, IntradayPeriodMinutes: SparrowParameterDefaults.IntradayPeriodMinutes, IntradayMaPeriod: SparrowParameterDefaults.IntradayMaPeriod);
+}
 bool TryParseCost(string raw, string name, out double value)
 {
     if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value) || !double.IsFinite(value) || value < 0)
@@ -423,7 +433,8 @@ async Task<int> AnalyzeBenchmarkAsync()
         "v3" => SparrowStrategyMode.V3,
         "v4" => SparrowStrategyMode.V4,
         "v5" => SparrowStrategyMode.V5,
-        _ => throw new ArgumentException("--strategy must be classic, v2, v3, v4 or v5.")
+        "v6" => SparrowStrategyMode.V6,
+        _ => throw new ArgumentException("--strategy must be classic, v2, v3, v4, v5 or v6.")
     };
     int[] horizons = Value("horizons").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
         .Select(value => int.Parse(value, CultureInfo.InvariantCulture)).Distinct().Order().ToArray();
@@ -440,16 +451,19 @@ async Task<int> AnalyzeBenchmarkAsync()
         ? JsonSerializer.Deserialize<SparrowV4ParameterSnapshot>(parameterJson, json) ?? throw new ArgumentException("V4 parameter snapshot is invalid.") : null;
     SparrowV5ParameterSnapshot? v5 = strategy == SparrowStrategyMode.V5
         ? JsonSerializer.Deserialize<SparrowV5ParameterSnapshot>(parameterJson, json) ?? throw new ArgumentException("V5 parameter snapshot is invalid.") : null;
+    SparrowV6ParameterSnapshot? v6 = strategy == SparrowStrategyMode.V6
+        ? JsonSerializer.Deserialize<SparrowV6ParameterSnapshot>(parameterJson, json) ?? throw new ArgumentException("V6 parameter snapshot is invalid.") : null;
     string version = strategy switch
     {
         SparrowStrategyMode.Classic => SparrowStrategyVersions.Classic,
         SparrowStrategyMode.V3 => SparrowStrategyVersions.V3,
         SparrowStrategyMode.V4 => SparrowStrategyVersions.V4,
         SparrowStrategyMode.V5 => SparrowStrategyVersions.V5,
+        SparrowStrategyMode.V6 => SparrowStrategyVersions.V6,
         _ => SparrowStrategyVersions.V2
     };
     SparrowBacktestRequest backtest = new(strategy, version, Date("start"), Date("end"), int.Parse(Value("top-n"), CultureInfo.InvariantCulture), horizons,
-        RoundTripCostRate: 0, SlippageRate: 0, ClassicParameters: classic, V2Parameters: v2, V3Parameters: v3, V4Parameters: v4, V5Parameters: v5);
+        RoundTripCostRate: 0, SlippageRate: 0, ClassicParameters: classic, V2Parameters: v2, V3Parameters: v3, V4Parameters: v4, V5Parameters: v5, V6Parameters: v6);
     SparrowBenchmarkAnalysisResult result = new SparrowHistoricalBenchmarkAnalysisEngine().Analyze(loaded.Dataset,
         new SparrowBenchmarkAnalysisRequest(backtest, Value("benchmark")));
     await SparrowHistoricalResultExporter.ExportBenchmarkAnalysisJsonAsync(result, Value("output"));
@@ -486,7 +500,8 @@ async Task<int> ExportPortfolioResearchAsync()
         "v3" => SparrowStrategyMode.V3,
         "v4" => SparrowStrategyMode.V4,
         "v5" => SparrowStrategyMode.V5,
-        _ => throw new ArgumentException("--strategy must be classic, v2, v3, v4 or v5.")
+        "v6" => SparrowStrategyMode.V6,
+        _ => throw new ArgumentException("--strategy must be classic, v2, v3, v4, v5 or v6.")
     };
     JsonSerializerOptions json = new() { PropertyNameCaseInsensitive = true };
     SparrowClassicParameterSnapshot? classic = null;
@@ -494,6 +509,7 @@ async Task<int> ExportPortfolioResearchAsync()
     SparrowV3ParameterSnapshot? v3 = null;
     SparrowV4ParameterSnapshot? v4 = null;
     SparrowV5ParameterSnapshot? v5 = null;
+    SparrowV6ParameterSnapshot? v6 = null;
     if (options.TryGetValue("parameters", out string? parameterPath))
     {
         string parameterJson = await File.ReadAllTextAsync(parameterPath);
@@ -502,6 +518,7 @@ async Task<int> ExportPortfolioResearchAsync()
         v3 = strategy == SparrowStrategyMode.V3 ? JsonSerializer.Deserialize<SparrowV3ParameterSnapshot>(parameterJson, json) : null;
         v4 = strategy == SparrowStrategyMode.V4 ? JsonSerializer.Deserialize<SparrowV4ParameterSnapshot>(parameterJson, json) : null;
         v5 = strategy == SparrowStrategyMode.V5 ? JsonSerializer.Deserialize<SparrowV5ParameterSnapshot>(parameterJson, json) : null;
+        v6 = strategy == SparrowStrategyMode.V6 ? JsonSerializer.Deserialize<SparrowV6ParameterSnapshot>(parameterJson, json) : null;
     }
     else
     {
@@ -510,8 +527,9 @@ async Task<int> ExportPortfolioResearchAsync()
         v3 = strategy == SparrowStrategyMode.V3 ? DefaultV3Snapshot() : null;
         v4 = strategy == SparrowStrategyMode.V4 ? DefaultV4Snapshot() : null;
         v5 = strategy == SparrowStrategyMode.V5 ? DefaultV5Snapshot() : null;
+        v6 = strategy == SparrowStrategyMode.V6 ? DefaultV6Snapshot() : null;
     }
-    if (strategy == SparrowStrategyMode.Classic && classic is null || strategy == SparrowStrategyMode.V2 && v2 is null || strategy == SparrowStrategyMode.V3 && v3 is null || strategy == SparrowStrategyMode.V4 && v4 is null || strategy == SparrowStrategyMode.V5 && v5 is null)
+    if (strategy == SparrowStrategyMode.Classic && classic is null || strategy == SparrowStrategyMode.V2 && v2 is null || strategy == SparrowStrategyMode.V3 && v3 is null || strategy == SparrowStrategyMode.V4 && v4 is null || strategy == SparrowStrategyMode.V5 && v5 is null || strategy == SparrowStrategyMode.V6 && v6 is null)
         throw new ArgumentException("Strategy parameter snapshot is invalid.");
     string version = strategy switch
     {
@@ -519,12 +537,13 @@ async Task<int> ExportPortfolioResearchAsync()
         SparrowStrategyMode.V3 => SparrowStrategyVersions.V3,
         SparrowStrategyMode.V4 => SparrowStrategyVersions.V4,
         SparrowStrategyMode.V5 => SparrowStrategyVersions.V5,
+        SparrowStrategyMode.V6 => SparrowStrategyVersions.V6,
         _ => SparrowStrategyVersions.V2
     };
     int topN = int.Parse(Value("top-n"), CultureInfo.InvariantCulture);
     int horizon = int.Parse(Value("horizon"), CultureInfo.InvariantCulture);
     decimal initialCapital = decimal.Parse(Value("initial-capital"), CultureInfo.InvariantCulture);
-    SparrowBacktestRequest backtestRequest = new(strategy, version, Date("start"), Date("end"), topN, new[] { horizon }, ClassicParameters: classic, V2Parameters: v2, V3Parameters: v3, V4Parameters: v4, V5Parameters: v5);
+    SparrowBacktestRequest backtestRequest = new(strategy, version, Date("start"), Date("end"), topN, new[] { horizon }, ClassicParameters: classic, V2Parameters: v2, V3Parameters: v3, V4Parameters: v4, V5Parameters: v5, V6Parameters: v6);
     SparrowBacktestResult backtest = new SparrowHistoricalBacktestEngine().Run(loaded.Dataset, backtestRequest);
     PortfolioSimulationRequest portfolioRequest = new(loaded.Dataset.DatasetId, loaded.Dataset.Fingerprint, strategy, version,
         backtest.ParameterFingerprint, backtestRequest.StartDate, backtestRequest.EndDate, topN, horizon, initialCapital,
@@ -557,7 +576,8 @@ async Task<int> RunResearchExperimentAsync(string experimentId)
         "v3" => SparrowStrategyMode.V3,
         "v4" => SparrowStrategyMode.V4,
         "v5" => SparrowStrategyMode.V5,
-        _ => throw new ArgumentException("--strategy must be classic, v2, v3, v4 or v5.")
+        "v6" => SparrowStrategyMode.V6,
+        _ => throw new ArgumentException("--strategy must be classic, v2, v3, v4, v5 or v6.")
     };
 
     if (!Enum.TryParse(Required("position-sizing").Trim(), ignoreCase: false, out PortfolioPositionSizingMethod positionSizing))

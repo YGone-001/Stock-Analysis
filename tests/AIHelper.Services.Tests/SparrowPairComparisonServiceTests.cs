@@ -138,6 +138,10 @@ public sealed class SparrowPairComparisonServiceTests
                 1000, null, null, null, null)).ToArray();
             return Task.FromResult(new MarketDataResult<KlineSeries?>(new KlineSeries(symbol, bars), Metadata(false)));
         }
+
+        public Task<MarketDataResult<KlineSeries?>> GetIntradayAsync(
+            string symbol, int periodMinutes, int limit, bool forceRefresh = false, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Intraday klines are not exercised by these tests.");
     }
 
     private sealed class RejectingTransportProvider : IStockDataProvider

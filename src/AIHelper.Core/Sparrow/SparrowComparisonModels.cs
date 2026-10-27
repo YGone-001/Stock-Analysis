@@ -47,6 +47,8 @@ public static class SparrowComparisonReasonCodes
     public const string P3VolUnavailable = "P3_VOL_UNAVAILABLE";
     public const string P3WeeklyTrend = "P3_WEEKLY_TREND";
     public const string P3WeeklyUnavailable = "P3_WEEKLY_UNAVAILABLE";
+    public const string P3IntradayPullback = "P3_INTRADAY_PULLBACK";
+    public const string P3IntradayUnavailable = "P3_INTRADAY_UNAVAILABLE";
 }
 
 public sealed class SparrowRuleComparison

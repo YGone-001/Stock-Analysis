@@ -82,6 +82,14 @@ public interface IKlineService
 		int limit,
 		bool forceRefresh = false,
 		CancellationToken cancellationToken = default);
+
+	/// <summary>Intraday bars (30 or 60 minutes) through the same kline endpoint with the period mapped to klt.</summary>
+	Task<MarketDataResult<KlineSeries?>> GetIntradayAsync(
+		string symbol,
+		int periodMinutes,
+		int limit,
+		bool forceRefresh = false,
+		CancellationToken cancellationToken = default);
 }
 
 public interface IMarketCalendarService

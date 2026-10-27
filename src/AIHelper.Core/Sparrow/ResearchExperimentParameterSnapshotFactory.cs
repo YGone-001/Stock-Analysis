@@ -50,7 +50,8 @@ public static class ResearchExperimentParameterSnapshotFactory
         PortfolioExecutionModel executionModel,
         SparrowV3ParameterSnapshot? v3Parameters = null,
         SparrowV4ParameterSnapshot? v4Parameters = null,
-        SparrowV5ParameterSnapshot? v5Parameters = null)
+        SparrowV5ParameterSnapshot? v5Parameters = null,
+        SparrowV6ParameterSnapshot? v6Parameters = null)
     {
         Dictionary<string, string> strategy = new(StringComparer.Ordinal)
         {
@@ -68,6 +69,7 @@ public static class ResearchExperimentParameterSnapshotFactory
         AddV3(strategy, v3Parameters);
         AddV4(strategy, v4Parameters);
         AddV5(strategy, v5Parameters);
+        AddV6(strategy, v6Parameters);
 
         Dictionary<string, string> portfolio = new(StringComparer.Ordinal)
         {
@@ -214,6 +216,42 @@ public static class ResearchExperimentParameterSnapshotFactory
         target["V5.WeeklyMaPeriod"] = Integer(parameters.WeeklyMaPeriod);
     }
 
+    /// <summary>Explicit V6 mapping. Every semantic field of <see cref="SparrowV6ParameterSnapshot"/> must appear here.</summary>
+    public static void AddV6(IDictionary<string, string> target, SparrowV6ParameterSnapshot? parameters)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (parameters is null) return;
+        target["V6.MacroDef"] = Boolean(parameters.MacroDef);
+        target["V6.MinRise"] = Double(parameters.MinRise);
+        target["V6.MaxRise"] = Double(parameters.MaxRise);
+        target["V6.VolRatio"] = Double(parameters.VolRatio);
+        target["V6.MinAmount"] = Double(parameters.MinAmount);
+        target["V6.CheckMA60"] = Boolean(parameters.CheckMA60);
+        target["V6.MinAdhesion"] = Double(parameters.MinAdhesion);
+        target["V6.MaxAdhesion"] = Double(parameters.MaxAdhesion);
+        target["V6.MinTurnover"] = Double(parameters.MinTurnover);
+        target["V6.MaxTurnover"] = Double(parameters.MaxTurnover);
+        target["V6.MomentumThreshold"] = Double(parameters.MomentumThreshold);
+        target["V6.CheckAlpha"] = Boolean(parameters.CheckAlpha);
+        target["V6.RsiMin"] = parameters.RsiMin.HasValue ? Double(parameters.RsiMin.Value) : "null";
+        target["V6.RsiMax"] = parameters.RsiMax.HasValue ? Double(parameters.RsiMax.Value) : "null";
+        target["V6.RequireMacdBullish"] = Boolean(parameters.RequireMacdBullish);
+        target["V6.RsiPeriod"] = Integer(parameters.RsiPeriod);
+        target["V6.MacdFastPeriod"] = Integer(parameters.MacdFastPeriod);
+        target["V6.MacdSlowPeriod"] = Integer(parameters.MacdSlowPeriod);
+        target["V6.MacdSignalPeriod"] = Integer(parameters.MacdSignalPeriod);
+        target["V6.VolBreakoutMultiple"] = parameters.VolBreakoutMultiple.HasValue ? Double(parameters.VolBreakoutMultiple.Value) : "null";
+        target["V6.VolContractionMaxRatio"] = parameters.VolContractionMaxRatio.HasValue ? Double(parameters.VolContractionMaxRatio.Value) : "null";
+        target["V6.VolBreakoutLookbackDays"] = Integer(parameters.VolBreakoutLookbackDays);
+        target["V6.VolContractionLookbackDays"] = Integer(parameters.VolContractionLookbackDays);
+        target["V6.VolContractionBaselineDays"] = Integer(parameters.VolContractionBaselineDays);
+        target["V6.RequireWeeklyUptrend"] = Boolean(parameters.RequireWeeklyUptrend);
+        target["V6.WeeklyMaPeriod"] = Integer(parameters.WeeklyMaPeriod);
+        target["V6.IntradayGateEnabled"] = Boolean(parameters.IntradayGateEnabled);
+        target["V6.IntradayPeriodMinutes"] = Integer(parameters.IntradayPeriodMinutes);
+        target["V6.IntradayMaPeriod"] = Integer(parameters.IntradayMaPeriod);
+    }
+
     /// <summary>Canonical typed-snapshot key prefix for a strategy mode.</summary>
     public static string TypedKeyPrefix(SparrowStrategyMode strategyMode) => strategyMode switch
     {
@@ -221,6 +259,7 @@ public static class ResearchExperimentParameterSnapshotFactory
         SparrowStrategyMode.V3 => "V3.",
         SparrowStrategyMode.V4 => "V4.",
         SparrowStrategyMode.V5 => "V5.",
+        SparrowStrategyMode.V6 => "V6.",
         _ => "Classic."
     };
 

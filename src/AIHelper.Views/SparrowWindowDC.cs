@@ -47,6 +47,8 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
     internal NumericUpDown NumVolContraction;
     internal CheckBox ChkVolumeGates;
     internal CheckBox ChkWeeklyUptrend;
+    internal CheckBox ChkIntradayGate;
+    internal NumericUpDown NumIntradayMa;
     internal Button BtnStart;
     internal Button BtnTest;
     internal NumericUpDown NumConcurrency;
@@ -108,7 +110,9 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumVolBreakout.SetBinding(NumericUpDown.ValueProperty, new Binding("VolumeGateParameters.VolBreakoutMultiple") { Mode = BindingMode.TwoWay });
         NumVolContraction.SetBinding(NumericUpDown.ValueProperty, new Binding("VolumeGateParameters.VolContractionMaxRatio") { Mode = BindingMode.TwoWay });
         ChkVolumeGates.SetBinding(CheckBox.IsCheckedProperty, new Binding("VolumeGateParameters.VolumeGatesEnabled") { Mode = BindingMode.TwoWay });
-        ChkWeeklyUptrend.SetBinding(CheckBox.IsCheckedProperty, new Binding("V5Parameters.RequireWeeklyUptrend") { Mode = BindingMode.TwoWay });
+        ChkWeeklyUptrend.SetBinding(CheckBox.IsCheckedProperty, new Binding("WeeklyGateParameters.RequireWeeklyUptrend") { Mode = BindingMode.TwoWay });
+        ChkIntradayGate.SetBinding(CheckBox.IsCheckedProperty, new Binding("V6Parameters.IntradayGateEnabled") { Mode = BindingMode.TwoWay });
+        NumIntradayMa.SetBinding(NumericUpDown.ValueProperty, new Binding("V6Parameters.IntradayMaPeriod") { Mode = BindingMode.TwoWay });
         NumConcurrency.SetBinding(NumericUpDown.ValueProperty, new Binding("SystemSettings.MaxConcurrency") { Mode = BindingMode.TwoWay });
         NumTopN.SetBinding(NumericUpDown.ValueProperty, new Binding("TopN") { Mode = BindingMode.TwoWay });
 
@@ -310,6 +314,8 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         NumVolContraction = new NumericUpDown { Minimum = 0.1, Maximum = 2, Increment = 0.05, Width = 65 };
         ChkVolumeGates = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
         ChkWeeklyUptrend = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
+        ChkIntradayGate = new CheckBox { Margin = new Thickness(0, 0, 15, 10) };
+        NumIntradayMa = new NumericUpDown { Minimum = 1, Maximum = 30, Increment = 1, Width = 65 };
 
         var modePanel = new StackPanel
         {
@@ -613,6 +619,43 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
             Converter = new BooleanToVisibilityConverter()
         });
 
+        var v6GatePanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        v6GatePanel.Children.Add(new TextBlock
+        {
+            Text = "启用分钟回踩确认：",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        });
+        v6GatePanel.Children.Add(ChkIntradayGate);
+        v6GatePanel.Children.Add(new TextBlock
+        {
+            Text = "分钟 MA 周期：",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 5, 0)
+        });
+        v6GatePanel.Children.Add(NumIntradayMa);
+
+        var v6Content = new StackPanel();
+        v6Content.Children.Add(v6GatePanel);
+        v6Content.Children.Add(new TextBlock
+        {
+            Text = "V6 = 冻结的 V5 规则 + 分钟级回踩确认；仅实盘可用——日线全部门限通过后，对幸存者拉取 30/60 分钟 K 线并要求最新分钟收盘站上其均线。历史回放不支持该门限。",
+            Foreground = System.Windows.Media.Brushes.Gray,
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var v6Group = new GroupBox
+        {
+            Header = "V6 分钟回踩（仅实盘）",
+            Content = v6Content,
+            Margin = new Thickness(0, 0, 0, 8),
+            Padding = new Thickness(8)
+        };
+        v6Group.SetBinding(UIElement.VisibilityProperty, new Binding("ShowV6Parameters")
+        {
+            Converter = new BooleanToVisibilityConverter()
+        });
+
         var compareHint = new TextBlock
         {
             Foreground = System.Windows.Media.Brushes.SteelBlue,
@@ -696,6 +739,7 @@ public class SparrowWindowDC : HandyControl.Controls.Window, IComponentConnector
         root.Children.Add(v3Group);
         root.Children.Add(v4Group);
         root.Children.Add(v5Group);
+        root.Children.Add(v6Group);
         root.Children.Add(compareHint);
         root.Children.Add(outputPanel);
         root.Children.Add(resultSummary);

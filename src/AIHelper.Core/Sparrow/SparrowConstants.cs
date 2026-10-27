@@ -22,6 +22,9 @@ public static class SparrowConstants
     /// <summary>Daily K-line lookback used by V2 and Compare.</summary>
     public const int V2KlineLimit = 120;
 
+    /// <summary>Intraday (30/60-minute) bar count fetched for the V6 pullback gate: 60 hourly bars cover ~15 trading days.</summary>
+    public const int V6IntradayBarsLimit = 60;
+
     /// <summary>Daily K-line lookback used by Classic.</summary>
     public const int ClassicKlineLimit = 65;
 

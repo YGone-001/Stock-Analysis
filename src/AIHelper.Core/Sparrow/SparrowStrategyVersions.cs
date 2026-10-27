@@ -13,5 +13,6 @@ public static class SparrowStrategyVersions
     public const string V3 = "v3";
     public const string V4 = "v4";
     public const string V5 = "v5";
+    public const string V6 = "v6";
     public const string Legacy = "legacy";
 }

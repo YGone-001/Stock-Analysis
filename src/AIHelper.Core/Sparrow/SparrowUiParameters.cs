@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using AIHelper.Core.Sparrow;
 
 namespace AIHelper.Models;
 
@@ -13,6 +14,7 @@ public static class SparrowStrategyModeExtensions
         SparrowStrategyMode.V3 => "V3（动量门限）",
         SparrowStrategyMode.V4 => "V4（量价形态）",
         SparrowStrategyMode.V5 => "V5（周线共振）",
+        SparrowStrategyMode.V6 => "V6（分钟回踩）",
         SparrowStrategyMode.PairCompare => "双版本对照",
         _ => mode.ToString()
     };
@@ -219,11 +221,46 @@ public class SparrowV4UiParameters : SparrowV3UiParameters
 }
 
 /// <summary>V5 inherits every V4 enhancement and adds the calendar-week MA trend gate.</summary>
-public sealed class SparrowV5UiParameters : SparrowV4UiParameters
+public class SparrowV5UiParameters : SparrowV4UiParameters
 {
     private bool _requireWeeklyUptrend;
 
     public bool RequireWeeklyUptrend { get => _requireWeeklyUptrend; set => Set(ref _requireWeeklyUptrend, value); }
+}
+
+/// <summary>V6 inherits every V5 enhancement and adds the intraday pullback gate (live scans only).</summary>
+public sealed class SparrowV6UiParameters : SparrowV5UiParameters
+{
+    private bool _intradayGateEnabled;
+    private int _intradayPeriodMinutes;
+    private int _intradayMaPeriod;
+
+    public bool IntradayGateEnabled { get => _intradayGateEnabled; set => Set(ref _intradayGateEnabled, value); }
+    public int IntradayPeriodMinutes
+    {
+        get => _intradayPeriodMinutes;
+        set
+        {
+            if (Set(ref _intradayPeriodMinutes, value))
+            {
+                OnPropertyChanged(nameof(IntradayGateText));
+            }
+        }
+    }
+    public int IntradayMaPeriod
+    {
+        get => _intradayMaPeriod;
+        set
+        {
+            if (Set(ref _intradayMaPeriod, value))
+            {
+                OnPropertyChanged(nameof(IntradayGateText));
+            }
+        }
+    }
+    public string IntradayGateText => IntradayGateEnabled
+        ? $"{IntradayPeriodMinutes} 分钟收盘须 > 其 MA{IntradayMaPeriod}"
+        : "分钟回踩门限未启用";
 }
 
 public sealed class SparrowSystemSettings : INotifyPropertyChanged
@@ -283,6 +320,9 @@ public static class SparrowParameterDefaults
     public const int VolContractionBaselineDays = 10;
     public const bool RequireWeeklyUptrend = true;
     public const int WeeklyMaPeriod = 20;
+    public const bool IntradayGateEnabled = true;
+    public const int IntradayPeriodMinutes = 60;
+    public const int IntradayMaPeriod = 10;
     public const int MaxConcurrency = 8;
     public const bool UseCache = true;
 
@@ -318,6 +358,13 @@ public static class SparrowParameterDefaults
     {
         var parameters = new SparrowV5UiParameters();
         ResetV5(parameters);
+        return parameters;
+    }
+
+    public static SparrowV6UiParameters CreateV6()
+    {
+        var parameters = new SparrowV6UiParameters();
+        ResetV6(parameters);
         return parameters;
     }
 
@@ -417,6 +464,16 @@ public static class SparrowParameterDefaults
         parameters.MarkRecommended();
     }
 
+    public static void ResetV6(SparrowV6UiParameters parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        ResetV5(parameters);
+        parameters.IntradayGateEnabled = IntradayGateEnabled;
+        parameters.IntradayPeriodMinutes = IntradayPeriodMinutes;
+        parameters.IntradayMaPeriod = IntradayMaPeriod;
+        parameters.MarkRecommended();
+    }
+
     private static void ApplyBase(SparrowStrategyUiParameters parameters)
     {
         parameters.MacroDef = MacroDef;
@@ -442,6 +499,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         V3Parameters.PropertyChanged += StrategyParametersChanged;
         V4Parameters.PropertyChanged += StrategyParametersChanged;
         V5Parameters.PropertyChanged += StrategyParametersChanged;
+        V6Parameters.PropertyChanged += StrategyParametersChanged;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -451,6 +509,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
     public SparrowV3UiParameters V3Parameters { get; } = SparrowParameterDefaults.CreateV3();
     public SparrowV4UiParameters V4Parameters { get; } = SparrowParameterDefaults.CreateV4();
     public SparrowV5UiParameters V5Parameters { get; } = SparrowParameterDefaults.CreateV5();
+    public SparrowV6UiParameters V6Parameters { get; } = SparrowParameterDefaults.CreateV6();
     public SparrowSystemSettings SystemSettings { get; } = SparrowParameterDefaults.CreateSystemSettings();
 
     public SparrowStrategyMode StrategyMode
@@ -470,6 +529,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         SparrowStrategyMode.V3 => V3Parameters,
         SparrowStrategyMode.V4 => V4Parameters,
         SparrowStrategyMode.V5 => V5Parameters,
+        SparrowStrategyMode.V6 => V6Parameters,
         _ => ClassicParameters
     };
 
@@ -479,6 +539,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         SparrowStrategyMode.V3 => V3Parameters,
         SparrowStrategyMode.V4 => V4Parameters,
         SparrowStrategyMode.V5 => V5Parameters,
+        SparrowStrategyMode.V6 => V6Parameters,
         _ => V2Parameters
     };
 
@@ -487,11 +548,20 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
     {
         SparrowStrategyMode.V4 => V4Parameters,
         SparrowStrategyMode.V5 => V5Parameters,
+        SparrowStrategyMode.V6 => V6Parameters,
         _ => V3Parameters
     };
 
-    /// <summary>The V4 volume-gate panel target; V5 edits its own inherited copy so saved V4 state is never mutated.</summary>
-    public SparrowV4UiParameters VolumeGateParameters => StrategyMode == SparrowStrategyMode.V5 ? V5Parameters : V4Parameters;
+    /// <summary>The V4 volume-gate panel target; later modes edit their own inherited copy so saved V4 state is never mutated.</summary>
+    public SparrowV4UiParameters VolumeGateParameters => StrategyMode switch
+    {
+        SparrowStrategyMode.V5 => V5Parameters,
+        SparrowStrategyMode.V6 => V6Parameters,
+        _ => V4Parameters
+    };
+
+    /// <summary>The V5 weekly-gate panel target; V6 edits its own inherited copy so saved V5 state is never mutated.</summary>
+    public SparrowV5UiParameters WeeklyGateParameters => StrategyMode == SparrowStrategyMode.V6 ? V6Parameters : V5Parameters;
 
     public bool IsClassicMode => StrategyMode == SparrowStrategyMode.Classic;
     public bool IsV2Mode => StrategyMode == SparrowStrategyMode.V2;
@@ -499,13 +569,15 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
     public bool IsV3Mode => StrategyMode == SparrowStrategyMode.V3;
     public bool IsV4Mode => StrategyMode == SparrowStrategyMode.V4;
     public bool IsV5Mode => StrategyMode == SparrowStrategyMode.V5;
+    public bool IsV6Mode => StrategyMode == SparrowStrategyMode.V6;
     public bool IsPairCompareMode => StrategyMode == SparrowStrategyMode.PairCompare;
     public bool ShowBaseParameters => StrategyMode != SparrowStrategyMode.PairCompare;
     public bool ShowPairComparison => StrategyMode == SparrowStrategyMode.PairCompare;
-    public bool ShowV2Parameters => StrategyMode is SparrowStrategyMode.V2 or SparrowStrategyMode.Compare or SparrowStrategyMode.V3 or SparrowStrategyMode.V4 or SparrowStrategyMode.V5;
-    public bool ShowV3Parameters => StrategyMode is SparrowStrategyMode.V3 or SparrowStrategyMode.V4 or SparrowStrategyMode.V5;
-    public bool ShowV4Parameters => StrategyMode is SparrowStrategyMode.V4 or SparrowStrategyMode.V5;
-    public bool ShowV5Parameters => StrategyMode == SparrowStrategyMode.V5;
+    public bool ShowV2Parameters => StrategyMode is SparrowStrategyMode.V2 or SparrowStrategyMode.Compare or SparrowStrategyMode.V3 or SparrowStrategyMode.V4 or SparrowStrategyMode.V5 or SparrowStrategyMode.V6;
+    public bool ShowV3Parameters => StrategyMode is SparrowStrategyMode.V3 or SparrowStrategyMode.V4 or SparrowStrategyMode.V5 or SparrowStrategyMode.V6;
+    public bool ShowV4Parameters => StrategyMode is SparrowStrategyMode.V4 or SparrowStrategyMode.V5 or SparrowStrategyMode.V6;
+    public bool ShowV5Parameters => StrategyMode is SparrowStrategyMode.V5 or SparrowStrategyMode.V6;
+    public bool ShowV6Parameters => StrategyMode == SparrowStrategyMode.V6;
     public bool ShowSystemParameters => true;
 
     public string StrategyDescription => StrategyMode switch
@@ -515,6 +587,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         SparrowStrategyMode.V3 => "动量门限麻雀：V2 + RSI 区间 + MACD 多头过滤",
         SparrowStrategyMode.V4 => "量价形态麻雀：V3 + 缩量蓄势 + 放量突破",
         SparrowStrategyMode.V5 => "周线共振麻雀：V4 + 周线 MA20 趋势向上",
+        SparrowStrategyMode.V6 => "分钟回踩麻雀：V5 + 60 分钟回踩确认（仅实盘）",
         SparrowStrategyMode.PairCompare => "双版本对照：同一行情快照比较 V2~V5 中任意两版，两侧各自使用已保存参数",
         _ => "A/B 对照工具：同一行情快照比较 Classic 与 V2，不是第三套策略"
     };
@@ -526,6 +599,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         SparrowStrategyMode.V3 => "基础麻雀条件（V3 继承 V2 全部增强）",
         SparrowStrategyMode.V4 => "基础麻雀条件（V4 继承 V3 全部增强）",
         SparrowStrategyMode.V5 => "基础麻雀条件（V5 继承 V4 全部增强）",
+        SparrowStrategyMode.V6 => "基础麻雀条件（V6 继承 V5 全部增强）",
         _ => "Classic / V2 共同条件"
     };
 
@@ -535,6 +609,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         SparrowStrategyMode.V3 => "V2 增强条件（作用于 V3）",
         SparrowStrategyMode.V4 => "V2 增强条件（作用于 V4）",
         SparrowStrategyMode.V5 => "V2 增强条件（作用于 V5）",
+        SparrowStrategyMode.V6 => "V2 增强条件（作用于 V6）",
         _ => "V2 增强条件"
     };
 
@@ -562,6 +637,14 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
                     && SparrowParameterDefaults.AreV3GatesRecommended(V5Parameters)
                     && SparrowParameterDefaults.AreV4GatesRecommended(V5Parameters)
                     && V5Parameters.RequireWeeklyUptrend == SparrowParameterDefaults.RequireWeeklyUptrend,
+                SparrowStrategyMode.V6 => V6Parameters.IsRecommended
+                    && SparrowParameterDefaults.AreV2EnhancementsRecommended(V6Parameters)
+                    && SparrowParameterDefaults.AreV3GatesRecommended(V6Parameters)
+                    && SparrowParameterDefaults.AreV4GatesRecommended(V6Parameters)
+                    && V6Parameters.RequireWeeklyUptrend == SparrowParameterDefaults.RequireWeeklyUptrend
+                    && V6Parameters.IntradayGateEnabled == SparrowParameterDefaults.IntradayGateEnabled
+                    && V6Parameters.IntradayPeriodMinutes == SparrowParameterDefaults.IntradayPeriodMinutes
+                    && V6Parameters.IntradayMaPeriod == SparrowParameterDefaults.IntradayMaPeriod,
                 _ => ClassicParameters.IsRecommended
                     && SparrowParameterDefaults.AreV2EnhancementsRecommended(V2Parameters)
             };
@@ -595,6 +678,9 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
             case SparrowStrategyMode.V5:
                 SparrowParameterDefaults.ResetV5(V5Parameters);
                 break;
+            case SparrowStrategyMode.V6:
+                SparrowParameterDefaults.ResetV6(V6Parameters);
+                break;
         }
         OnPropertyChanged(nameof(CurrentPresetName));
         OnPropertyChanged(nameof(AdhesionRangeText));
@@ -625,12 +711,14 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         OnPropertyChanged(nameof(EnhancementParameters));
         OnPropertyChanged(nameof(MomentumGateParameters));
         OnPropertyChanged(nameof(VolumeGateParameters));
+        OnPropertyChanged(nameof(WeeklyGateParameters));
         OnPropertyChanged(nameof(IsClassicMode));
         OnPropertyChanged(nameof(IsV2Mode));
         OnPropertyChanged(nameof(IsCompareMode));
         OnPropertyChanged(nameof(IsV3Mode));
         OnPropertyChanged(nameof(IsV4Mode));
         OnPropertyChanged(nameof(IsV5Mode));
+        OnPropertyChanged(nameof(IsV6Mode));
         OnPropertyChanged(nameof(IsPairCompareMode));
         OnPropertyChanged(nameof(ShowBaseParameters));
         OnPropertyChanged(nameof(ShowPairComparison));
@@ -638,6 +726,7 @@ public sealed class SparrowParameterUiState : INotifyPropertyChanged
         OnPropertyChanged(nameof(ShowV3Parameters));
         OnPropertyChanged(nameof(ShowV4Parameters));
         OnPropertyChanged(nameof(ShowV5Parameters));
+        OnPropertyChanged(nameof(ShowV6Parameters));
         OnPropertyChanged(nameof(ShowSystemParameters));
         OnPropertyChanged(nameof(StrategyDescription));
         OnPropertyChanged(nameof(BaseParametersHeader));
@@ -700,6 +789,16 @@ public static class SparrowParameterMapper
         parameters.RequireWeeklyUptrend,
         SparrowParameterDefaults.WeeklyMaPeriod);
 
+    public static SparrowScanParameters ToV6(
+        SparrowV6UiParameters parameters,
+        SparrowSystemSettings system) => ToV2(parameters, parameters, system);
+
+    public static SparrowIntradayGateConfig ToIntradayGates(SparrowV6UiParameters parameters) => new(
+        parameters.IntradayGateEnabled,
+        parameters.IntradayPeriodMinutes,
+        parameters.IntradayMaPeriod,
+        SparrowConstants.V6IntradayBarsLimit);
+
     /// <summary>
     /// Compare uses one editable common parameter set (Classic) for both sides and the saved
     /// V2 state only for enhancement fields. Neither saved strategy state is mutated.
@@ -748,7 +847,8 @@ public static class SparrowParameterValidator
         SparrowSystemSettings system,
         SparrowV3UiParameters? v3 = null,
         SparrowV4UiParameters? v4 = null,
-        SparrowV5UiParameters? v5 = null)
+        SparrowV5UiParameters? v5 = null,
+        SparrowV6UiParameters? v6 = null)
     {
         ISparrowStrategyUiParameters common = mode switch
         {
@@ -756,6 +856,7 @@ public static class SparrowParameterValidator
             SparrowStrategyMode.V3 => v3 ?? throw new ArgumentNullException(nameof(v3), "V3 parameters are required in V3 mode."),
             SparrowStrategyMode.V4 => v4 ?? throw new ArgumentNullException(nameof(v4), "V4 parameters are required in V4 mode."),
             SparrowStrategyMode.V5 => v5 ?? throw new ArgumentNullException(nameof(v5), "V5 parameters are required in V5 mode."),
+            SparrowStrategyMode.V6 => v6 ?? throw new ArgumentNullException(nameof(v6), "V6 parameters are required in V6 mode."),
             _ => classic
         };
         if (!Finite(common.MinRise) || !Finite(common.MaxRise) || common.MinRise > common.MaxRise)
@@ -815,6 +916,25 @@ public static class SparrowParameterValidator
                 && (!Finite(v5.VolBreakoutMultiple) || v5.VolBreakoutMultiple <= 0 || !Finite(v5.VolContractionMaxRatio) || v5.VolContractionMaxRatio <= 0))
             {
                 return Invalid("量价门限倍数必须大于 0。");
+            }
+        }
+        if (mode == SparrowStrategyMode.V6 && v6 is not null)
+        {
+            if ((v6.RsiMin.HasValue && (!Finite(v6.RsiMin.Value) || v6.RsiMin.Value < 0 || v6.RsiMin.Value > 100))
+                || (v6.RsiMax.HasValue && (!Finite(v6.RsiMax.Value) || v6.RsiMax.Value < 0 || v6.RsiMax.Value > 100))
+                || (v6.RsiMin.HasValue && v6.RsiMax.HasValue && v6.RsiMin.Value > v6.RsiMax.Value))
+            {
+                return Invalid("RSI 门限必须在 0~100 之间，且下限不能大于上限。");
+            }
+            if (v6.VolumeGatesEnabled
+                && (!Finite(v6.VolBreakoutMultiple) || v6.VolBreakoutMultiple <= 0 || !Finite(v6.VolContractionMaxRatio) || v6.VolContractionMaxRatio <= 0))
+            {
+                return Invalid("量价门限倍数必须大于 0。");
+            }
+            if (v6.IntradayGateEnabled
+                && (v6.IntradayPeriodMinutes != 30 && v6.IntradayPeriodMinutes != 60 || v6.IntradayMaPeriod <= 0))
+            {
+                return Invalid("分钟周期必须为 30 或 60，且回踩均线周期必须大于 0。");
             }
         }
         if (system.MaxConcurrency < 1)

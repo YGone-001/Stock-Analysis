@@ -32,6 +32,12 @@ public static class SparrowDataCachePolicy
     /// </summary>
     public static readonly TimeSpan BoardHeatTtl = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// TTL for intraday (30/60-minute) K-lines (5 minutes): the newest bar moves during the session,
+    /// but a per-scan refetch for every candidate would dominate the request budget.
+    /// </summary>
+    public static readonly TimeSpan MinuteKlineTtl = TimeSpan.FromMinutes(5);
+
     /// <summary>Canonical cache key for the combined board-heat + industry-map snapshot.</summary>
     public const string BoardHeatCacheKey = "board-heat:v1";
 

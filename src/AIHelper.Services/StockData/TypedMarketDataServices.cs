@@ -85,9 +85,31 @@ public sealed class KlineService : IKlineService
 		bool forceRefresh = false,
 		CancellationToken cancellationToken = default)
 	{
+		return await GetKlineByPeriodAsync(symbol, "day", limit, forceRefresh, cancellationToken);
+	}
+
+	public Task<MarketDataResult<KlineSeries?>> GetIntradayAsync(
+		string symbol,
+		int periodMinutes,
+		int limit,
+		bool forceRefresh = false,
+		CancellationToken cancellationToken = default)
+	{
+		if (periodMinutes != 30 && periodMinutes != 60)
+			throw new ArgumentOutOfRangeException(nameof(periodMinutes), "Only 30- and 60-minute periods are supported.");
+		return GetKlineByPeriodAsync(symbol, periodMinutes == 30 ? "30min" : "60min", limit, forceRefresh, cancellationToken);
+	}
+
+	private async Task<MarketDataResult<KlineSeries?>> GetKlineByPeriodAsync(
+		string symbol,
+		string type,
+		int limit,
+		bool forceRefresh,
+		CancellationToken cancellationToken)
+	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(symbol);
 		ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
-		string endpoint = SparrowEndpoints.KlineAll(Uri.EscapeDataString(symbol.Trim()), limit, forceRefresh);
+		string endpoint = SparrowEndpoints.KlineAll(Uri.EscapeDataString(symbol.Trim()), limit, forceRefresh, type);
 		StockDataResult response = await _transport.GetDataAsync(StockDataRequest.Parse(endpoint), cancellationToken);
 		MarketDataMetadata metadata = new(response.Source, response.UsedCache, response.IsStale, response.IsBackgroundRefresh,
 			response.SourceKind, response.FallbackReason, response.CacheFreshness);

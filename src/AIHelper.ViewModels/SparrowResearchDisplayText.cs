@@ -20,6 +20,7 @@ internal static class SparrowResearchDisplayText
         SparrowStrategyMode.V3 => "V3 动量门限策略",
         SparrowStrategyMode.V4 => "V4 量价形态策略",
         SparrowStrategyMode.V5 => "V5 周线共振策略",
+        SparrowStrategyMode.V6 => "V6 分钟回踩策略",
         SparrowStrategyMode.Compare => "对比",
         _ => mode.ToString()
     };

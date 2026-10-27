@@ -323,10 +323,10 @@ public sealed class SparrowComparisonServiceTests
     }
 
     [Fact]
-    public void StrategyMode_ContainsExactlyTheSevenFrozenPlusVersionedModes()
+    public void StrategyMode_ContainsExactlyTheFrozenAndVersionedModes()
     {
         Assert.Equal(
-            new[] { SparrowStrategyMode.Classic, SparrowStrategyMode.V2, SparrowStrategyMode.Compare, SparrowStrategyMode.V3, SparrowStrategyMode.V4, SparrowStrategyMode.V5, SparrowStrategyMode.PairCompare },
+            new[] { SparrowStrategyMode.Classic, SparrowStrategyMode.V2, SparrowStrategyMode.Compare, SparrowStrategyMode.V3, SparrowStrategyMode.V4, SparrowStrategyMode.V5, SparrowStrategyMode.V6, SparrowStrategyMode.PairCompare },
             Enum.GetValues<SparrowStrategyMode>());
     }
 

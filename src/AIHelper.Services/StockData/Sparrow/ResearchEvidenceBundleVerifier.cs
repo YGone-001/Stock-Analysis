@@ -397,6 +397,7 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             SparrowV3ParameterSnapshot? v3Parameters = null;
             SparrowV4ParameterSnapshot? v4Parameters = null;
             SparrowV5ParameterSnapshot? v5Parameters = null;
+            SparrowV6ParameterSnapshot? v6Parameters = null;
             try
             {
                 if (artifact.PortfolioRequest.StrategyMode == SparrowStrategyMode.Classic)
@@ -409,9 +410,11 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
                     v4Parameters = JsonSerializer.Deserialize<SparrowV4ParameterSnapshot>(parametersJson, JsonOpts) ?? throw new InvalidOperationException("V4 snapshot was null.");
                 else if (artifact.PortfolioRequest.StrategyMode == SparrowStrategyMode.V5)
                     v5Parameters = JsonSerializer.Deserialize<SparrowV5ParameterSnapshot>(parametersJson, JsonOpts) ?? throw new InvalidOperationException("V5 snapshot was null.");
+                else if (artifact.PortfolioRequest.StrategyMode == SparrowStrategyMode.V6)
+                    v6Parameters = JsonSerializer.Deserialize<SparrowV6ParameterSnapshot>(parametersJson, JsonOpts) ?? throw new InvalidOperationException("V6 snapshot was null.");
                 else
                 {
-                    Unsup(ParameterIdentity, "Classic, V2, V3, V4 or V5", artifact.PortfolioRequest.StrategyMode.ToString(),
+                    Unsup(ParameterIdentity, "Classic, V2, V3, V4, V5 or V6", artifact.PortfolioRequest.StrategyMode.ToString(),
                         $"Unsupported strategy mode: {artifact.PortfolioRequest.StrategyMode}", BundleParametersInvalid);
                     progress.Parameters = ResearchEvidenceBundleStageStatus.Unsupported;
                     return Result(ResearchEvidenceBundleVerificationStatus.Unsupported, manifest);
@@ -427,7 +430,7 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
             var pr = artifact.PortfolioRequest;
             SparrowBacktestRequest backtestRequest = new(pr.StrategyMode, pr.StrategyVersion, pr.StartDate, pr.EndDate, pr.TopN,
                 new[] { pr.HorizonTradingDays }, reexecInputs.BacktestRoundTripCostRate, reexecInputs.BacktestSlippageRate,
-                ClassicParameters: classicParameters, V2Parameters: v2Parameters, V3Parameters: v3Parameters, V4Parameters: v4Parameters, V5Parameters: v5Parameters);
+                ClassicParameters: classicParameters, V2Parameters: v2Parameters, V3Parameters: v3Parameters, V4Parameters: v4Parameters, V5Parameters: v5Parameters, V6Parameters: v6Parameters);
 
             string candidateParamFp = SparrowHistoricalFingerprint.Parameters(backtestRequest);
             if (!string.Equals(candidateParamFp, pr.StrategyParameterFingerprint, StringComparison.Ordinal)
@@ -443,7 +446,7 @@ public sealed class ResearchEvidenceBundleVerifier : IResearchEvidenceBundleVeri
                 pr.StrategyMode, pr.StrategyVersion, pr.StartDate, pr.EndDate, pr.TopN, pr.HorizonTradingDays,
                 reexecInputs.BacktestRoundTripCostRate, reexecInputs.BacktestSlippageRate, classicParameters, v2Parameters,
                 pr.InitialCapital, pr.PositionSizingMethod, pr.CommissionRate, pr.SlippageRate, pr.ExecutionModel,
-                v3Parameters, v4Parameters, v5Parameters);
+                v3Parameters, v4Parameters, v5Parameters, v6Parameters);
 
             if (!string.Equals(genericParams.Fingerprint, record.Definition.Parameters.Fingerprint, StringComparison.Ordinal)
                 || !string.Equals(genericParams.Fingerprint, record.ExecutionProvenanceBinding.ParameterSnapshotFingerprint, StringComparison.Ordinal))

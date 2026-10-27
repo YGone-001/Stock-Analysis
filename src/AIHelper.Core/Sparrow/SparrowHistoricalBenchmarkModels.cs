@@ -90,8 +90,9 @@ public sealed class SparrowBenchmarkAnalysisRequest
             and not AIHelper.Models.SparrowStrategyMode.V2
             and not AIHelper.Models.SparrowStrategyMode.V3
             and not AIHelper.Models.SparrowStrategyMode.V4
-            and not AIHelper.Models.SparrowStrategyMode.V5)
-            throw new ArgumentException("Benchmark analysis supports Classic, V2, V3, V4 and V5 only.", nameof(backtestRequest));
+            and not AIHelper.Models.SparrowStrategyMode.V5
+            and not AIHelper.Models.SparrowStrategyMode.V6)
+            throw new ArgumentException("Benchmark analysis supports Classic, V2, V3, V4, V5 and V6 only.", nameof(backtestRequest));
         BacktestRequest = backtestRequest;
         BenchmarkId = benchmarkId;
     }

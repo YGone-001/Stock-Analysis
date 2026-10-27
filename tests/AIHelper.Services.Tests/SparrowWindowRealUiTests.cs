@@ -41,7 +41,7 @@ public sealed class SparrowWindowRealUiTests
     }
 
     [Fact]
-    public void SparrowWindowDC_InitializesStrategyAwareUi_AndRendersAllSevenModes()
+    public void SparrowWindowDC_InitializesStrategyAwareUi_AndRendersAllEightModes()
     {
         RunWindowTest((window, vm) =>
         {
@@ -68,14 +68,15 @@ public sealed class SparrowWindowRealUiTests
 
             var options = modeSelector.ItemsSource as IReadOnlyList<SparrowStrategyModeOption>;
             Assert.NotNull(options);
-            Assert.Equal(7, options.Count);
+            Assert.Equal(8, options.Count);
             Assert.Equal("Classic（原始麻雀）", options[0].DisplayName);
             Assert.Equal("V2（东财增强）", options[1].DisplayName);
             Assert.Equal("Classic + V2 双选", options[2].DisplayName);
             Assert.Equal("V3（动量门限）", options[3].DisplayName);
             Assert.Equal("V4（量价形态）", options[4].DisplayName);
             Assert.Equal("V5（周线共振）", options[5].DisplayName);
-            Assert.Equal("双版本对照", options[6].DisplayName);
+            Assert.Equal("V6（分钟回踩）", options[6].DisplayName);
+            Assert.Equal("双版本对照", options[7].DisplayName);
 
             string artifactDir = @"C:\Users\YGone\.gemini\antigravity\brain\61802ae4-a116-4387-b1a8-996a03966bd0";
             Directory.CreateDirectory(artifactDir);
@@ -146,7 +147,22 @@ public sealed class SparrowWindowRealUiTests
             Assert.True(vm.V5Parameters.RequireWeeklyUptrend);
             SaveWindowScreenshot(window, Path.Combine(artifactDir, "sparrow_v5.png"));
 
-            // 8. Mode: PairCompare
+            // 8. Mode: V6
+            vm.StrategyMode = SparrowStrategyMode.V6;
+            window.UpdateLayout();
+            Assert.True(vm.ShowV2Parameters);
+            Assert.True(vm.ShowV3Parameters);
+            Assert.True(vm.ShowV4Parameters);
+            Assert.True(vm.ShowV5Parameters);
+            Assert.True(vm.ShowV6Parameters);
+            Assert.True(vm.IsV6Mode);
+            Assert.Equal("分钟回踩麻雀：V5 + 60 分钟回踩确认（仅实盘）", vm.StrategyDescription);
+            Assert.True(vm.V6Parameters.IntradayGateEnabled);
+            Assert.Equal(60, vm.V6Parameters.IntradayPeriodMinutes);
+            Assert.Equal(10, vm.V6Parameters.IntradayMaPeriod);
+            SaveWindowScreenshot(window, Path.Combine(artifactDir, "sparrow_v6.png"));
+
+            // 9. Mode: PairCompare
             vm.StrategyMode = SparrowStrategyMode.PairCompare;
             window.UpdateLayout();
             Assert.True(vm.IsPairCompareMode);

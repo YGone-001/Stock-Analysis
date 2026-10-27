@@ -67,7 +67,8 @@ public class SparrowScannerService
         CancellationToken ct,
         SparrowMomentumGateConfig? momentumGates = null,
         SparrowVolumeGateConfig? volumeGates = null,
-        SparrowWeeklyGateConfig? weeklyGates = null)
+        SparrowWeeklyGateConfig? weeklyGates = null,
+        SparrowIntradayGateConfig? intradayGates = null)
     {
         // Scan-local session state: quotes are fresh per scan and never frozen across scans
         var quoteCache = new ConcurrentDictionary<string, SparrowQuoteData>(StringComparer.Ordinal);
@@ -379,7 +380,8 @@ public class SparrowScannerService
                         : SparrowV4RuleEvaluator.Evaluate(snapshot, shIndexPctChg, parameters, momentumGates, volumeGates)
                     : SparrowV5RuleEvaluator.Evaluate(snapshot, shIndexPctChg, parameters, momentumGates, volumeGates, weeklyGates);
             SparrowV2CandidateEvaluation evidence = new(item.Code, p2, technical.Rule,
-                StrategyVersion: weeklyGates is not null ? SparrowStrategyVersions.V5
+                StrategyVersion: intradayGates is not null ? SparrowStrategyVersions.V6
+                    : weeklyGates is not null ? SparrowStrategyVersions.V5
                     : volumeGates is not null ? SparrowStrategyVersions.V4
                     : momentumGates is null ? SparrowStrategyVersions.V2 : SparrowStrategyVersions.V3);
             if (evidence.Passed)
@@ -413,6 +415,55 @@ public class SparrowScannerService
                 };
                 ReportLog(progress, $"🎯 [入围] {item.Name}({item.Code}) {reason}");
             }
+        }
+
+        // V6 two-stage intraday filter: only daily-pass survivors are fetched, keeping the intraday request
+        // budget at the survivor count rather than the whole P2 pool.
+        if (intradayGates is { Enabled: true } && p3Winners.Count > 0)
+        {
+            ReportLog(progress, $"\n⏱ [V6 分钟回踩] 对 {p3Winners.Count} 只日线通过者进行 {intradayGates.PeriodMinutes} 分钟确认...");
+            string[] survivors = p3Winners.Keys.ToArray();
+            var semaphore = new SemaphoreSlim(SparrowConstants.MaxP3Concurrency, SparrowConstants.MaxP3Concurrency);
+            await Task.WhenAll(survivors.Select(async code =>
+            {
+                ct.ThrowIfCancellationRequested();
+                await semaphore.WaitAsync(ct);
+                try
+                {
+                    string cacheKey = SparrowDataCachePolicy.GetKlineKey(code, SparrowConstants.V6IntradayBarsLimit, intradayGates.PeriodMinutes == 30 ? "30min" : "60min");
+                    SparrowKlineSnapshot? cachedIntraday = null;
+                    if (parameters.UseCache
+                        && _klineCache.TryGet(cacheKey, true, out string? cachedJson)
+                        && !string.IsNullOrWhiteSpace(cachedJson))
+                    {
+                        cachedIntraday = SparrowKlineSnapshotFactory.FromCachedJson(cachedJson);
+                    }
+
+                    SparrowKlineSnapshot? intradaySnapshot = cachedIntraday;
+                    if (intradaySnapshot is null)
+                    {
+                        SparrowKlineFetchOutcome outcome = await SparrowKlineFetchHelper.FetchIntradayAsync(
+                            _klineService, code, intradayGates.PeriodMinutes, SparrowConstants.V6IntradayBarsLimit, !parameters.UseCache, ct);
+                        if (outcome.Success && outcome.Json is not null)
+                        {
+                            _klineCache.Set(cacheKey, outcome.Json, SparrowDataCachePolicy.MinuteKlineTtl);
+                            intradaySnapshot = SparrowKlineSnapshotFactory.FromSeries(outcome.Series!);
+                        }
+                    }
+
+                    SparrowRuleComparison gate = SparrowV6RuleEvaluator.EvaluateIntradayGateOnly(intradaySnapshot, intradayGates);
+                    if (!gate.Passed)
+                    {
+                        p3Winners.TryRemove(code, out _);
+                        ReportLog(progress, $"⏹ [分钟淘汰] {code}: {gate.Reason}");
+                    }
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }));
+            ReportLog(progress, $"⏱ [V6 分钟回踩] 确认完成，剩余 {p3Winners.Count} 只。");
         }
 
         ReportLog(progress, $"\n🏆 漏斗完成！共诞生长短腿战斗机 {p3Winners.Count} 只！");

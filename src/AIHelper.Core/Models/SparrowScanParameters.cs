@@ -39,6 +39,24 @@ public sealed record SparrowWeeklyGateConfig(
     }
 }
 
+/// <summary>
+/// Optional V6 intraday pullback gate on 30/60-minute bars: the newest intraday close must sit strictly above
+/// its own MA(period), confirming the daily breakout holds on the shorter timeframe. Historical datasets carry
+/// no intraday bars, so this gate is live-scan only.
+/// </summary>
+public sealed record SparrowIntradayGateConfig(
+    bool Enabled = true,
+    int PeriodMinutes = 60,
+    int MaPeriod = 10,
+    int BarsLimit = 60)
+{
+    public void Validate()
+    {
+        if (PeriodMinutes != 30 && PeriodMinutes != 60) throw new ArgumentOutOfRangeException(nameof(PeriodMinutes));
+        if (MaPeriod <= 0 || BarsLimit <= 0) throw new ArgumentOutOfRangeException(nameof(MaPeriod));
+    }
+}
+
 /// <summary>Optional V4 volume-pattern gates evaluated on the newest-first volume series after the V3 rules passed.</summary>
 /// <param name="VolBreakoutMultiple">Today's volume must reach this multiple of the recent-window mean; null disables the breakout gate.</param>
 /// <param name="VolContractionMaxRatio">The pre-breakout window mean must stay at or below this ratio of the baseline-window mean; null disables the contraction gate.</param>
