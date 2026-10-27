@@ -257,10 +257,11 @@
                    Text="{Binding LogText}" FontFamily="Consolas"/>
         </TabItem>
         <TabItem Header="选股结果">
-          <DataGrid ItemsSource="{Binding Results}" AutoGenerateColumns="False" IsReadOnly="True"
+          <DataGrid x:Name="ResultsGrid" ItemsSource="{Binding Results}" AutoGenerateColumns="False" IsReadOnly="True"
                     CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="True"
                     EnableRowVirtualization="True" EnableColumnVirtualization="True"
-                    HeadersVisibility="Column" GridLinesVisibility="Horizontal" SelectionMode="Single">
+                    HeadersVisibility="Column" GridLinesVisibility="Horizontal" SelectionMode="Single"
+                    RowHeaderWidth="0" MouseDoubleClick="ResultsGrid_MouseDoubleClick">
             <DataGrid.Columns>
               <DataGridTextColumn Header="排名" Binding="{Binding Rank}" Width="46"/>
               <DataGridTextColumn Header="代码" Binding="{Binding Code}" Width="78"/>

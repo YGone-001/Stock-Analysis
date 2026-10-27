@@ -241,6 +241,14 @@ public partial class SparrowViewModel : ObservableObject
         AppendLog("已恢复当前模式的推荐默认（14:30 均衡）；缓存与并发设置保持不变。");
     }
 
+    /// <summary>Opens the live WebView2 chart for a result row; wired to the result grid's double-click.</summary>
+    [RelayCommand]
+    private void ShowLiveChart(SparrowResultRow? row)
+    {
+        if (row is null || string.IsNullOrWhiteSpace(row.Code)) return;
+        _mainVm.ShowLiveChart(row.Code, row.Name);
+    }
+
     [RelayCommand]
     private async Task Test()
     {

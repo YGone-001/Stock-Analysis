@@ -7,6 +7,8 @@ using AIHelper.Services;
 using AIHelper.Services.StockData.Sparrow;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LiveChartsCore;
+using LiveChartsCore.SkiaSharpView;
 
 namespace AIHelper.ViewModels;
 
@@ -26,6 +28,8 @@ public partial class SparrowResearchViewModel : ObservableObject, IDisposable
     private readonly IHistoricalDatasetLoader _loader;
     private readonly IFileDialogService _fileDialogs;
     private readonly IHistoricalResultExporter _exporter;
+    private readonly ISparrowPortfolioSimulationEngine? _portfolioSimulation;
+    private readonly ISparrowPortfolioPerformanceAnalyzer? _portfolioPerformance;
     private CancellationTokenSource? _cts;
     private SparrowReplayResult? _replayResult;
     private SparrowBacktestResult? _backtestResult;
@@ -76,9 +80,17 @@ public partial class SparrowResearchViewModel : ObservableObject, IDisposable
     public bool IsStrategySupported => IsDatasetReady && HasRequiredQuoteCapabilities(Dataset!.Capabilities);
     public bool IsBusy => State is SparrowResearchState.LoadingDataset or SparrowResearchState.RunningReplay or SparrowResearchState.RunningBacktest;
 
-    public SparrowResearchViewModel(SparrowHistoricalReplayEngine replay, SparrowHistoricalBacktestEngine backtest, IProviderHealthService health, IHistoricalDatasetLoader loader, IFileDialogService fileDialogs, IHistoricalResultExporter exporter)
+    [ObservableProperty] private ISeries[]? _equitySeries;
+    [ObservableProperty] private ISeries[]? _drawdownSeries;
+    [ObservableProperty] private string _portfolioSummary = "组合模拟未运行。";
+    /// <summary>Y-axis label shared by both charts; percentages are points, equity is currency.</summary>
+    public bool IsPortfolioSimulationAvailable => _portfolioSimulation is not null && _portfolioPerformance is not null;
+
+    public SparrowResearchViewModel(SparrowHistoricalReplayEngine replay, SparrowHistoricalBacktestEngine backtest, IProviderHealthService health, IHistoricalDatasetLoader loader, IFileDialogService fileDialogs, IHistoricalResultExporter exporter,
+        ISparrowPortfolioSimulationEngine? portfolioSimulation = null, ISparrowPortfolioPerformanceAnalyzer? portfolioPerformance = null)
     {
         _replay = replay; _backtest = backtest; _health = health; _loader = loader; _fileDialogs = fileDialogs; _exporter = exporter;
+        _portfolioSimulation = portfolioSimulation; _portfolioPerformance = portfolioPerformance;
         RefreshProviderHealth();
     }
 
@@ -97,7 +109,7 @@ public partial class SparrowResearchViewModel : ObservableObject, IDisposable
     }
     partial void OnDatasetLoadStateChanged(HistoricalDatasetLoadState value) { OnPropertyChanged(nameof(IsDatasetReady)); OnPropertyChanged(nameof(IsStrategySupported)); RefreshStrategyCompatibility(); NotifyCommandState(); }
     partial void OnDatasetChanged(HistoricalMarketDataset? value) { OnPropertyChanged(nameof(IsDatasetReady)); OnPropertyChanged(nameof(IsStrategySupported)); RefreshStrategyCompatibility(); NotifyCommandState(); }
-    partial void OnStateChanged(SparrowResearchState value) { OnPropertyChanged(nameof(IsBusy)); NotifyCommandState(); }
+    partial void OnStateChanged(SparrowResearchState value) { OnPropertyChanged(nameof(IsBusy)); NotifyCommandState(); RunPortfolioSimulationCommand.NotifyCanExecuteChanged(); }
 
     [RelayCommand(CanExecute = nameof(CanLoadDataset))]
     private async Task LoadDatasetAsync()
@@ -160,6 +172,63 @@ public partial class SparrowResearchViewModel : ObservableObject, IDisposable
         if (_backtestResult is null) return;
         string? path = _fileDialogs.SaveBacktestResult($"sparrow-backtest-{_backtestResult.Request.StrategyVersion}-{_backtestResult.Request.StartDate:yyyyMMdd}-{_backtestResult.Request.EndDate:yyyyMMdd}.json");
         if (!string.IsNullOrWhiteSpace(path)) await _exporter.ExportBacktestJsonAsync(_backtestResult, path);
+    }
+
+    private bool CanRunPortfolioSimulation() => _portfolioSimulation is not null && _portfolioPerformance is not null && IsDatasetReady && !IsBusy;
+
+    /// <summary>
+    /// Runs the offline close-based portfolio simulation over the loaded dataset with the current backtest
+    /// request (equal-weight, zero commission/slippage, 5-day horizon) and builds the equity and
+    /// underwater (drawdown) chart series. Presentation-only: it reuses the DI engines verbatim.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRunPortfolioSimulation))]
+    private async Task RunPortfolioSimulationAsync()
+    {
+        const decimal initialCapital = 1_000_000m;
+        const int horizonTradingDays = 5;
+        HistoricalMarketDataset dataset = Dataset!;
+        SparrowBacktestRequest backtestRequest = BacktestRequest();
+        State = SparrowResearchState.RunningBacktest;
+        try
+        {
+            SparrowPortfolioPerformanceResult performance = await Task.Run(() =>
+            {
+                SparrowBacktestResult backtest = _backtest.Run(dataset, backtestRequest);
+                PortfolioSimulationRequest request = new(dataset.DatasetId, dataset.Fingerprint, backtestRequest.StrategyMode, backtestRequest.StrategyVersion,
+                    backtest.ParameterFingerprint, backtestRequest.StartDate, backtestRequest.EndDate, backtestRequest.TopN, horizonTradingDays,
+                    initialCapital, PortfolioPositionSizingMethod.EqualWeight, 0m, 0m);
+                SparrowPortfolioSimulationResult simulation = _portfolioSimulation!.SimulateAsync(backtest, request, dataset).GetAwaiter().GetResult();
+                return _portfolioPerformance!.AnalyzeAsync(simulation, dataset).GetAwaiter().GetResult();
+            }).ConfigureAwait(true);
+
+            double[] equity = performance.EquityCurve.Points.Select(point => (double)point.TotalEquity).ToArray();
+            double peak = equity.Length > 0 ? equity[0] : 0;
+            double[] underwater = equity.Select(value =>
+            {
+                if (value > peak) peak = value;
+                return peak > 0 ? (value / peak - 1) * 100 : 0;
+            }).ToArray();
+            EquitySeries = new ISeries[]
+            {
+                new LineSeries<double> { Values = equity, Name = "组合净值", GeometrySize = 0, LineSmoothness = 0 }
+            };
+            DrawdownSeries = new ISeries[]
+            {
+                new LineSeries<double> { Values = underwater, Name = "回撤%", GeometrySize = 0, LineSmoothness = 0 }
+            };
+            PortfolioSummary = $"最终净值 {performance.Metrics.FinalEquity:N0} · 总收益 {performance.Metrics.TotalReturnPercent:F2}% · 最大回撤 {performance.Metrics.MaximumDrawdownPercent:F2}% · 交易 {performance.Metrics.TradeCount} 笔";
+            Message = "组合模拟完成：等权、零成本、5 日持有期的收盘价对收盘价模拟。";
+            State = SparrowResearchState.Completed;
+        }
+        catch (Exception ex)
+        {
+            State = SparrowResearchState.Error;
+            Message = "组合模拟失败：" + ex.Message;
+        }
+        finally
+        {
+            RunPortfolioSimulationCommand.NotifyCanExecuteChanged();
+        }
     }
     [RelayCommand]
     public void RefreshProviderHealth()

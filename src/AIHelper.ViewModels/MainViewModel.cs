@@ -227,10 +227,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
 			int passed = results.Count(item => item.Success);
 			_dialogService.ShowMessage("数据源诊断完成：" + passed + "/" + results.Count + " 项通过。\n详细结果已写入日志窗口。", "数据源诊断");
 		}
-		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
+		catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常");
 			AppendLog("❌ 数据源诊断失败：" + ex.Message);
 		}
 	}
+
+	/// <summary>Opens the WebView2 live chart for a symbol; shared by scanner windows' result rows.</summary>
+	public void ShowLiveChart(string code, string name) => _dialogService.ShowLiveChart(code, name);
 
 	[RelayCommand]
 	private void OpenImportExport()

@@ -54,4 +54,15 @@ public partial class SparrowWindowDC : HandyControl.Controls.Window
             }
         };
     }
+
+    /// <summary>Double-clicking a result row opens its WebView2 live chart via the ViewModel command.</summary>
+    private void ResultsGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        // Header/background double-clicks must not re-open the chart for a stale selection.
+        if (SparrowUiTreeHelper.FindAncestor<System.Windows.Controls.DataGridRow>(e.OriginalSource as DependencyObject) is null) return;
+        if (ResultsGrid.SelectedItem is SparrowResultRow row)
+        {
+            _vm.ShowLiveChartCommand.Execute(row);
+        }
+    }
 }
