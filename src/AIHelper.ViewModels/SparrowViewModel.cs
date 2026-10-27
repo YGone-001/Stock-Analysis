@@ -38,6 +38,9 @@ public partial class SparrowViewModel : ObservableObject
     private IReadOnlyList<SparrowPairComparisonRow> _lastPairComparisonRows = Array.Empty<SparrowPairComparisonRow>();
     private string _lastPairLeftVersion = "";
     private string _lastPairRightVersion = "";
+    private IReadOnlyCollection<string> _previousTopNCodes = Array.Empty<string>();
+    private DateTime? _lastAutoScanAt;
+    private bool _autoScanPending;
     private SparrowStrategyMode? _lastCompletedMode;
     private DateTime _lastCompletedAt;
     private CancellationTokenSource _cts;
@@ -631,13 +634,58 @@ public partial class SparrowViewModel : ObservableObject
                 ? "Comparison cancelled; no incomplete CSV or stock groups were created."
                 : "扫描已取消。");
         }
-        catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常"); 
+        catch (Exception ex) { Serilog.Log.Warning(ex, "捕获到未处理异常");
             AppendLog("❌ 引擎崩溃: " + ex.Message);
         }
         finally
         {
             IsScanning = false;
         }
+
+        CompleteAutoScanCycle();
+    }
+
+    /// <summary>
+    /// Auto-scan tick, driven by the window's minute timer. Starts a scan when the switch is on, the
+    /// 14:00-14:50 weekday window is active, the interval has elapsed, and no scan is running.
+    /// </summary>
+    public void AutoScanTick(DateTime now)
+    {
+        if (!SystemSettings.AutoScanEnabled || IsScanning) return;
+        if (!SparrowAutoScan.IsDue(now, _lastAutoScanAt)) return;
+        _lastAutoScanAt = now;
+        if (!StartCommand.CanExecute(null)) return;
+        _autoScanPending = true;
+        AppendLog($"🕒 [自动扫描] {now:HH:mm:ss} 盘中窗口触发第 {SparrowAutoScan.IntervalMinutes} 分钟轮询扫描。");
+        StartCommand.Execute(null);
+    }
+
+    /// <summary>
+    /// Runs after every completed scan: refreshes the previous TopN snapshot and, when the completion came
+    /// from an auto-scan tick, notifies about first-time entries through Growl.
+    /// </summary>
+    private void CompleteAutoScanCycle()
+    {
+        IReadOnlyList<SparrowRankedCandidate> ranking = _lastCompletedMode switch
+        {
+            SparrowStrategyMode.Classic => _lastClassicRanking,
+            SparrowStrategyMode.Compare or SparrowStrategyMode.PairCompare => Array.Empty<SparrowRankedCandidate>(),
+            _ => _lastV2Ranking
+        };
+        if (ranking.Count == 0 && _previousTopNCodes.Count > 0 || _lastCompletedAt == default) return;
+        if (ranking.Count == 0 && _previousTopNCodes.Count == 0) return;
+
+        IReadOnlyList<SparrowRankedCandidate> current = ranking.Take(TopN).ToArray();
+        IReadOnlyList<SparrowRankedCandidate> entrants = SparrowAutoScan.NewEntrants(_previousTopNCodes, current);
+        bool pending = _autoScanPending;
+        _autoScanPending = false;
+        _previousTopNCodes = current.Select(item => item.Code).ToHashSet(StringComparer.Ordinal);
+        if (!pending || entrants.Count == 0) return;
+
+        string names = string.Join("、", entrants.Take(SparrowAutoScan.MaxNotifications)
+            .Select(item => $"{item.Name}({item.Code})"));
+        string suffix = entrants.Count > SparrowAutoScan.MaxNotifications ? $" 等 {entrants.Count} 只" : "";
+        Growl.Info($"🦅 盘中异动：{names}{suffix} 首次进入 {StrategyMode.ToDisplayName()} Top{TopN}。");
     }
 
     private void PopulateResults(IReadOnlyList<SparrowRankedCandidate> ranking, int topN)

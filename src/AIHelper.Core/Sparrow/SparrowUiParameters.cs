@@ -267,6 +267,7 @@ public sealed class SparrowSystemSettings : INotifyPropertyChanged
 {
     private int _maxConcurrency = SparrowParameterDefaults.MaxConcurrency;
     private bool _useCache = SparrowParameterDefaults.UseCache;
+    private bool _autoScanEnabled = SparrowParameterDefaults.AutoScanEnabled;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -289,6 +290,18 @@ public sealed class SparrowSystemSettings : INotifyPropertyChanged
             if (_useCache == value) return;
             _useCache = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UseCache)));
+        }
+    }
+
+    /// <summary>Enables the intraday 14:00-14:50 auto-scan loop with Growl notifications for new TopN entrants.</summary>
+    public bool AutoScanEnabled
+    {
+        get => _autoScanEnabled;
+        set
+        {
+            if (_autoScanEnabled == value) return;
+            _autoScanEnabled = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AutoScanEnabled)));
         }
     }
 }
@@ -323,6 +336,7 @@ public static class SparrowParameterDefaults
     public const bool IntradayGateEnabled = true;
     public const int IntradayPeriodMinutes = 60;
     public const int IntradayMaPeriod = 10;
+    public const bool AutoScanEnabled = false;
     public const int MaxConcurrency = 8;
     public const bool UseCache = true;
 
@@ -371,7 +385,8 @@ public static class SparrowParameterDefaults
     public static SparrowSystemSettings CreateSystemSettings() => new()
     {
         MaxConcurrency = MaxConcurrency,
-        UseCache = UseCache
+        UseCache = UseCache,
+        AutoScanEnabled = AutoScanEnabled
     };
 
     public static void ResetClassic(SparrowStrategyUiParameters parameters)

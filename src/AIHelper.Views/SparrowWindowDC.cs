@@ -16,6 +16,7 @@ namespace AIHelper.Views;
 public partial class SparrowWindowDC : HandyControl.Controls.Window
 {
     private readonly SparrowViewModel _vm;
+    private readonly System.Windows.Threading.DispatcherTimer _autoScanTimer;
 
     public SparrowWindowDC(MainViewModel mainVm)
     {
@@ -29,6 +30,9 @@ public partial class SparrowWindowDC : HandyControl.Controls.Window
         _vm = new SparrowViewModel(mainVm);
         DataContext = _vm;
         Loaded += SparrowWindowDC_Loaded;
+        // The window owns the clock: a one-minute UI timer ticks the VM's pure auto-scan rules.
+        _autoScanTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        _autoScanTimer.Tick += (_, _) => _vm.AutoScanTick(DateTime.Now);
     }
 
     /// <summary>
@@ -53,6 +57,8 @@ public partial class SparrowWindowDC : HandyControl.Controls.Window
                 TxtLog.ScrollToEnd();
             }
         };
+        // The timer runs for the window's lifetime; the VM's rules gate every tick.
+        _autoScanTimer.Start();
     }
 
     /// <summary>Double-clicking a result row opens its WebView2 live chart via the ViewModel command.</summary>

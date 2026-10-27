@@ -217,15 +217,20 @@
         </StackPanel>
 
         <Expander Header="高级 / 系统设置" IsExpanded="False">
-          <WrapPanel>
-            <CheckBox x:Name="ChkUseCache" Content="使用缓存" ToolTip="运行时数据缓存设置，不改变选股规则。" Margin="0,0,15,10"
-                      IsChecked="{Binding SystemSettings.UseCache, Mode=TwoWay}"/>
-            <StackPanel Orientation="Horizontal" Margin="0,0,15,10" ToolTip="网络并发数，只影响执行速度，不改变选股质量。">
-              <TextBlock Text="并发数：" VerticalAlignment="Center" Margin="0,0,5,0"/>
-              <hc:NumericUpDown x:Name="NumConcurrency" Minimum="1" Maximum="32" Width="65"
-                                Value="{Binding SystemSettings.MaxConcurrency, Mode=TwoWay}"/>
-            </StackPanel>
-          </WrapPanel>
+          <StackPanel>
+            <WrapPanel>
+              <CheckBox x:Name="ChkUseCache" Content="使用缓存" ToolTip="运行时数据缓存设置，不改变选股规则。" Margin="0,0,15,10"
+                        IsChecked="{Binding SystemSettings.UseCache, Mode=TwoWay}"/>
+              <StackPanel Orientation="Horizontal" Margin="0,0,15,10" ToolTip="网络并发数，只影响执行速度，不改变选股质量。">
+                <TextBlock Text="并发数：" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <hc:NumericUpDown x:Name="NumConcurrency" Minimum="1" Maximum="32" Width="65"
+                                  Value="{Binding SystemSettings.MaxConcurrency, Mode=TwoWay}"/>
+              </StackPanel>
+              <CheckBox x:Name="ChkAutoScan" Content="盘中自动扫描（14:00-14:50 每 5 分钟）" ToolTip="工作日盘中定时以当前模式扫描，新晋 Top N 标的通过 Growl 提醒；不影响手动扫描。" Margin="0,0,15,10"
+                        IsChecked="{Binding SystemSettings.AutoScanEnabled, Mode=TwoWay}"/>
+            </WrapPanel>
+            <TextBlock Text="自动扫描仅在窗口内触发；完成后的新晋标的（相对上一次 Top N）逐只提醒，最多点名 5 只。" Foreground="Gray" TextWrapping="Wrap"/>
+          </StackPanel>
         </Expander>
       </StackPanel>
     </ScrollViewer>
