@@ -22,12 +22,12 @@ public sealed class HistoricalDatasetJsonLoaderTests
     }
 
     [Theory]
-    [InlineData(3, "不支持")]
+    [InlineData(4, "不支持")]
     [InlineData(1, "datasetId")]
     public async Task LoadAsync_RejectsSchemaAndMissingIdentity(int version, string expected)
     {
         HistoricalDatasetFile file = DatasetFile();
-        if (version == 3) file.SchemaVersion = version; else file.DatasetId = " ";
+        if (version == 4) file.SchemaVersion = version; else file.DatasetId = " ";
         HistoricalDatasetLoadResult result = await Load(file);
         Assert.False(result.Success);
         Assert.Contains(result.Errors, error => error.Contains(expected, StringComparison.OrdinalIgnoreCase));

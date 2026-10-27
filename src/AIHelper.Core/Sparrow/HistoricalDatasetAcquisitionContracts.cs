@@ -8,7 +8,7 @@ public sealed record HistoricalSourceCapability(string Capability, HistoricalSou
 
 public sealed record HistoricalSourceSecurity(
     string Symbol, string TsCode, string Name, string? Market, string? Exchange,
-    string? ListStatus, DateOnly? ListingDate, DateOnly? DelistingDate, string Source);
+    string? ListStatus, DateOnly? ListingDate, DateOnly? DelistingDate, string Source, string? Industry = null);
 public sealed record HistoricalCalendarDay(DateOnly TradingDate, bool IsOpen, DateOnly? PreviousOpenDate, string Source);
 public sealed record HistoricalDailyPrice(
     string Symbol, string TsCode, DateOnly TradingDate, double? Open, double? High, double? Low,

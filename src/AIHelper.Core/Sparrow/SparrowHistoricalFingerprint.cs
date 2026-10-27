@@ -24,8 +24,13 @@ public static class SparrowHistoricalFingerprint
         SparrowBenchmarkAnalysisResult.StockReturnBasis,
         SparrowBenchmarkAnalysisResult.BenchmarkReturnBasis,
         SparrowBenchmarkAnalysisResult.ExcessReturnFormula));
-    /// <summary>Uses the historical schema's own canonical algorithm. V1 stays byte-for-byte compatible.</summary>
-    public static string Dataset(HistoricalMarketDataset dataset) => dataset.SchemaVersion <= 1 ? DatasetV1(dataset) : DatasetV2(dataset);
+    /// <summary>Uses the historical schema's own canonical algorithm. V1/V2 stay byte-for-byte compatible; V3 adds the security industry row.</summary>
+    public static string Dataset(HistoricalMarketDataset dataset) => dataset.SchemaVersion switch
+    {
+        <= 1 => DatasetV1(dataset),
+        2 => DatasetV2(dataset),
+        _ => DatasetV3(dataset)
+    };
 
     public static string DatasetV1(HistoricalMarketDataset dataset)
     {
@@ -37,7 +42,12 @@ public static class SparrowHistoricalFingerprint
     }
 
     /// <summary>V2 fingerprints every field capable of changing universe, evaluation, ranking, outcome, or data-quality meaning.</summary>
-    public static string DatasetV2(HistoricalMarketDataset dataset)
+    public static string DatasetV2(HistoricalMarketDataset dataset) => DatasetCore(dataset, includeIndustry: false);
+
+    /// <summary>V3 extends the V2 preimage with the per-security industry; only V3 datasets ever execute this branch.</summary>
+    public static string DatasetV3(HistoricalMarketDataset dataset) => DatasetCore(dataset, includeIndustry: true);
+
+    private static string DatasetCore(HistoricalMarketDataset dataset, bool includeIndustry)
     {
         var rows = new List<string>
         {
@@ -50,7 +60,9 @@ public static class SparrowHistoricalFingerprint
         rows.AddRange(dataset.Securities.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair =>
         {
             HistoricalSecurity s = pair.Value;
-            return Row("Security", s.Symbol, s.Name, s.SecurityType, s.Market, s.ListingDate, s.DelistingEffectiveDate, s.LifecycleQuality, s.ObservedHistoryStart);
+            return includeIndustry
+                ? Row("Security", s.Symbol, s.Name, s.SecurityType, s.Market, s.ListingDate, s.DelistingEffectiveDate, s.LifecycleQuality, s.ObservedHistoryStart, s.Industry)
+                : Row("Security", s.Symbol, s.Name, s.SecurityType, s.Market, s.ListingDate, s.DelistingEffectiveDate, s.LifecycleQuality, s.ObservedHistoryStart);
         }));
         rows.AddRange(dataset.Universes.OrderBy(pair => pair.Key).Select(pair =>
         {

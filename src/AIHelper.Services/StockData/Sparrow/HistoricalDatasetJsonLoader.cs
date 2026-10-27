@@ -9,7 +9,7 @@ namespace AIHelper.Services.StockData.Sparrow;
 public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
 {
     public const int LegacySchemaVersion = 1;
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public async Task<HistoricalDatasetLoadResult> LoadAsync(string path, CancellationToken cancellationToken = default)
@@ -57,7 +57,7 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
     private static List<string> Validate(HistoricalDatasetFile file)
     {
         List<string> errors = new();
-        if (file.SchemaVersion is not LegacySchemaVersion and not CurrentSchemaVersion) errors.Add($"不支持的历史数据集模式版本「{file.SchemaVersion}」，当前支持：{LegacySchemaVersion}、{CurrentSchemaVersion}。");
+        if (file.SchemaVersion is not LegacySchemaVersion and not CurrentSchemaVersion and not 2) errors.Add($"不支持的历史数据集模式版本「{file.SchemaVersion}」，当前支持：{LegacySchemaVersion}、2、{CurrentSchemaVersion}。");
         if (string.IsNullOrWhiteSpace(file.DatasetId)) errors.Add("历史数据集必须提供非空的 datasetId。");
         if (file.TradingDates is not { Count: > 0 }) errors.Add("历史数据集必须提供 tradingDates。");
         else
@@ -278,7 +278,7 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
             return new HistoricalMarketDataset(file.DatasetId!, file.TradingDates!, quotes, klines, contexts, file.Capabilities!, string.IsNullOrWhiteSpace(file.PriceAdjustmentMode) ? "Unknown" : file.PriceAdjustmentMode, string.IsNullOrWhiteSpace(file.Source) ? "Unknown" : file.Source, LegacySchemaVersion);
 
         HistoricalDatasetMetadataFile metadata = file.Metadata!;
-        HistoricalSecurity[] securities = file.Securities!.Select(item => new HistoricalSecurity(item.Symbol, item.Name ?? item.Symbol, item.SecurityType, item.Market, item.ListingDate, item.DelistingEffectiveDate, item.LifecycleQuality, item.ObservedHistoryStart)).ToArray();
+        HistoricalSecurity[] securities = file.Securities!.Select(item => new HistoricalSecurity(item.Symbol, item.Name ?? item.Symbol, item.SecurityType, item.Market, item.ListingDate, item.DelistingEffectiveDate, item.LifecycleQuality, item.ObservedHistoryStart, file.SchemaVersion >= 3 ? item.Industry : null)).ToArray();
         HistoricalUniverseSnapshot[] universes = file.Universes!.Select(item => new HistoricalUniverseSnapshot(item.TradingDate, (IReadOnlyList<string>?)item.SecuritySymbols ?? Array.Empty<string>(), item.Quality, item.Source ?? string.Empty, (IReadOnlyList<string>?)item.Warnings ?? Array.Empty<string>())).ToArray();
         HistoricalDatasetMetadata runtimeMetadata = new(metadata.DatasetId!, metadata.Source ?? "Unknown", metadata.CreatedAt, metadata.UniverseQuality, metadata.Warnings);
         IReadOnlyList<HistoricalPriceSeriesProvenance> priceProvenance = file.PriceSeriesProvenance!;
@@ -296,7 +296,7 @@ public sealed class HistoricalDatasetJsonLoader : IHistoricalDatasetLoader
             priceAdjustmentMode: priceProvenance.Select(item => item.AdjustmentMode).Distinct().Count() == 1
                 ? priceProvenance[0].AdjustmentMode.ToString() : "Unknown",
             source: metadata.Source ?? "Unknown",
-            schemaVersion: CurrentSchemaVersion,
+            schemaVersion: file.SchemaVersion,
             metadata: runtimeMetadata,
             securities: securities,
             universes: universes,
@@ -369,6 +369,8 @@ public sealed class HistoricalSecurityFile
     public DateOnly? DelistingEffectiveDate { get; set; }
     public HistoricalLifecycleQuality LifecycleQuality { get; set; }
     public DateOnly? ObservedHistoryStart { get; set; }
+    /// <summary>Schema-V3 field; absent or null in V2 files, which load with a null industry.</summary>
+    public string? Industry { get; set; }
 }
 public sealed class HistoricalUniverseSnapshotFile
 {

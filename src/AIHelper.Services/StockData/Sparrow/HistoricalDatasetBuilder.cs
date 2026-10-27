@@ -149,7 +149,8 @@ public sealed class HistoricalDatasetBuilder
         IReadOnlyList<HistoricalSuspension> suspensions, bool suspensionAvailable, IEnumerable<HistoricalSourceAdjustmentFactor> factors, bool factorAvailable, List<string> warnings, HistoricalDatasetScope scope, IReadOnlyList<HistoricalCoverageEvidence> evidence)
     {
         HistoricalSecurity[] securities = master.Select(item => new HistoricalSecurity(item.Symbol, item.Name, HistoricalSecurityType.Stock, Market(item.Exchange),
-            item.ListingDate, item.DelistingDate, HistoricalLifecycleQuality.Partial, prices.TryGetValue(item.Symbol, out IReadOnlyList<HistoricalDailyPrice>? rows) ? rows.Min(row => row.TradingDate) : null)).ToArray();
+            item.ListingDate, item.DelistingDate, HistoricalLifecycleQuality.Partial, prices.TryGetValue(item.Symbol, out IReadOnlyList<HistoricalDailyPrice>? rows) ? rows.Min(row => row.TradingDate) : null,
+            item.Industry)).ToArray();
         Dictionary<(DateOnly Date, string Symbol), HistoricalDailyPrice> byDate = prices.Values.SelectMany(rows => rows).ToDictionary(item => (item.TradingDate, item.Symbol));
         HistoricalQuoteObservation[] quotes = byDate.Values.OrderBy(item => item.TradingDate).ThenBy(item => item.Symbol, StringComparer.Ordinal).Select(item =>
         {
@@ -276,7 +277,22 @@ public sealed class HistoricalDatasetBuilder
             v4.Add("KLINE_VOLUME_PARTIAL");
         // V5 additionally needs enough kline depth to resample 21+ calendar weeks; per-security depth is judged by the evaluator.
         var v5 = new List<string>(v4) { "KLINE_WEEKLY_DEPTH_UNVERIFIED" };
-        return [.. qualityBased, new(SparrowStrategyMode.V4, HistoricalReplaySupport.Partial, v4), new(SparrowStrategyMode.V5, HistoricalReplaySupport.Partial, v5)];
+        // V6 additionally consumes intraday bars that datasets never carry; its live-only gate is disclosed by the replay engine.
+        var v6 = new List<string>(v5) { "INTRADAY_BARS_UNAVAILABLE" };
+        // Schema-V3 datasets carry per-security industries: the sector-heat ranking factor auto-enables on V2+ replays.
+        IReadOnlyList<string> sectorHeat = dataset.SchemaVersion >= 3 && dataset.Securities.Values.Any(item => !string.IsNullOrWhiteSpace(item.Industry))
+            ? Array.Empty<string>()
+            : new[] { "SECTOR_INDUSTRY_UNAVAILABLE" };
+        var v2WithSector = qualityBased.Where(item => item.Strategy is SparrowStrategyMode.V2 or SparrowStrategyMode.V3)
+            .Select(item => new HistoricalStrategyCapabilityExplanation(item.Strategy, item.Status, item.ReasonCodes.Concat(sectorHeat).Distinct().OrderBy(value => value, StringComparer.Ordinal).ToArray()))
+            .ToList();
+        return
+        [
+            .. v2WithSector,
+            new(SparrowStrategyMode.V4, HistoricalReplaySupport.Partial, v4.Concat(sectorHeat).Distinct().OrderBy(value => value, StringComparer.Ordinal).ToArray()),
+            new(SparrowStrategyMode.V5, HistoricalReplaySupport.Partial, v5.Concat(sectorHeat).Distinct().OrderBy(value => value, StringComparer.Ordinal).ToArray()),
+            new(SparrowStrategyMode.V6, HistoricalReplaySupport.Partial, v6.Concat(sectorHeat).Distinct().OrderBy(value => value, StringComparer.Ordinal).ToArray())
+        ];
     }
 
     private static HistoricalStrategyCapabilityExplanation[] Capabilities(HistoricalDatasetQualitySummary quality)

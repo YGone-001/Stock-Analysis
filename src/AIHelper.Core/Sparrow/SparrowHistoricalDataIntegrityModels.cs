@@ -28,7 +28,8 @@ public sealed record HistoricalSecurity(
     DateOnly? ListingDate = null,
     DateOnly? DelistingEffectiveDate = null,
     HistoricalLifecycleQuality LifecycleQuality = HistoricalLifecycleQuality.Unknown,
-    DateOnly? ObservedHistoryStart = null);
+    DateOnly? ObservedHistoryStart = null,
+    string? Industry = null);
 
 public enum HistoricalSecurityStatus { Active, Suspended, Delisted, NotYetListed, Unknown }
 

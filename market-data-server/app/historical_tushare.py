@@ -115,6 +115,7 @@ class HistoricalSecurityDto(BaseModel):
     list_status: str | None = None
     list_date: date | None = None
     delist_date: date | None = None
+    industry: str | None = None
     source: str = "tushare"
 
 
@@ -316,7 +317,7 @@ class HistoricalTushareClient:
         rows: list[HistoricalSecurityDto] = []
         for status in ("L", "D", "P", "G", "UN"):
             for item in await self._call("stock_basic", {"exchange": "", "list_status": status},
-                                         "ts_code,symbol,name,market,exchange,list_status,list_date,delist_date"):
+                                         "ts_code,symbol,name,market,exchange,list_status,list_date,delist_date,industry"):
                 list_date, delist_date = _date(item.get("list_date")), _date(item.get("delist_date"))
                 if list_date and list_date > end:
                     continue
@@ -327,7 +328,8 @@ class HistoricalTushareClient:
                 ts_code = str(item.get("ts_code") or "")
                 rows.append(HistoricalSecurityDto(symbol=str(item.get("symbol") or ts_code.split(".")[0]), ts_code=ts_code,
                     name=str(item.get("name") or ts_code), market=_text(item.get("market")), exchange=_text(item.get("exchange")),
-                    list_status=_text(item.get("list_status")), list_date=list_date, delist_date=delist_date))
+                    list_status=_text(item.get("list_status")), list_date=list_date, delist_date=delist_date,
+                    industry=_text(item.get("industry"))))
         return sorted(_unique_by(rows, lambda item: item.ts_code), key=lambda item: item.ts_code)
 
     async def calendar(self, exchange: str, start: date, end: date) -> list[HistoricalCalendarDto]:
@@ -388,10 +390,10 @@ class HistoricalTushareClient:
         all_rows: list[HistoricalSecurityDto] = []
         evidence: list[HistoricalCoverageEvidence] = []
         for status in ("L", "D", "P", "G", "UN"):
-            rows = await self._call("stock_basic", {"exchange": "", "list_status": status}, "ts_code,symbol,name,market,exchange,list_status,list_date,delist_date")
+            rows = await self._call("stock_basic", {"exchange": "", "list_status": status}, "ts_code,symbol,name,market,exchange,list_status,list_date,delist_date,industry")
             dto = [HistoricalSecurityDto(symbol=str(item.get("symbol") or str(item.get("ts_code") or "").split(".")[0]), ts_code=str(item.get("ts_code") or ""),
                 name=str(item.get("name") or ""), market=_text(item.get("market")), exchange=_text(item.get("exchange")), list_status=_text(item.get("list_status")),
-                list_date=_date(item.get("list_date")), delist_date=_date(item.get("delist_date"))) for item in rows]
+                list_date=_date(item.get("list_date")), delist_date=_date(item.get("delist_date")), industry=_text(item.get("industry"))) for item in rows]
             dto = [item for item in dto if (not item.list_date or item.list_date <= end) and (not item.delist_date or item.delist_date >= start)]
             evidence.append(self._evidence("stock_basic", start, end, len(rows), 6000, "status partition", list_status=status,
                 proof="status partition response below documented 6000-row cap" if len(rows) < 6000 else "response reached documented cap"))

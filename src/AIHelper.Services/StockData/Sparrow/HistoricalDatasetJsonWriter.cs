@@ -21,6 +21,9 @@ public sealed class HistoricalDatasetJsonWriter
         try
         {
             HistoricalDatasetFile file = ToFile(dataset);
+            // The file's schema version must match the dataset instance: a V2 dataset round-trips as V2 (its
+            // fingerprint excludes industry), while V3 datasets persist the industry rows.
+            file.SchemaVersion = dataset.SchemaVersion;
             await using (FileStream stream = new(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 8192, FileOptions.WriteThrough))
                 await JsonSerializer.SerializeAsync(stream, file, Json, cancellationToken).ConfigureAwait(false);
             HistoricalDatasetLoadResult check = await _loader.LoadAsync(temporary, cancellationToken).ConfigureAwait(false);
@@ -69,7 +72,7 @@ public sealed class HistoricalDatasetJsonWriter
             UniverseQuality = dataset.Metadata.UniverseQuality, Warnings = dataset.Metadata.Warnings.ToList() },
         Securities = dataset.Securities.Values.OrderBy(item => item.Symbol, StringComparer.Ordinal).Select(item => new HistoricalSecurityFile { Symbol = item.Symbol, Name = item.Name,
             SecurityType = item.SecurityType, Market = item.Market, ListingDate = item.ListingDate, DelistingEffectiveDate = item.DelistingEffectiveDate,
-            LifecycleQuality = item.LifecycleQuality, ObservedHistoryStart = item.ObservedHistoryStart }).ToList(),
+            LifecycleQuality = item.LifecycleQuality, ObservedHistoryStart = item.ObservedHistoryStart, Industry = item.Industry }).ToList(),
         Universes = dataset.Universes.Values.OrderBy(item => item.TradingDate).Select(item => new HistoricalUniverseSnapshotFile { TradingDate = item.TradingDate,
             SecuritySymbols = item.SecuritySymbols.ToList(), Quality = item.Quality, Source = item.Source, Warnings = item.Warnings.ToList() }).ToList(),
         FieldCapabilities = dataset.FieldCapabilities.Values.OrderBy(item => item.Field).ToList(),
