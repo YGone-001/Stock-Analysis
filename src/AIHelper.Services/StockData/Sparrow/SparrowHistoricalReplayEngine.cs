@@ -138,6 +138,7 @@ public sealed class SparrowHistoricalReplayEngine
     {
         SparrowScanParameters parameters = request.V2Parameters!.ToParameters();
         double? shPercent = snapshot.MarketContext?.V2ShanghaiDailyPercent;
+        SparrowSectorHeatResult sectorHeat = SectorHeatFor(dataset, snapshot);
         if (parameters.MacroDef && snapshot.MarketContext?.ClassicMarketRegime?.Defensive == true)
         {
             warnings.Add("V2 双指数弱势，本次未评估任何候选。");
@@ -157,9 +158,12 @@ public sealed class SparrowHistoricalReplayEngine
             SparrowV2CandidateEvaluation evaluation = SparrowV2CandidateEvaluator.Evaluate(security.Quote.Symbol, quote, kline, shPercent, parameters);
             if (!evaluation.Passed) continue;
             SparrowTechnicalEvaluation technical = SparrowV2RuleEvaluator.Evaluate(kline, shPercent, parameters);
-            candidates.Add((Features(security.Quote, quote, technical, parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null), evaluation.P3.ReasonCode, evaluation.P3.Reason));
+            candidates.Add((Features(security.Quote, quote, technical,
+                parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null,
+                HeatOf(sectorHeat, security.Security.Symbol)), evaluation.P3.ReasonCode, evaluation.P3.Reason));
         }
-        IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha);
+        IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha,
+            sectorHeatEnabled: sectorHeat.Available);
         return Result(dataset, request, HistoricalReplaySupport.Supported, ToSelections(ranked, candidates, request.TopN), warnings);
     }
 
@@ -170,6 +174,7 @@ public sealed class SparrowHistoricalReplayEngine
         SparrowScanParameters parameters = snapshotParameters.ToParameters();
         SparrowMomentumGateConfig gates = snapshotParameters.ToMomentumGates();
         double? shPercent = snapshot.MarketContext?.V2ShanghaiDailyPercent;
+        SparrowSectorHeatResult sectorHeat = SectorHeatFor(dataset, snapshot);
         if (parameters.MacroDef && snapshot.MarketContext?.ClassicMarketRegime?.Defensive == true)
         {
             warnings.Add("V3 双指数弱势，本次未评估任何候选。");
@@ -190,9 +195,12 @@ public sealed class SparrowHistoricalReplayEngine
             if (!p2.Passed) continue;
             SparrowTechnicalEvaluation technical = SparrowV3RuleEvaluator.Evaluate(kline, shPercent, parameters, gates);
             if (!technical.Rule.Passed) continue;
-            candidates.Add((Features(security.Quote, quote, technical, parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null), technical.Rule.ReasonCode, technical.Rule.Reason));
+            candidates.Add((Features(security.Quote, quote, technical,
+                parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null,
+                HeatOf(sectorHeat, security.Security.Symbol)), technical.Rule.ReasonCode, technical.Rule.Reason));
         }
-        IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha);
+        IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha,
+            sectorHeatEnabled: sectorHeat.Available);
         return Result(dataset, request, HistoricalReplaySupport.Supported, ToSelections(ranked, candidates, request.TopN), warnings);
     }
 
@@ -204,6 +212,7 @@ public sealed class SparrowHistoricalReplayEngine
         SparrowMomentumGateConfig momentumGates = snapshotParameters.ToMomentumGates();
         SparrowVolumeGateConfig volumeGates = snapshotParameters.ToVolumeGates();
         double? shPercent = snapshot.MarketContext?.V2ShanghaiDailyPercent;
+        SparrowSectorHeatResult sectorHeat = SectorHeatFor(dataset, snapshot);
         if (parameters.MacroDef && snapshot.MarketContext?.ClassicMarketRegime?.Defensive == true)
         {
             warnings.Add("V4 双指数弱势，本次未评估任何候选。");
@@ -224,9 +233,12 @@ public sealed class SparrowHistoricalReplayEngine
             if (!p2.Passed) continue;
             SparrowTechnicalEvaluation technical = SparrowV4RuleEvaluator.Evaluate(kline, shPercent, parameters, momentumGates, volumeGates);
             if (!technical.Rule.Passed) continue;
-            candidates.Add((Features(security.Quote, quote, technical, parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null), technical.Rule.ReasonCode, technical.Rule.Reason));
+            candidates.Add((Features(security.Quote, quote, technical,
+                parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null,
+                HeatOf(sectorHeat, security.Security.Symbol)), technical.Rule.ReasonCode, technical.Rule.Reason));
         }
-        IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha);
+        IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha,
+            sectorHeatEnabled: sectorHeat.Available);
         return Result(dataset, request, HistoricalReplaySupport.Supported, ToSelections(ranked, candidates, request.TopN), warnings);
     }
 
@@ -239,6 +251,7 @@ public sealed class SparrowHistoricalReplayEngine
         SparrowVolumeGateConfig volumeGates = snapshotParameters.ToVolumeGates();
         SparrowWeeklyGateConfig weeklyGates = snapshotParameters.ToWeeklyGates();
         double? shPercent = snapshot.MarketContext?.V2ShanghaiDailyPercent;
+        SparrowSectorHeatResult sectorHeat = SectorHeatFor(dataset, snapshot);
         if (parameters.MacroDef && snapshot.MarketContext?.ClassicMarketRegime?.Defensive == true)
         {
             warnings.Add("V5 双指数弱势，本次未评估任何候选。");
@@ -259,9 +272,12 @@ public sealed class SparrowHistoricalReplayEngine
             if (!p2.Passed) continue;
             SparrowTechnicalEvaluation technical = SparrowV5RuleEvaluator.Evaluate(kline, shPercent, parameters, momentumGates, volumeGates, weeklyGates);
             if (!technical.Rule.Passed) continue;
-            candidates.Add((Features(security.Quote, quote, technical, parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null), technical.Rule.ReasonCode, technical.Rule.Reason));
+            candidates.Add((Features(security.Quote, quote, technical,
+                parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null,
+                HeatOf(sectorHeat, security.Security.Symbol)), technical.Rule.ReasonCode, technical.Rule.Reason));
         }
-        IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha);
+        IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha,
+            sectorHeatEnabled: sectorHeat.Available);
         return Result(dataset, request, HistoricalReplaySupport.Supported, ToSelections(ranked, candidates, request.TopN), warnings);
     }
 
@@ -274,6 +290,7 @@ public sealed class SparrowHistoricalReplayEngine
         SparrowVolumeGateConfig volumeGates = snapshotParameters.ToVolumeGates();
         SparrowWeeklyGateConfig weeklyGates = snapshotParameters.ToWeeklyGates();
         double? shPercent = snapshot.MarketContext?.V2ShanghaiDailyPercent;
+        SparrowSectorHeatResult sectorHeat = SectorHeatFor(dataset, snapshot);
         if (parameters.MacroDef && snapshot.MarketContext?.ClassicMarketRegime?.Defensive == true)
         {
             warnings.Add("V6 双指数弱势，本次未评估任何候选。");
@@ -294,14 +311,23 @@ public sealed class SparrowHistoricalReplayEngine
             if (!p2.Passed) continue;
             SparrowTechnicalEvaluation technical = SparrowV6RuleEvaluator.Evaluate(kline, shPercent, parameters, momentumGates, volumeGates, weeklyGates, intradayGates: null, intradaySnapshot: null);
             if (!technical.Rule.Passed) continue;
-            candidates.Add((Features(security.Quote, quote, technical, parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null), technical.Rule.ReasonCode, technical.Rule.Reason));
+            candidates.Add((Features(security.Quote, quote, technical,
+                parameters.CheckAlpha && shPercent.HasValue ? technical.LatestPercent - shPercent.Value : null,
+                HeatOf(sectorHeat, security.Security.Symbol)), technical.Rule.ReasonCode, technical.Rule.Reason));
         }
-        IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha);
+        IReadOnlyList<SparrowRankedCandidate> ranked = _ranking.RankV2(candidates.Select(item => item.Features), parameters.MinRise, parameters.MaxRise, parameters.CheckAlpha,
+            sectorHeatEnabled: sectorHeat.Available);
         return Result(dataset, request, HistoricalReplaySupport.Supported, ToSelections(ranked, candidates, request.TopN), warnings);
     }
 
-    private static SparrowRankingFeatures Features(QuoteSnapshot source, SparrowQuoteData quote, SparrowTechnicalEvaluation technical, double? alpha = null) => new()
-    { Code = source.Symbol, Name = source.Name, RisePercent = quote.PriceDerivedPercent ?? quote.Percent, Amount = quote.Amount, OuterVolume = quote.OuterVolume, InnerVolume = quote.InnerVolume, BuyPressureRatio = SparrowRankingFeatures.CalculateBuyPressureRatio(quote.OuterVolume, quote.InnerVolume), Adhesion = technical.Adhesion, Turnover = quote.Turnover, Momentum = technical.Momentum, AlphaMargin = alpha };
+    private static SparrowSectorHeatResult SectorHeatFor(HistoricalMarketDataset dataset, HistoricalMarketSnapshot snapshot) =>
+        dataset.SchemaVersion >= 3 ? SparrowSectorHeatAggregator.Compute(snapshot) : SparrowSectorHeatResult.Unavailable;
+
+    private static double? HeatOf(SparrowSectorHeatResult sectorHeat, string symbol) =>
+        sectorHeat.Available && sectorHeat.HeatPercentileBySymbol.TryGetValue(symbol, out double heat) ? heat : null;
+
+    private static SparrowRankingFeatures Features(QuoteSnapshot source, SparrowQuoteData quote, SparrowTechnicalEvaluation technical, double? alpha = null, double? sectorHeat = null) => new()
+    { Code = source.Symbol, Name = source.Name, RisePercent = quote.PriceDerivedPercent ?? quote.Percent, Amount = quote.Amount, OuterVolume = quote.OuterVolume, InnerVolume = quote.InnerVolume, BuyPressureRatio = SparrowRankingFeatures.CalculateBuyPressureRatio(quote.OuterVolume, quote.InnerVolume), Adhesion = technical.Adhesion, Turnover = quote.Turnover, Momentum = technical.Momentum, AlphaMargin = alpha, SectorHeatPercentile = sectorHeat };
     private static IReadOnlyList<SparrowReplaySelection> ToSelections(IReadOnlyList<SparrowRankedCandidate> ranked, IEnumerable<(SparrowRankingFeatures Features, string ReasonCode, string Reason)> evidence, int topN)
     { var map = evidence.ToDictionary(item => item.Features.Code, StringComparer.Ordinal); return ranked.Take(Math.Clamp(topN, 1, 20)).Select(candidate => new SparrowReplaySelection(candidate.Code, candidate.Name, candidate, map[candidate.Code].ReasonCode, map[candidate.Code].Reason)).ToArray(); }
     private static SparrowReplayResult Result(HistoricalMarketDataset d, SparrowReplayRequest r, HistoricalReplaySupport s, IReadOnlyList<SparrowReplaySelection> selections, IReadOnlyList<string> warnings) => new(r, SparrowHistoricalFingerprint.Parameters(r), d.DatasetId, d.Fingerprint, s, selections, warnings);
