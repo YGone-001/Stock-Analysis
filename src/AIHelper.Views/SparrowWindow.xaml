@@ -290,6 +290,26 @@
             </DataGrid.Columns>
           </DataGrid>
         </TabItem>
+        <TabItem Header="盘中特征诊断">
+          <Grid Margin="6">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="160"/></Grid.RowDefinitions>
+            <StackPanel><Button Content="分析已保存快照（不补取行情）" HorizontalAlignment="Left" Command="{Binding AnalyzeFeaturesCommand}" Margin="0,0,0,6"/>
+              <TextBox Text="{Binding FeatureStatus, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Background="Transparent"/>
+            </StackPanel>
+            <DataGrid x:Name="FeatureGrid" Grid.Row="1" ItemsSource="{Binding FeatureRows}" SelectedItem="{Binding SelectedFeatureRow, Mode=TwoWay}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" EnableRowVirtualization="True">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="代码" Binding="{Binding Code}" Width="80"/><DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="90"/>
+                <DataGridTextColumn Header="数据时间" Binding="{Binding DataTime}" Width="200"/>
+                <DataGridTextColumn Header="5m收益%" Binding="{Binding Return5m}" Width="150"/><DataGridTextColumn Header="15m收益%" Binding="{Binding Return15m}" Width="150"/>
+                <DataGridTextColumn Header="持续性" Binding="{Binding Persistence}" Width="150"/><DataGridTextColumn Header="距已观测高点%" Binding="{Binding Pullback}" Width="150"/>
+                <DataGridTextColumn Header="RS5m" Binding="{Binding RS5m}" Width="180"/><DataGridTextColumn Header="RS15m" Binding="{Binding RS15m}" Width="180"/>
+                <DataGridTextColumn Header="量加速" Binding="{Binding VolumeAcceleration}" Width="180"/><DataGridTextColumn Header="Trade VWAP" Binding="{Binding Vwap}" Width="180"/>
+                <DataGridTextColumn Header="同钟历史RVOL" Binding="{Binding Rvol}" Width="180"/><DataGridTextColumn Header="证据" Binding="{Binding Evidence}" Width="100"/>
+              </DataGrid.Columns>
+            </DataGrid>
+            <TextBox Grid.Row="2" Text="{Binding SelectedFeatureRow.Details, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+          </Grid>
+        </TabItem>
       </TabControl>
     </Grid>
   </Grid>

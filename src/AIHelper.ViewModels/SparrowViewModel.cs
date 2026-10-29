@@ -162,6 +162,7 @@ public partial class SparrowViewModel : ObservableObject
                 OnPropertyChanged(nameof(StartButtonText));
                 StartCommand.NotifyCanExecuteChanged();
                 CancelScanCommand.NotifyCanExecuteChanged();
+                AnalyzeFeaturesCommand.NotifyCanExecuteChanged();
             }
         }
     }
@@ -311,7 +312,7 @@ public partial class SparrowViewModel : ObservableObject
     }
     private CancellationTokenSource? _captureCts;
     private string PreviousSnapshotLabel => LastSnapshotPath == null ? "无上次文件" : $"上次文件所属运行 {LastSnapshotRunId}: {LastSnapshotPath}";
-    private void CaptureStateChanged() { OnPropertyChanged(nameof(IsCapturing)); StartCommand.NotifyCanExecuteChanged(); CancelScanCommand.NotifyCanExecuteChanged(); }
+    private void CaptureStateChanged() { OnPropertyChanged(nameof(IsCapturing)); StartCommand.NotifyCanExecuteChanged(); CancelScanCommand.NotifyCanExecuteChanged(); AnalyzeFeaturesCommand.NotifyCanExecuteChanged(); }
     private bool CanOpenSnapshot() => LastSnapshotPath != null && File.Exists(LastSnapshotPath);
     [RelayCommand(CanExecute = nameof(CanOpenSnapshot))]
     private void OpenSnapshot()
@@ -325,12 +326,13 @@ public partial class SparrowViewModel : ObservableObject
     private static string IntradaySnapshotStoreHash(string value) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)));
 
     private bool CanStart() => !_closed && !IsScanning && !IsCapturing;
-    private bool CanCancelScan() => !_closed && (IsScanning || IsCapturing);
+    private bool CanCancelScan() => !_closed && (IsScanning || IsCapturing || IsAnalyzingFeatures);
 
     [RelayCommand(CanExecute = nameof(CanCancelScan))]
     private void CancelScan()
     {
         if (IsCapturing) { _captureCts?.Cancel(); return; }
+        if (!IsScanning && IsAnalyzingFeatures) { _featureCts?.Cancel(); return; }
         if (!IsScanning || _cts == null || _cts.IsCancellationRequested) return;
         ScanOutcome = "Cancelling";
         OnPropertyChanged(nameof(ScanOutcome));
@@ -342,6 +344,9 @@ public partial class SparrowViewModel : ObservableObject
         if (_closed) return;
         CancelScan();
         _closed = true;
+        _featureGeneration++;
+        _featureCts?.Cancel();
+        AnalyzeFeaturesCommand.NotifyCanExecuteChanged();
         _ownedRun = null;
         _automaticRequest = null;
         StartCommand.NotifyCanExecuteChanged();
@@ -388,6 +393,7 @@ public partial class SparrowViewModel : ObservableObject
         var runId = Guid.NewGuid();
         _cts = cts;
         _ownedRun = runId;
+        InvalidateFeatures(runId);
         SnapshotStatus = $"当前运行 {runId}: {(captureEnabled ? "等待扫描完成后采集" : "本次未启用采集")}；{PreviousSnapshotLabel}";
         OnPropertyChanged(nameof(SnapshotStatus));
         bool OwnsRun() => !_closed && _ownedRun == runId && !token.IsCancellationRequested;

@@ -28,3 +28,9 @@ def test_minute_retains_unknown_units_original_receipt_and_cache_evidence(tmp_pa
         assert historical["data"]["List"] == []
         assert all(p["ndays"] == "1" for p in calls)
     asyncio.run(run())
+
+
+def test_explicit_benchmark_market_prefix_is_not_bare_stock_code():
+    from app.providers.eastmoney import normalize_code, to_secid
+    assert to_secid(normalize_code("sh000001"), raw_code="sh000001") == "1.000001"
+    assert to_secid(normalize_code("sz000001"), raw_code="sz000001") == "0.000001"
