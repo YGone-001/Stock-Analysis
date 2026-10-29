@@ -63,15 +63,13 @@ public partial class SparrowViewModel
         OnPropertyChanged(nameof(T1RankStatus));
         try
         {
-            var result = await Task.Run(async () =>
-            {
-                cts.Token.ThrowIfCancellationRequested();
-                var snapshot = new IntradaySnapshotStore(Path.GetDirectoryName(path)!).Load(path);
-                string fingerprint = IntradaySnapshotStore.Fingerprint(snapshot);
-                return T1RankingOverride != null
-                    ? await T1RankingOverride(snapshot, fingerprint, features, topN, cts.Token)
-                    : T1PriceOnlyRanking.Rank(snapshot, features, topN, cts.Token);
-            }, cts.Token);
+            // Load on the dispatcher like the feature workflow, so the override seam (and its captured
+            // token) is invoked synchronously before the first await; only the pure rank goes to the pool.
+            var snapshot = new IntradaySnapshotStore(Path.GetDirectoryName(path)!).Load(path);
+            string fingerprint = IntradaySnapshotStore.Fingerprint(snapshot);
+            var result = T1RankingOverride != null
+                ? await T1RankingOverride(snapshot, fingerprint, features, topN, cts.Token)
+                : await Task.Run(() => T1PriceOnlyRanking.Rank(snapshot, features, topN, cts.Token), cts.Token);
             if (!OwnsRanking()) return;
             _lastT1Result = result;
             foreach (var candidate in result.Shortlist) T1RankRows.Add(new T1RankDisplayRow(candidate));

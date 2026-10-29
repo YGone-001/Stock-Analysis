@@ -78,7 +78,6 @@ public static class T1RankingArtifact
     private static byte[] Csv(T1RankingResult result)
     {
         static string Dec(decimal value) => value.ToString(CultureInfo.InvariantCulture);
-        static string Opt(decimal? value) => value.HasValue ? Dec(value.Value) : "";
         static string Time(DateTimeOffset? value) => value?.ToString("O", CultureInfo.InvariantCulture) ?? "";
         var lines = new List<string>
         {
