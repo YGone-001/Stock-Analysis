@@ -411,7 +411,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 				{
 					string[] parts = (item.GetString() ?? "").Split(',');
 					if (parts.Length < 6 || !parts[0].StartsWith(expectedDate, StringComparison.Ordinal)) continue;
-					rows.Add(new { Time = parts[0], Price = ToMilli(ParseDouble(parts[2])), Number = ParseDouble(parts[5]) });
+                    rows.Add(new { Time = parts[0], Price = ParseMinutePrice(parts[2]), Number = ParseMinuteNumber(parts[5]), Amount = parts.Length > 6 ? ParseMinuteNumber(parts[6]) : null });
 				}
 			}
 			return Success(request, JsonSerializer.Serialize(new { data = new { List = rows } }), url, code, "rows=" + rows.Count);
@@ -808,6 +808,16 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 		if (string.IsNullOrWhiteSpace(value)) { date = TimeHelper.BeijingNow.Date; return true; }
 		return DateTime.TryParseExact(value.Trim(), new string[2] { "yyyyMMdd", "yyyy-MM-dd" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
 	}
+
+    // Minute evidence must distinguish malformed/non-finite/negative values from a real zero.
+    private static double? ParseMinuteNumber(string value) => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && double.IsFinite(number) && number >= 0 ? number : null;
+    private static long? ParseMinutePrice(string value)
+    {
+        var number = ParseMinuteNumber(value);
+        if (!number.HasValue) return null;
+        try { return checked((long)Math.Round(number.Value * 1000)); }
+        catch (OverflowException) { return null; }
+    }
 
 	private static double ParseDouble(string value) => double.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out double result) ? result : 0;
 

@@ -301,6 +301,17 @@ public partial class SparrowViewModel : ObservableObject
     private bool _enableIntradaySnapshotCapture;
     public bool EnableIntradaySnapshotCapture { get => _enableIntradaySnapshotCapture; set => SetProperty(ref _enableIntradaySnapshotCapture, value); }
     public string? LastSnapshotPath { get; private set; }
+    public Guid? LastSnapshotRunId { get; private set; }
+    public bool IsCapturing { get; private set; }
+    private TimeSpan _captureTimeout = TimeSpan.FromSeconds(30);
+    public TimeSpan CaptureTimeout
+    {
+        get => _captureTimeout;
+        set => _captureTimeout = value > TimeSpan.Zero && value <= TimeSpan.FromMinutes(1) ? value : throw new ArgumentOutOfRangeException(nameof(value));
+    }
+    private CancellationTokenSource? _captureCts;
+    private string PreviousSnapshotLabel => LastSnapshotPath == null ? "无上次文件" : $"上次文件所属运行 {LastSnapshotRunId}: {LastSnapshotPath}";
+    private void CaptureStateChanged() { OnPropertyChanged(nameof(IsCapturing)); StartCommand.NotifyCanExecuteChanged(); CancelScanCommand.NotifyCanExecuteChanged(); }
     private bool CanOpenSnapshot() => LastSnapshotPath != null && File.Exists(LastSnapshotPath);
     [RelayCommand(CanExecute = nameof(CanOpenSnapshot))]
     private void OpenSnapshot()
@@ -313,12 +324,13 @@ public partial class SparrowViewModel : ObservableObject
 
     private static string IntradaySnapshotStoreHash(string value) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)));
 
-    private bool CanStart() => !_closed && !IsScanning;
-    private bool CanCancelScan() => !_closed && IsScanning;
+    private bool CanStart() => !_closed && !IsScanning && !IsCapturing;
+    private bool CanCancelScan() => !_closed && (IsScanning || IsCapturing);
 
     [RelayCommand(CanExecute = nameof(CanCancelScan))]
     private void CancelScan()
     {
+        if (IsCapturing) { _captureCts?.Cancel(); return; }
         if (!IsScanning || _cts == null || _cts.IsCancellationRequested) return;
         ScanOutcome = "Cancelling";
         OnPropertyChanged(nameof(ScanOutcome));
@@ -376,6 +388,8 @@ public partial class SparrowViewModel : ObservableObject
         var runId = Guid.NewGuid();
         _cts = cts;
         _ownedRun = runId;
+        SnapshotStatus = $"当前运行 {runId}: {(captureEnabled ? "等待扫描完成后采集" : "本次未启用采集")}；{PreviousSnapshotLabel}";
+        OnPropertyChanged(nameof(SnapshotStatus));
         bool OwnsRun() => !_closed && _ownedRun == runId && !token.IsCancellationRequested;
         IsScanning = true;
         ScanOutcome = "Running";
@@ -749,14 +763,18 @@ public partial class SparrowViewModel : ObservableObject
                     if (captureEnabled)
                     {
                         var scanCompletedUtc = SnapshotClock.GetUtcNow();
-                        LastSnapshotPath = null;
-                        OpenSnapshotCommand.NotifyCanExecuteChanged();
-                        SnapshotStatus = "策略扫描已完成；正在采集分钟快照（独立结果）";
+                        using var budget = new CancellationTokenSource(CaptureTimeout, SnapshotClock);
+                        using var captureCts = CancellationTokenSource.CreateLinkedTokenSource(token, budget.Token);
+                        _captureCts = captureCts;
+                        IsCapturing = true;
+                        IsScanning = false;
+                        CaptureStateChanged();
+                        SnapshotStatus = $"当前运行 {runId}: 策略扫描已完成；正在采集分钟快照；{PreviousSnapshotLabel}";
                         OnPropertyChanged(nameof(SnapshotStatus));
                         try
                         {
                             string directory = Path.Combine(Path.GetDirectoryName(GetKlineCachePersistPath())!, "intraday-snapshots");
-                            var capture = SnapshotCapture ?? new IntradaySnapshotCapture(new MinuteObservationService(_mainVm.DataProvider, SnapshotClock),
+                            var capture = SnapshotCapture ??= new IntradaySnapshotCapture(new MinuteObservationService(_mainVm.DataProvider, SnapshotClock),
                                 _mainVm.QuoteService ?? new QuoteService(_mainVm.DataProvider),
                                 _mainVm.MarketCalendar ?? new MarketCalendarService(_mainVm.DataProvider), new IntradaySnapshotStore(directory), SnapshotClock);
                             var context = new IntradayScanContext(runId, mode.ToString(), mode switch {
@@ -764,13 +782,19 @@ public partial class SparrowViewModel : ObservableObject
                                 SparrowStrategyMode.V3 => SparrowStrategyVersions.V3, SparrowStrategyMode.V4 => SparrowStrategyVersions.V4,
                                 SparrowStrategyMode.V5 => SparrowStrategyVersions.V5, _ => SparrowStrategyVersions.V6 },
                                 IntradaySnapshotStoreHash(parameterIdentity), topN, scanStartedUtc, scanCompletedUtc);
-                            var saved = await capture.CaptureAsync(context, ranking, token);
-                            if (OwnsRun()) { LastSnapshotPath = saved.Path; OpenSnapshotCommand.NotifyCanExecuteChanged(); SnapshotStatus = $"已保存诊断快照（非 T+1 认证）；交易日 {saved.Snapshot.TradingDate} Asia/Shanghai UTC+08；采集 {saved.Snapshot.CapturedAtUtc:O}；日历 {saved.Snapshot.Calendar}；{saved.Snapshot.Symbols.Count}只；质量 {string.Join(", ", saved.Snapshot.Symbols.Select(s => s.Quality).Distinct())}；单位/区间或报价事件时间证据不足。文件：{saved.Path}"; }
+                            var saved = await capture.CaptureAsync(context, ranking, captureCts.Token);
+                            if (OwnsRun()) { LastSnapshotPath = saved.Path; LastSnapshotRunId = runId; OpenSnapshotCommand.NotifyCanExecuteChanged(); SnapshotStatus = $"当前运行 {runId}: 已保存诊断快照（非 T+1 认证）；交易日 {saved.Snapshot.TradingDate} Asia/Shanghai UTC+08；采集 {saved.Snapshot.CapturedAtUtc:O}；日历 {saved.Snapshot.Calendar}；{saved.Snapshot.Symbols.Count}只；质量 {string.Join(", ", saved.Snapshot.Symbols.Select(s => s.Quality).Distinct())}；单位/区间或报价事件时间证据不足。文件：{saved.Path}"; }
                         }
-                        catch (OperationCanceledException) when (token.IsCancellationRequested)
-                        { if (!_closed) { SnapshotStatus = "快照采集已取消；策略扫描结果保留"; ScanOutcome = Results.Count == 0 ? "CompletedEmpty" : "Completed"; } }
+                        catch (OperationCanceledException) when (captureCts.IsCancellationRequested)
+                        { if (!_closed) SnapshotStatus = $"当前运行 {runId}: {(budget.IsCancellationRequested ? "快照采集超时" : "快照采集已取消")}；策略扫描结果保留；{PreviousSnapshotLabel}"; }
                         catch (Exception ex)
-                        { if (!_closed) SnapshotStatus = "快照采集失败；策略扫描结果保留：" + ex.GetType().Name; }
+                        { if (!_closed) SnapshotStatus = $"当前运行 {runId}: 快照采集失败；策略扫描结果保留：{ex.GetType().Name}；{PreviousSnapshotLabel}"; }
+                        finally
+                        {
+                            _captureCts = null;
+                            IsCapturing = false;
+                            if (!_closed) CaptureStateChanged();
+                        }
                         if (!_closed) OnPropertyChanged(nameof(SnapshotStatus));
                     }
                     if (!OwnsRun()) return;
@@ -786,6 +810,7 @@ public partial class SparrowViewModel : ObservableObject
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             ScanOutcome = "Cancelled";
+            if (!_closed) { SnapshotStatus = $"当前运行 {runId}: 扫描已取消，本次未采集；{PreviousSnapshotLabel}"; OnPropertyChanged(nameof(SnapshotStatus)); }
             if (!_closed) ResultSummary = "扫描已取消；保留上次完成结果";
             if (!_closed) AppendLog(mode == SparrowStrategyMode.Compare
                 ? "Comparison cancelled; no incomplete CSV or stock groups were created."
@@ -795,6 +820,7 @@ public partial class SparrowViewModel : ObservableObject
         {
             Serilog.Log.Warning(ex, "捕获到未处理异常");
             ScanOutcome = "Failed";
+            if (!_closed) { SnapshotStatus = $"当前运行 {runId}: 扫描失败，本次未采集；{PreviousSnapshotLabel}"; OnPropertyChanged(nameof(SnapshotStatus)); }
             if (!_closed) { ResultSummary = "扫描失败；保留上次完成结果"; AppendLog("❌ 引擎崩溃: " + ex.Message); }
         }
         finally

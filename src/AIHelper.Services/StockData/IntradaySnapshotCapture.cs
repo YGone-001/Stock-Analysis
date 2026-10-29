@@ -51,10 +51,25 @@ public sealed class IntradaySnapshotCapture(IMinuteObservationService minutes, I
     IntradayFreshnessPolicy? freshness = null)
 {
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+    private Task? _pendingSource;
+    private async Task<T> AwaitSource<T>(Task<T> source, CancellationToken token)
+    {
+        _pendingSource = source;
+        try { var value = await source.WaitAsync(token); _pendingSource = null; return value; }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // A non-cooperative provider may finish later. Observe faults and retain the request
+            // so subsequent captures fail promptly instead of accumulating outstanding requests.
+            _ = source.ContinueWith(failed => { _ = failed.Exception; }, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            throw;
+        }
+    }
     public async Task<(IntradaySnapshot Snapshot, string Path)> CaptureAsync(IntradayScanContext scan,
         IReadOnlyList<SparrowRankedCandidate> ranking, CancellationToken token, DateTimeOffset? requestedAsOf = null)
     {
         if (scan.TopN is < 1 or > 20 || scan.ScanCompletedAtUtc < scan.ScanStartedAtUtc) throw new ArgumentException("Invalid scan context");
+        if (_pendingSource is { IsCompleted: false }) throw new InvalidOperationException("Previous capture source request is still cancelling");
         var started = _clock.GetUtcNow();
         var date = ChinaExchangeTime.Date(requestedAsOf ?? started);
         MarketDataMetadata unknown = new("unavailable", false, false, false);
@@ -62,7 +77,7 @@ public sealed class IntradaySnapshotCapture(IMinuteObservationService minutes, I
         var session = SessionEvidence.Unavailable;
         try
         {
-            var day = await calendar.GetTradingDayAsync(date.ToDateTime(TimeOnly.MinValue), token);
+            var day = await AwaitSource(calendar.GetTradingDayAsync(date.ToDateTime(TimeOnly.MinValue), token), token);
             calendarMetadata = day.Metadata;
             if (day.Success && day.Data is { } d && d.HasAuthoritativeEvidence && !day.Metadata.IsStale && day.Metadata.CacheFreshness != CacheFreshness.Stale)
                 session = DateOnly.FromDateTime(d.RequestedDate) != date ? SessionEvidence.Inconsistent : d.IsTradingDay ? SessionEvidence.TradingDay : SessionEvidence.NonTradingDay;
@@ -74,13 +89,13 @@ public sealed class IntradaySnapshotCapture(IMinuteObservationService minutes, I
         {
             token.ThrowIfCancellationRequested();
             MinuteObservationResult minute;
-            try { minute = await minutes.GetAsync(candidate.Code, date, token); }
+            try { minute = await AwaitSource(minutes.GetAsync(candidate.Code, date, token), token); }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception) { minute = new(Array.Empty<MinuteObservation>(), IntradayQuality.SourceFailure, "minute source failure", unknown); }
             QuoteSnapshot? quote = null; var quoteMetadata = unknown; var quoteQuality = IntradayQuality.SourceFailure;
             try
             {
-                var q = await quotes.GetQuoteAsync(candidate.Code, token);
+                var q = await AwaitSource(quotes.GetQuoteAsync(candidate.Code, token), token);
                 quote = q.Data; quoteMetadata = q.Metadata;
                 quoteQuality = q.Success && quote != null ? IntradayQuality.MissingEventTime : IntradayQuality.SourceFailure;
             }
@@ -92,9 +107,10 @@ public sealed class IntradaySnapshotCapture(IMinuteObservationService minutes, I
         var captured = _clock.GetUtcNow();
         var cutoff = requestedAsOf ?? captured; // Newly acquired data is NEVER labelled as scan-start evidence.
         var policy = freshness ?? IntradayFreshnessPolicy.Default;
-        symbols = symbols.Select(s => s with { Quality = s.Minutes.Status == IntradayQuality.SourceFailure ? IntradayQuality.SourceFailure
-            : s.Minutes.Rows.Count == 0 ? IntradayQuality.Unavailable
-            : s.Minutes.Rows.Select(r => IntradayCutoff.Validate(r, date, cutoff, policy)).FirstOrDefault(q => q != IntradayQuality.Valid, IntradayQuality.Partial) }).ToList();
+        symbols = symbols.Select(s => {
+            var summary = MinuteQualityAggregation.Summarize(s.Minutes, date, cutoff, policy);
+            return s with { Quality = summary.AggregateQuality, MinuteSummary = summary };
+        }).ToList();
         // The legacy quote contract supplies no event time. Persist useful diagnostics, never certify it.
         var snapshot = new IntradaySnapshot(1, scan, date, started, captured, cutoff, session, calendarMetadata, symbols, false);
         token.ThrowIfCancellationRequested();

@@ -30,7 +30,7 @@ public sealed class IntradaySnapshotTests
         }
     }
     private static SparrowRankedCandidate Candidate(string code = "600001") => new() { Code = code, Name = code, Rank = 1, TotalScore = 20, RankingProfile = "fixture", Features = new SparrowRankingFeatures { Code = code, Name = code } };
-    private static MinuteObservation Row() => new("600001", Now, Now, Now, 12.34m, 12, 1000, "shares", "CNY", Metadata, "one minute ending at source timestamp");
+    private static MinuteObservation Row() => new("600001", Now, Now, Now, 12.34m, 12, 1000, "shares", "CNY", Metadata, "one minute ending at source timestamp", EventTimeSemanticsVerified: true);
     private static IntradayScanContext Context() => new(Guid.NewGuid(), "V2", "v2", "fixture-parameters", 1, Now.AddMinutes(-15), Now.AddMinutes(-3));
     private static IntradaySnapshotCapture Capture(Provider provider, string directory, Clock? clock = null) => new(new MinuteObservationService(provider, clock ?? new Clock()), new QuoteService(provider), new MarketCalendarService(provider), new IntradaySnapshotStore(directory), clock ?? new Clock());
     private static string Temp() => Path.Combine(Path.GetTempPath(), "AIHelper-Intraday-Tests", Guid.NewGuid().ToString("N"));
@@ -82,7 +82,7 @@ public sealed class IntradaySnapshotTests
         Assert.Null(Assert.Single((await service.GetAsync("600001", Date)).Rows).AvailableAtUtc);
         provider.MinuteJson = "{\"data\":{\"List\":[{\"Time\":\"bad\",\"Price\":\"NaN\"},{\"Time\":\"2026-10-29 14:45\"},{\"Time\":\"2026-10-29 14:45\"}]}}";
         result = await service.GetAsync("600001", Date);
-        Assert.Equal(2, result.Rows.Count); Assert.Contains(result.Rows, r => r.ExchangeEventTime is null && r.PriceYuan is null);
+        Assert.Equal(3, result.Rows.Count); Assert.Contains(result.Rows, r => r.ExchangeEventTime is null && r.PriceYuan is null);
         Assert.Equal(IntradayQuality.Partial, result.Status);
     }
     [Fact]
@@ -169,7 +169,7 @@ public sealed class IntradaySnapshotTests
             vm.EnableIntradaySnapshotCapture = true;
             vm.ScanOverride = (_, _) => Task.FromResult<IReadOnlyList<SparrowRankedCandidate>>(new[] { Candidate() });
             Task task = vm.StartCommand.ExecuteAsync(null);
-            Assert.True(vm.IsScanning); Assert.Single(vm.Results);
+            Assert.False(vm.IsScanning); Assert.True(vm.IsCapturing); Assert.Single(vm.Results);
             vm.CancelScanCommand.Execute(null);
             provider.PendingMinute.SetResult(new StockDataResult { Success = true, SourceKind = DataSourceKind.EastMoney, Json = provider.MinuteJson });
             Pump(task);

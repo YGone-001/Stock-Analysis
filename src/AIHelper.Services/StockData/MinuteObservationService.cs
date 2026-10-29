@@ -43,7 +43,7 @@ public sealed class MinuteObservationService(IStockDataProvider provider, TimePr
                     if (DateTime.TryParseExact(text, new[] { "yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out var local)) stamp = new DateTimeOffset(local, ChinaExchangeTime.Offset);
                     else if (text is not null && (text.EndsWith("+08:00", StringComparison.Ordinal) || text.EndsWith("Z", StringComparison.Ordinal)) && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var explicitTime)) stamp = explicitTime;
                 }
-                if (stamp is { } value && !seen.Add(value)) { malformed = true; continue; }
+                if (stamp is { } value && !seen.Add(value)) malformed = true;
                 if (stamp is null) malformed = true;
                 decimal? price = Number(item, "Price");
                 // Both repository providers explicitly apply ToMilli/to_milli to source price.
