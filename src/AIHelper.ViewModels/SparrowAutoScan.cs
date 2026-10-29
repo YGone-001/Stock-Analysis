@@ -35,3 +35,18 @@ public static class SparrowAutoScan
         return currentTopN.Where(item => !previousCodes.Contains(item.Code)).ToArray();
     }
 }
+
+/// <summary>Only successful observations enter this state, scoped to execution identity and date.</summary>
+public sealed class SparrowAutoScanSnapshot
+{
+    private (string Identity, DateTime Date)? _key;
+    private HashSet<string> _codes = new(StringComparer.Ordinal);
+    public IReadOnlyList<SparrowRankedCandidate> Observe(string identity, DateTime date, IReadOnlyList<SparrowRankedCandidate> current)
+    {
+        var key = (identity, date.Date);
+        var entrants = _key == key ? current.Where(item => !_codes.Contains(item.Code)).ToArray() : Array.Empty<SparrowRankedCandidate>();
+        _key = key;
+        _codes = current.Select(item => item.Code).ToHashSet(StringComparer.Ordinal);
+        return entrants;
+    }
+}

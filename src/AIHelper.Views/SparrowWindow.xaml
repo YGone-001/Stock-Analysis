@@ -253,6 +253,7 @@
         <TextBlock x:Name="TxtStats" Grid.Column="2" VerticalAlignment="Center" Margin="0,0,10,0"/>
         <StackPanel Grid.Column="3" Orientation="Horizontal">
           <Button x:Name="BtnStart" Content="{Binding StartButtonText}" MinWidth="96" Margin="0,0,8,0" Command="{Binding StartCommand}"/>
+          <Button Content="停止扫描" Margin="0,0,8,0" Command="{Binding CancelScanCommand}"/>
           <Button x:Name="BtnTest" Content="自检" MinWidth="72" Command="{Binding TestCommand}"/>
         </StackPanel>
       </Grid>
@@ -268,10 +269,13 @@
                     HeadersVisibility="Column" GridLinesVisibility="Horizontal" SelectionMode="Single"
                     RowHeaderWidth="0" MouseDoubleClick="ResultsGrid_MouseDoubleClick">
             <DataGrid.Columns>
-              <DataGridTextColumn Header="排名" Binding="{Binding Rank}" Width="46"/>
+              <DataGridTextColumn Header="排名" Binding="{Binding DisplayRank}" Width="46"/>
               <DataGridTextColumn Header="代码" Binding="{Binding Code}" Width="78"/>
               <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="100"/>
-              <DataGridTextColumn Header="评分" Binding="{Binding TotalScore, StringFormat=F1}" Width="62"/>
+              <DataGridTextColumn Header="类别" Binding="{Binding Category}" Width="90"/>
+              <DataGridTextColumn Header="左策略" Binding="{Binding LeftVersion}" Width="80"/>
+              <DataGridTextColumn Header="右策略" Binding="{Binding RightVersion}" Width="80"/>
+              <DataGridTextColumn Header="评分" Binding="{Binding DisplayScore, StringFormat=F1}" Width="62"/>
               <DataGridTextColumn Header="涨幅%" Binding="{Binding RisePercent, StringFormat=F2}" Width="66"/>
               <DataGridTextColumn Header="成交额(万)" Binding="{Binding AmountWan, StringFormat=F0}" Width="88"/>
               <DataGridTextColumn Header="买压比" Binding="{Binding BuyPressureRatio, StringFormat=F2}" Width="66"/>

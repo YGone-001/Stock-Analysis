@@ -78,7 +78,7 @@ public sealed class SparrowWindowRealUiTests
             Assert.Equal("V6（分钟回踩）", options[6].DisplayName);
             Assert.Equal("双版本对照", options[7].DisplayName);
 
-            string artifactDir = @"C:\Users\YGone\.gemini\antigravity\brain\61802ae4-a116-4387-b1a8-996a03966bd0";
+            string artifactDir = Path.Combine(Path.GetTempPath(), "AIHelper-Sparrow-UI");
             Directory.CreateDirectory(artifactDir);
 
             // 2. Mode: Classic
@@ -230,7 +230,10 @@ public sealed class SparrowWindowRealUiTests
             DataGrid? grid = FindDescendant<DataGrid>(window);
             Assert.NotNull(grid);
             Assert.False(grid.AutoGenerateColumns);
-            Assert.Equal(11, grid.Columns.Count);
+            Assert.Equal(14, grid.Columns.Count);
+            Assert.Contains(grid.Columns, column => Equals(column.Header, "类别"));
+            Assert.Contains(grid.Columns, column => Equals(column.Header, "左策略"));
+            Assert.Contains(grid.Columns, column => Equals(column.Header, "右策略"));
             Assert.Same(vm.Results, grid.ItemsSource);
         });
     }
@@ -374,7 +377,7 @@ public sealed class SparrowWindowRealUiTests
         }
     }
 
-    private static void RunWindowTest(Action<SparrowWindowDC, SparrowViewModel> action)
+    internal static void RunWindowTest(Action<SparrowWindowDC, SparrowViewModel> action)
     {
         RunOnSharedUiDispatcher(() =>
         {

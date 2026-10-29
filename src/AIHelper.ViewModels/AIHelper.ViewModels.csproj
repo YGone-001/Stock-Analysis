@@ -3,6 +3,7 @@
     <UseWPF>true</UseWPF>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="AIHelper.Services.Tests" />
     <ProjectReference Include="..\AIHelper.Core\AIHelper.Core.csproj" />
     <ProjectReference Include="..\AIHelper.Services\AIHelper.Services.csproj" />
     <ProjectReference Include="..\AIHelper.Infrastructure\AIHelper.Infrastructure.csproj" />

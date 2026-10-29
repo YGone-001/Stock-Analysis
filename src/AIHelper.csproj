@@ -16,7 +16,7 @@
     <NoWarn>$(NoWarn);CS8618;CS8600;CS8601;CS8602;CS8604;CS8625</NoWarn>
   </PropertyGroup>
   <PropertyGroup>
-    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationIcon>assets\app.ico</ApplicationIcon>
     <RootNamespace />
     <DefaultItemExcludes>$(DefaultItemExcludes);AIHelper.Core\**;AIHelper.Infrastructure\**;AIHelper.Services\**;AIHelper.ViewModels\**</DefaultItemExcludes>
   </PropertyGroup>
@@ -189,6 +189,7 @@
     <Resource Include="assets\face\09.png" />
     <Resource Include="assets\face\08.png" />
     <Resource Include="assets\app.ico" />
+    <Content Include="assets\app.ico" Link="app.ico" CopyToOutputDirectory="PreserveNewest" />
     <Resource Include="views\chartwindow.baml" />
     <Resource Include="views\exportcontrol.baml" />
     <Resource Include="views\livechartwindow.baml" />
