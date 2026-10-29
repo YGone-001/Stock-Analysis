@@ -21,19 +21,23 @@ public partial class SparrowViewModel
     private CancellationTokenSource? _featureCts;
     private long _featureGeneration;
     internal Func<IntradaySnapshot, string, DateTimeOffset, CancellationToken, Task<IReadOnlyList<IntradayFeatureResult>>>? FeatureAnalysisOverride { get; set; }
-    private bool CanAnalyzeFeatures() => !_closed && !IsScanning && !IsCapturing && !IsAnalyzingFeatures && CanOpenSnapshot();
+    /// <summary>Retained results of the last completed feature analysis; input of the T1 ranking workflow.</summary>
+    internal IReadOnlyList<IntradayFeatureResult>? LastFeatureResults { get; private set; }
+    private bool CanAnalyzeFeatures() => !_closed && !IsScanning && !IsCapturing && !IsAnalyzingFeatures && !IsRankingT1 && CanOpenSnapshot();
     private void FeatureCommandsChanged()
     {
         AnalyzeFeaturesCommand.NotifyCanExecuteChanged(); CancelScanCommand.NotifyCanExecuteChanged();
+        RunT1RankingCommand.NotifyCanExecuteChanged(); ExportT1RankingCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(IsAnalyzingFeatures));
     }
     private void InvalidateFeatures(Guid runId)
     {
         _featureGeneration++;
         _featureCts?.Cancel();
-        FeatureRows.Clear(); SelectedFeatureRow = null;
+        FeatureRows.Clear(); SelectedFeatureRow = null; LastFeatureResults = null;
         FeatureStatus = $"当前扫描 {runId}: 尚未分析；若打开上次快照，分析结果将明确显示上次运行身份。";
         OnPropertyChanged(nameof(FeatureStatus));
+        InvalidateT1Ranking(runId);
     }
     [RelayCommand(CanExecute = nameof(CanAnalyzeFeatures))]
     private async Task AnalyzeFeatures()
@@ -45,7 +49,7 @@ public partial class SparrowViewModel
         long generation = ++_featureGeneration;
         bool OwnsAnalysis() => !_closed && !cts.IsCancellationRequested && generation == _featureGeneration && path == LastSnapshotPath;
         IsAnalyzingFeatures = true; FeatureCommandsChanged();
-        FeatureRows.Clear(); SelectedFeatureRow = null;
+        FeatureRows.Clear(); SelectedFeatureRow = null; LastFeatureResults = null;
         FeatureStatus = $"正在分析文件 {path}；不重新采集行情"; OnPropertyChanged(nameof(FeatureStatus));
         try
         {
@@ -55,6 +59,7 @@ public partial class SparrowViewModel
                 ? await FeatureAnalysisOverride(snapshot, fingerprint, snapshot.RequestedAsOf, cts.Token)
                 : await Task.Run(() => IntradayFeatureAnalysis.Analyze(snapshot, fingerprint, snapshot.RequestedAsOf, token: cts.Token), cts.Token);
             if (!OwnsAnalysis()) return;
+            LastFeatureResults = results;
             foreach (var result in results) FeatureRows.Add(new(result));
             SelectedFeatureRow = FeatureRows.FirstOrDefault();
             FeatureStatus = $"Diagnostic（非认证）；运行 {snapshot.Scan.RunId}；{snapshot.Scan.Strategy}/{snapshot.Scan.StrategyVersion}；截止 {snapshot.RequestedAsOf:O}；Asia/Shanghai UTC+08；快照 {fingerprint}；{FeatureRows.Count}只；缺失基准/单位/历史数据各项单独说明。";

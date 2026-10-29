@@ -310,6 +310,35 @@
             <TextBox Grid.Row="2" Text="{Binding SelectedFeatureRow.Details, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
           </Grid>
         </TabItem>
+        <TabItem Header="T1 研究排序">
+          <Grid Margin="6">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="160"/></Grid.RowDefinitions>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+              <Button Content="PriceOnlyV1 排序（本地计算，不取数）" Command="{Binding RunT1RankingCommand}" Margin="0,0,8,0"/>
+              <Button Content="导出可复现研究工件" Command="{Binding ExportT1RankingCommand}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="1" Margin="0,0,0,6">
+              <TextBox Text="{Binding T1RankStatus, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Background="Transparent"/>
+              <TextBlock Text="⚠ 研究短名单仅为诊断性排序（EvidenceClass=Diagnostic，非认证）；未对照次日结果评估；不构成买卖建议；覆盖范围仅限快照已捕获 TopN 候选，绝非全市场最佳。" Foreground="DarkOrange" TextWrapping="Wrap"/>
+            </StackPanel>
+            <DataGrid x:Name="T1RankGrid" Grid.Row="2" ItemsSource="{Binding T1RankRows}" SelectedItem="{Binding SelectedT1RankRow, Mode=TwoWay}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" EnableRowVirtualization="True">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="T1排名" Binding="{Binding T1Rank}" Width="60"/>
+                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="50"/>
+                <DataGridTextColumn Header="代码" Binding="{Binding Code}" Width="78"/><DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="90"/>
+                <DataGridTextColumn Header="原策略" Binding="{Binding OriginalStrategy}" Width="100"/>
+                <DataGridTextColumn Header="原排名" Binding="{Binding OriginalRank}" Width="54"/>
+                <DataGridTextColumn Header="PriceOnly评分" Binding="{Binding Score}" Width="100"/>
+                <DataGridTextColumn Header="5m收益%" Binding="{Binding Return5m}" Width="80"/><DataGridTextColumn Header="15m收益%" Binding="{Binding Return15m}" Width="80"/>
+                <DataGridTextColumn Header="持续性" Binding="{Binding Persistence}" Width="80"/><DataGridTextColumn Header="回撤%" Binding="{Binding Pullback}" Width="80"/>
+                <DataGridTextColumn Header="追高缓和" Binding="{Binding ChaseModeration}" Width="80"/>
+                <DataGridTextColumn Header="证据" Binding="{Binding Evidence}" Width="90"/>
+                <DataGridTextColumn Header="排除原因" Binding="{Binding ExclusionReason}" Width="260"/>
+              </DataGrid.Columns>
+            </DataGrid>
+            <TextBox Grid.Row="3" Text="{Binding SelectedT1RankRow.Details, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+          </Grid>
+        </TabItem>
       </TabControl>
     </Grid>
   </Grid>
