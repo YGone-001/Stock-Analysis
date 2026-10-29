@@ -12,6 +12,7 @@ using Xunit;
 namespace AIHelper.Services.Tests;
 
 /// <summary>T01–T34 acceptance matrix for the T1-Rank / PriceOnlyV1 research ranking phase (T35–T38 run as existing suites/tools).</summary>
+[Collection("T1ArtifactWrites")]
 public sealed class T1RankingTests
 {
     private static readonly DateTimeOffset T = new(2026, 10, 29, 6, 45, 0, TimeSpan.Zero); // 14:45 China
@@ -303,41 +304,6 @@ public sealed class T1RankingTests
         Assert.Equal(1, first.Shortlist.Single().T1Rank);
     }
     [Fact]
-    public void T28_ExportIsByteReproducibleWithStableProvenanceFingerprint()
-    {
-        string dir = Path.Combine(Path.GetTempPath(), "AIHelper-T1Export", Guid.NewGuid().ToString("N"));
-        try
-        {
-            var result = Rank(Snapshot(("600001", "one", 10.2m)));
-            var first = T1RankingArtifact.Write(result, dir, CancellationToken.None);
-            byte[] csv = File.ReadAllBytes(first.CsvPath); byte[] sidecar = File.ReadAllBytes(first.SidecarPath);
-            var second = T1RankingArtifact.Write(result, dir, CancellationToken.None);
-            Assert.Equal(first.ContentFingerprint, second.ContentFingerprint);
-            Assert.Equal(csv, File.ReadAllBytes(second.CsvPath)); Assert.Equal(sidecar, File.ReadAllBytes(second.SidecarPath));
-            Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(T1RankingArtifact.ContentBytes(result))), first.ContentFingerprint);
-            string json = File.ReadAllText(first.SidecarPath);
-            Assert.Contains(first.ContentFingerprint, json);
-            Assert.Contains("PriceOnlyV1", json); Assert.Contains("RelativeStrength", json);
-            Assert.Contains("Diagnostic research artifact", json);
-            string csvText = File.ReadAllText(first.CsvPath);
-            Assert.Contains("600001", csvText); Assert.Contains("88.5", csvText); Assert.Contains("ExclusionCode", csvText);
-        }
-        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
-    }
-    [Fact]
-    public void T29_CancelledExportPublishesNothingAndCleansTemporaries()
-    {
-        string dir = Path.Combine(Path.GetTempPath(), "AIHelper-T1Export", Guid.NewGuid().ToString("N"));
-        try
-        {
-            var result = Rank(Snapshot(("600001", "one", 10.2m)));
-            using var cts = new CancellationTokenSource(); cts.Cancel();
-            Assert.Throws<OperationCanceledException>(() => T1RankingArtifact.Write(result, dir, cts.Token));
-            Assert.Empty(Directory.GetFiles(dir));
-        }
-        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
-    }
-    [Fact]
     public void T30_RealSnapshotFeatureRankWorkflowReachesShortlistAndExport()
     {
         string dir = Path.Combine(Path.GetTempPath(), "AIHelper-T1Rank", Guid.NewGuid().ToString("N"));
@@ -346,7 +312,7 @@ public sealed class T1RankingTests
         {
             SparrowWindowRealUiTests.RunWindowTest((window, vm) =>
             {
-                var clock = new Clock(); var provider = new Provider();
+                var clock = new T1RankingTests.Clock(); var provider = new T1RankingTests.Provider();
                 vm.SnapshotClock = clock;
                 vm.SnapshotCapture = new IntradaySnapshotCapture(new MinuteObservationService(provider, clock), new QuoteService(provider),
                     new MarketCalendarService(provider), new IntradaySnapshotStore(dir), clock);
@@ -357,12 +323,12 @@ public sealed class T1RankingTests
                     new SparrowRankedCandidate { RankingProfile = "fixture", Code = "600002", Name = "second", Rank = 4, TotalScore = 60, Features = new SparrowRankingFeatures { Code = "600002", Name = "second" } },
                     new SparrowRankedCandidate { RankingProfile = "fixture", Code = "600003", Name = "third", Rank = 5, TotalScore = 40, Features = new SparrowRankingFeatures { Code = "600003", Name = "third" } }
                 });
-                Pump(vm.StartCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.StartCommand.ExecuteAsync(null));
                 Assert.Equal("Completed", vm.ScanOutcome);
                 string path = vm.LastSnapshotPath!; byte[] original = File.ReadAllBytes(path);
-                Pump(vm.AnalyzeFeaturesCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.AnalyzeFeaturesCommand.ExecuteAsync(null));
                 Assert.True(vm.RunT1RankingCommand.CanExecute(null));
-                Pump(vm.RunT1RankingCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.RunT1RankingCommand.ExecuteAsync(null));
                 Assert.Equal(3, vm.T1RankRows.Count);
                 var first = vm.T1RankRows[0]; var second = vm.T1RankRows[1]; var excluded = vm.T1RankRows[2];
                 Assert.Equal(1, first.T1Rank); Assert.Equal("600001", first.Code); Assert.Equal("88.5000", first.Score);
@@ -375,9 +341,10 @@ public sealed class T1RankingTests
                 Assert.Same(vm.T1RankRows, grid.ItemsSource); Assert.Equal(3, grid.Items.Count);
                 Assert.True(vm.ExportT1RankingCommand.CanExecute(null));
                 vm.T1ExportDirectory = exportDir;
-                Pump(vm.ExportT1RankingCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.ExportT1RankingCommand.ExecuteAsync(null));
                 Assert.Contains("已导出", vm.T1RankStatus);
-                Assert.Single(Directory.GetFiles(exportDir, "*.csv")); Assert.Single(Directory.GetFiles(exportDir, "*.json"));
+                var package = Assert.Single(Directory.GetDirectories(exportDir));
+                Assert.True(T1RankingArtifact.Verify(package).IsValid);
                 Assert.Equal(original, File.ReadAllBytes(path));
             });
         }
@@ -391,7 +358,7 @@ public sealed class T1RankingTests
         {
             SparrowWindowRealUiTests.RunWindowTest((window, vm) =>
             {
-                var clock = new Clock(); var provider = new Provider();
+                var clock = new T1RankingTests.Clock(); var provider = new T1RankingTests.Provider();
                 vm.SnapshotClock = clock;
                 vm.SnapshotCapture = new IntradaySnapshotCapture(new MinuteObservationService(provider, clock), new QuoteService(provider),
                     new MarketCalendarService(provider), new IntradaySnapshotStore(dir), clock);
@@ -401,9 +368,9 @@ public sealed class T1RankingTests
                     new SparrowRankedCandidate { RankingProfile = "fixture", Code = "600001", Name = "first", Rank = 1, Features = new SparrowRankingFeatures { Code = "600001", Name = "first" } },
                     new SparrowRankedCandidate { RankingProfile = "fixture", Code = "600003", Name = "third", Rank = 2, Features = new SparrowRankingFeatures { Code = "600003", Name = "third" } }
                 });
-                Pump(vm.StartCommand.ExecuteAsync(null));
-                Pump(vm.AnalyzeFeaturesCommand.ExecuteAsync(null));
-                Pump(vm.RunT1RankingCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.StartCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.AnalyzeFeaturesCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.RunT1RankingCommand.ExecuteAsync(null));
                 Assert.Equal(2, vm.T1RankRows.Count);
                 var ranked = vm.T1RankRows[0]; var excluded = vm.T1RankRows[1];
                 Assert.Contains("未对照次日结果评估", ranked.Details);
@@ -426,7 +393,7 @@ public sealed class T1RankingTests
         {
             SparrowWindowRealUiTests.RunWindowTest((window, vm) =>
             {
-                var clock = new Clock(); var provider = new Provider();
+                var clock = new T1RankingTests.Clock(); var provider = new T1RankingTests.Provider();
                 vm.SnapshotClock = clock;
                 vm.SnapshotCapture = new IntradaySnapshotCapture(new MinuteObservationService(provider, clock), new QuoteService(provider),
                     new MarketCalendarService(provider), new IntradaySnapshotStore(dir), clock);
@@ -435,13 +402,13 @@ public sealed class T1RankingTests
                 {
                     new SparrowRankedCandidate { RankingProfile = "fixture", Code = "600001", Name = "first", Rank = 1, Features = new SparrowRankingFeatures { Code = "600001", Name = "first" } }
                 });
-                Pump(vm.StartCommand.ExecuteAsync(null));
-                Pump(vm.AnalyzeFeaturesCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.StartCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.AnalyzeFeaturesCommand.ExecuteAsync(null));
                 var pending = new TaskCompletionSource<T1RankingResult>(); CancellationToken captured = default;
                 vm.T1RankingOverride = (snapshot, fingerprint, features, topN, token) => { captured = token; return pending.Task; };
                 var ranking = vm.RunT1RankingCommand.ExecuteAsync(null);
                 vm.EnableIntradaySnapshotCapture = false;
-                Pump(vm.StartCommand.ExecuteAsync(null)); // newer scan invalidates the stale ranking
+                T1RankingTests.Pump(vm.StartCommand.ExecuteAsync(null)); // newer scan invalidates the stale ranking
                 Assert.True(captured.IsCancellationRequested);
                 Assert.False(vm.RunT1RankingCommand.CanExecute(null));
                 var retained = new IntradaySnapshotStore(dir).Load(vm.LastSnapshotPath!);
@@ -463,7 +430,7 @@ public sealed class T1RankingTests
         {
             SparrowWindowRealUiTests.RunWindowTest((window, vm) =>
             {
-                var clock = new Clock(); var provider = new Provider();
+                var clock = new T1RankingTests.Clock(); var provider = new T1RankingTests.Provider();
                 vm.SnapshotClock = clock;
                 vm.SnapshotCapture = new IntradaySnapshotCapture(new MinuteObservationService(provider, clock), new QuoteService(provider),
                     new MarketCalendarService(provider), new IntradaySnapshotStore(dir), clock);
@@ -472,8 +439,8 @@ public sealed class T1RankingTests
                 {
                     new SparrowRankedCandidate { RankingProfile = "fixture", Code = "600001", Name = "first", Rank = 1, Features = new SparrowRankingFeatures { Code = "600001", Name = "first" } }
                 });
-                Pump(vm.StartCommand.ExecuteAsync(null));
-                Pump(vm.AnalyzeFeaturesCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.StartCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.AnalyzeFeaturesCommand.ExecuteAsync(null));
                 var pending = new TaskCompletionSource<T1RankingResult>(); CancellationToken captured = default;
                 vm.T1RankingOverride = (snapshot, fingerprint, features, topN, token) => { captured = token; return pending.Task; };
                 var ranking = vm.RunT1RankingCommand.ExecuteAsync(null);
@@ -497,6 +464,234 @@ public sealed class T1RankingTests
         {
             SparrowWindowRealUiTests.RunWindowTest((window, vm) =>
             {
+                var clock = new T1RankingTests.Clock(); var provider = new T1RankingTests.Provider();
+                vm.SnapshotClock = clock;
+                vm.SnapshotCapture = new IntradaySnapshotCapture(new MinuteObservationService(provider, clock), new QuoteService(provider),
+                    new MarketCalendarService(provider), new IntradaySnapshotStore(dir), clock);
+                vm.Notification = _ => { }; vm.EnableIntradaySnapshotCapture = true;
+                vm.ScanOverride = (_, _) => Task.FromResult<IReadOnlyList<SparrowRankedCandidate>>(new[]
+                {
+                    new SparrowRankedCandidate { RankingProfile = "fixture", Code = "600001", Name = "first", Rank = 1, Features = new SparrowRankingFeatures { Code = "600001", Name = "first" } }
+                });
+                T1RankingTests.Pump(vm.StartCommand.ExecuteAsync(null));
+                T1RankingTests.Pump(vm.AnalyzeFeaturesCommand.ExecuteAsync(null));
+                string path = vm.LastSnapshotPath!;
+                File.WriteAllText(path, "{corrupted");
+                T1RankingTests.Pump(vm.RunT1RankingCommand.ExecuteAsync(null));
+                Assert.Contains("失败", vm.T1RankStatus); Assert.Empty(vm.T1RankRows);
+                Assert.Equal("Completed", vm.ScanOutcome); Assert.Single(vm.Results);
+                File.Delete(path);
+                Assert.False(vm.RunT1RankingCommand.CanExecute(null)); // missing snapshot disables ranking instead of failing
+            });
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+    private static SnapshotSymbol Symbol(string code, string name, int rank, double score, MinuteObservation[] rows) =>
+        new(code, name, rank, score, "fixture-profile", null, null, T, Meta, IntradayQuality.MissingEventTime, Series(rows), IntradayQuality.Partial);
+    // ---- T1-3-C publication-integrity matrix (T24–T27 run as the existing suites and the size guard) ----
+    [Fact]
+    public void T01_T11_SameContentIsByteIdenticalIdempotentAndReadable()
+    {
+        string dir = Dir();
+        try
+        {
+            var result = Rank(Snapshot(("600001", "one", 10.2m)), topN: 5);
+            var first = T1RankingArtifact.Write(result, dir, CancellationToken.None);
+            byte[] csv = File.ReadAllBytes(first.CsvPath), json = File.ReadAllBytes(first.SidecarPath);
+            Assert.False(first.ReusedExisting);
+            var second = T1RankingArtifact.Write(result, dir, CancellationToken.None);
+            Assert.True(second.ReusedExisting);
+            Assert.Equal(first.PackageDirectory, second.PackageDirectory);
+            Assert.Equal(csv, File.ReadAllBytes(second.CsvPath)); Assert.Equal(json, File.ReadAllBytes(second.SidecarPath));
+            Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(T1RankingArtifact.ContentBytes(result))), first.ContentFingerprint);
+            Assert.Contains(first.ContentFingerprint, Path.GetFileName(first.PackageDirectory));
+            var verdict = T1RankingArtifact.Verify(first.PackageDirectory, result);
+            Assert.True(verdict.IsValid); Assert.Empty(verdict.Problems);
+            Assert.Equal(result.Request.RunId, verdict.RunId);
+            string csvText = File.ReadAllText(first.CsvPath), jsonText = File.ReadAllText(first.SidecarPath);
+            Assert.Contains("88.5", csvText); Assert.Contains("ExclusionCode", csvText);
+            Assert.Contains("PriceOnlyV1", jsonText); Assert.Contains("RelativeStrength", jsonText); Assert.Contains("Diagnostic research artifact", jsonText);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+    [Fact]
+    public void T02_T03_DifferentTopNHasDistinctIdentityAndOriginalPackageSurvives()
+    {
+        string dir = Dir();
+        try
+        {
+            var snapshot = Snapshot(("600001", "one", 10.2m));
+            var top5 = T1RankingArtifact.Write(Rank(snapshot, topN: 5), dir, CancellationToken.None);
+            byte[] csv5 = File.ReadAllBytes(top5.CsvPath), json5 = File.ReadAllBytes(top5.SidecarPath);
+            var top3 = T1RankingArtifact.Write(Rank(snapshot, topN: 3), dir, CancellationToken.None);
+            Assert.NotEqual(top5.PackageDirectory, top3.PackageDirectory);
+            Assert.NotEqual(top5.ContentFingerprint, top3.ContentFingerprint);
+            Assert.Equal(csv5, File.ReadAllBytes(top5.CsvPath)); Assert.Equal(json5, File.ReadAllBytes(top5.SidecarPath));
+            Assert.True(T1RankingArtifact.Verify(top5.PackageDirectory).IsValid);
+            Assert.True(T1RankingArtifact.Verify(top3.PackageDirectory).IsValid);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+    [Fact]
+    public void T04_T05_ContentIdentityCannotCollideAndRunIdsStayAttributable()
+    {
+        string dir = Dir();
+        try
+        {
+            var snapshot = Snapshot(("600001", "a", 10.2m));
+            var a = T1RankingArtifact.Write(Rank(snapshot, topN: 5), dir, CancellationToken.None);
+            // Same RunId, different ranking content: distinct immutable package; original survives.
+            var bResult = Rank(snapshot with { Symbols = new[] { snapshot.Symbols[0] with { Name = "b" } } }, topN: 5);
+            var b = T1RankingArtifact.Write(bResult, dir, CancellationToken.None);
+            Assert.NotEqual(a.PackageDirectory, b.PackageDirectory);
+            Assert.True(T1RankingArtifact.Verify(a.PackageDirectory).IsValid);
+            // A package directory pre-planted with foreign content must fail closed instead of being adopted.
+            var c = Rank(snapshot with { Symbols = new[] { snapshot.Symbols[0] with { Name = "c" } } }, topN: 5);
+            string planted = Path.Combine(dir, T1RankingArtifact.PackageName(c.Request.RunId, c.Request.RankingVersion,
+                Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(T1RankingArtifact.ContentBytes(c)))));
+            Directory.CreateDirectory(planted);
+            File.Copy(a.CsvPath, Path.Combine(planted, T1RankingArtifact.CsvFileName));
+            File.Copy(a.SidecarPath, Path.Combine(planted, T1RankingArtifact.SidecarFileName));
+            Assert.Throws<InvalidDataException>(() => T1RankingArtifact.Write(c, dir, CancellationToken.None));
+            Assert.Equal(File.ReadAllBytes(a.SidecarPath), File.ReadAllBytes(Path.Combine(planted, T1RankingArtifact.SidecarFileName)));
+            // Distinct RunIds stay attributable: package name and verifier both carry the source run.
+            var x = Rank(Snapshot(("600001", "x", 10.2m)), topN: 5);
+            var y = Rank(Snapshot(("600001", "y", 10.2m)), topN: 5);
+            var px = T1RankingArtifact.Write(x, dir, CancellationToken.None);
+            var py = T1RankingArtifact.Write(y, dir, CancellationToken.None);
+            Assert.NotEqual(px.PackageDirectory, py.PackageDirectory);
+            Assert.Contains(x.Request.RunId.ToString("N"), Path.GetFileName(px.PackageDirectory));
+            Assert.Contains(y.Request.RunId.ToString("N"), Path.GetFileName(py.PackageDirectory));
+            Assert.Equal(x.Request.RunId, T1RankingArtifact.Verify(px.PackageDirectory).RunId);
+            Assert.Equal(y.Request.RunId, T1RankingArtifact.Verify(py.PackageDirectory).RunId);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+    [Theory]
+    [InlineData("precancel")] [InlineData("sidecar")] [InlineData("csv")] [InlineData("publish")]
+    public void T06_T07_T08_T29_CancellationAtAnyBoundaryPublishesNothing(string stage)
+    {
+        string dir = Dir();
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            if (stage == "precancel") cts.Cancel(); else BoundaryHook = s => { if (s == stage) cts.Cancel(); };
+            try { T1RankingArtifact.Write(Rank(Snapshot(("600001", "one", 10.2m)), topN: 5), dir, cts.Token); }
+            catch (OperationCanceledException) { }
+            finally { BoundaryHook = null; }
+            Assert.Empty(Directory.GetFileSystemEntries(dir)); // no final package, no orphan staging
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+    [Theory]
+    [InlineData("csv")] [InlineData("publish")]
+    public void T09_T10_InjectedWriteOrPublishFailurePreservesPreviousPackages(string stage)
+    {
+        string dir = Dir();
+        try
+        {
+            var keep = T1RankingArtifact.Write(Rank(Snapshot(("600001", "keep", 10.2m)), topN: 5), dir, CancellationToken.None);
+            byte[] keepCsv = File.ReadAllBytes(keep.CsvPath), keepJson = File.ReadAllBytes(keep.SidecarPath);
+            BoundaryHook = s => { if (s == stage) throw new IOException("injected"); };
+            try { Assert.Throws<IOException>(() => T1RankingArtifact.Write(Rank(Snapshot(("600001", "next", 10.2m)), topN: 5), dir, CancellationToken.None)); }
+            finally { BoundaryHook = null; }
+            Assert.Single(Directory.GetDirectories(dir)); // no new package, no orphan staging
+            Assert.Equal(keepCsv, File.ReadAllBytes(keep.CsvPath)); Assert.Equal(keepJson, File.ReadAllBytes(keep.SidecarPath));
+            Assert.True(T1RankingArtifact.Verify(keep.PackageDirectory).IsValid);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+    [Theory]
+    [InlineData("csv")] [InlineData("json-content")] [InlineData("json-fingerprint")] [InlineData("cross-csv")]
+    [InlineData("missing-csv")] [InlineData("truncated-json")]
+    public void T12_T13_T14_T15_T16_TamperingSubstitutionIncompletenessAreRejected(string target)
+    {
+        string dir = Dir();
+        try
+        {
+            var result = Rank(Snapshot(("600001", "one", 10.2m)), topN: 5);
+            string pkg = T1RankingArtifact.Write(result, dir, CancellationToken.None).PackageDirectory;
+            string sidecar = Path.Combine(pkg, T1RankingArtifact.SidecarFileName);
+            System.Text.Json.Nodes.JsonNode? node;
+            switch (target)
+            {
+                case "csv": File.WriteAllBytes(Path.Combine(pkg, T1RankingArtifact.CsvFileName), File.ReadAllBytes(Path.Combine(pkg, T1RankingArtifact.CsvFileName)).Concat(new byte[] { 0x20 }).ToArray()); break;
+                case "json-content":
+                    node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(sidecar));
+                    node["Content"]!["Coverage"]!["CapturedCandidates"] = 99;
+                    File.WriteAllText(sidecar, node!.ToJsonString(new JsonSerializerOptions { WriteIndented = true })); break;
+                case "json-fingerprint":
+                    node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(sidecar));
+                    node["Fingerprint"] = new string('0', 64);
+                    File.WriteAllText(sidecar, node!.ToJsonString(new JsonSerializerOptions { WriteIndented = true })); break;
+                case "cross-csv":
+                    string other = T1RankingArtifact.Write(Rank(Snapshot(("600001", "two", 10.2m)), topN: 5), dir, CancellationToken.None).PackageDirectory;
+                    File.Copy(Path.Combine(other, T1RankingArtifact.CsvFileName), Path.Combine(pkg, T1RankingArtifact.CsvFileName), true); break;
+                case "missing-csv": File.Delete(Path.Combine(pkg, T1RankingArtifact.CsvFileName)); break;
+                case "truncated-json": File.WriteAllBytes(sidecar, new byte[] { 0x7B }); break; // "{"
+            }
+            var verdict = T1RankingArtifact.Verify(pkg);
+            Assert.False(verdict.IsValid); Assert.NotEmpty(verdict.Problems);
+            if (target == "cross-csv") Assert.Contains(verdict.Problems, p => p.Contains("CSV checksum"));
+            Assert.Throws<InvalidDataException>(() => T1RankingArtifact.Write(result, dir, CancellationToken.None)); // no silent overwrite of tampered package
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+    [Fact]
+    public void T18_StructuralInconsistenciesAreRejectedByIndependentChecks()
+    {
+        string dir = Dir();
+        try
+        {
+            string pkg = T1RankingArtifact.Write(Rank(Snapshot(("600001", "one", 10.2m)), topN: 5), dir, CancellationToken.None).PackageDirectory;
+            string sidecar = Path.Combine(pkg, T1RankingArtifact.SidecarFileName);
+            var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(sidecar))!;
+            // Mutate rank sequence but keep envelope fingerprints internally consistent, so the structural checks fire on their own.
+            node["Content"]!["Shortlist"]![0]!["T1Rank"] = 9;
+            node["Fingerprint"] = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                JsonSerializer.SerializeToUtf8Bytes(node["Content"], new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } })));
+            File.WriteAllText(sidecar, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            var verdict = T1RankingArtifact.Verify(pkg);
+            Assert.False(verdict.IsValid);
+            Assert.Contains(verdict.Problems, p => p.Contains("rank sequence"));
+            Assert.DoesNotContain(verdict.Problems, p => p.Contains("fingerprint mismatch")); // canonicalization is exact on re-parse
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+    [Fact]
+    public void T19_T20_LegacyFlatExportsRemainUntouchedAndNeverVerified()
+    {
+        string dir = Dir();
+        try
+        {
+            // Simulated pre-package flat pair written by the earlier writer generation.
+            var legacy = Rank(Snapshot(("600001", "one", 10.2m)), topN: 5);
+            Directory.CreateDirectory(dir);
+            string legacyJson = Path.Combine(dir, $"{legacy.Request.RunId:N}-priceonlyv1.json");
+            string legacyCsv = Path.Combine(dir, $"{legacy.Request.RunId:N}-priceonlyv1.csv");
+            File.WriteAllText(legacyJson, JsonSerializer.Serialize(new { SchemaVersion = 1,
+                Fingerprint = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(T1RankingArtifact.ContentBytes(legacy))),
+                Content = T1RankingArtifact.Content(legacy) }, new JsonSerializerOptions { WriteIndented = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } }));
+            File.WriteAllText(legacyCsv, "T1Rank,Status,Code\n1,ranked,600001\n");
+            byte[] jsonBefore = File.ReadAllBytes(legacyJson), csvBefore = File.ReadAllBytes(legacyCsv);
+            var verdict = T1RankingArtifact.VerifyLegacyFlat(legacyJson, legacyCsv);
+            Assert.False(verdict.IsValid);
+            Assert.Contains(verdict.Problems, p => p.Contains("unsupported/unverified"));
+            var fresh = T1RankingArtifact.Write(Rank(Snapshot(("600001", "two", 10.2m)), topN: 5), dir, CancellationToken.None);
+            Assert.NotEqual(legacyJson, fresh.SidecarPath); // layouts cannot silently collide
+            Assert.Equal(jsonBefore, File.ReadAllBytes(legacyJson)); Assert.Equal(csvBefore, File.ReadAllBytes(legacyCsv));
+            Assert.False(T1RankingArtifact.VerifyLegacyFlat(legacyJson, fresh.CsvPath).IsValid); // ambiguous pairing stays unverified
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+    [Fact]
+    public void T21_T22_T23_WpfExportIdentityReuseFailureAndCloseSafety()
+    {
+        string dir = Dir(); string exportDir = Path.Combine(dir, "out");
+        try
+        {
+            SparrowWindowRealUiTests.RunWindowTest((window, vm) =>
+            {
                 var clock = new Clock(); var provider = new Provider();
                 vm.SnapshotClock = clock;
                 vm.SnapshotCapture = new IntradaySnapshotCapture(new MinuteObservationService(provider, clock), new QuoteService(provider),
@@ -508,22 +703,46 @@ public sealed class T1RankingTests
                 });
                 Pump(vm.StartCommand.ExecuteAsync(null));
                 Pump(vm.AnalyzeFeaturesCommand.ExecuteAsync(null));
-                string path = vm.LastSnapshotPath!;
-                File.WriteAllText(path, "{corrupted");
                 Pump(vm.RunT1RankingCommand.ExecuteAsync(null));
-                Assert.Contains("失败", vm.T1RankStatus); Assert.Empty(vm.T1RankRows);
-                Assert.Equal("Completed", vm.ScanOutcome); Assert.Single(vm.Results);
-                File.Delete(path);
-                Assert.False(vm.RunT1RankingCommand.CanExecute(null)); // missing snapshot disables ranking instead of failing
+                vm.T1ExportDirectory = exportDir;
+                Pump(vm.ExportT1RankingCommand.ExecuteAsync(null));
+                Assert.Contains("新发布不可变包", vm.T1RankStatus);
+                Assert.Contains("内容指纹", vm.T1RankStatus);
+                string pkg = Assert.Single(Directory.GetDirectories(exportDir));
+                Assert.True(T1RankingArtifact.Verify(pkg).IsValid);
+                Pump(vm.ExportT1RankingCommand.ExecuteAsync(null));
+                Assert.Contains("复用现有有效包", vm.T1RankStatus);
+                Assert.Single(Directory.GetDirectories(exportDir));
+                // An identical re-export reuses the package without writing; force fresh staging with different content.
+                vm.TopN = 3;
+                Pump(vm.RunT1RankingCommand.ExecuteAsync(null));
+                BoundaryHook = s => { if (s == "csv") throw new IOException("injected"); };
+                Pump(vm.ExportT1RankingCommand.ExecuteAsync(null));
+                BoundaryHook = null;
+                Assert.Contains("导出失败", vm.T1RankStatus);
+                Assert.DoesNotContain("已导出", vm.T1RankStatus); // failure never reports success
+                Assert.True(T1RankingArtifact.Verify(pkg).IsValid); // previous package remains valid
+                var reached = new TaskCompletionSource(); var release = new TaskCompletionSource();
+                BoundaryHook = s => { if (s == "publish") { reached.TrySetResult(); release.Task.Wait(); } };
+                var export = vm.ExportT1RankingCommand.ExecuteAsync(null);
+                Pump(reached.Task); // export is parked exactly at the publication boundary
+                int updates = 0; vm.PropertyChanged += (_, _) => updates++;
+                window.Close();
+                release.SetResult();
+                Pump(export);
+                BoundaryHook = null;
+                Assert.Single(Directory.GetDirectories(exportDir)); // only the pre-existing package: no new publication
+                Assert.Empty(Directory.GetFileSystemEntries(exportDir, ".staging-*")); // staging cleaned
+                Assert.Equal(0, updates); // no late success after close
             });
         }
-        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+        finally { Directory.Delete(dir, true); }
     }
-    private static SnapshotSymbol Symbol(string code, string name, int rank, double score, MinuteObservation[] rows) =>
-        new(code, name, rank, score, "fixture-profile", null, null, T, Meta, IntradayQuality.MissingEventTime, Series(rows), IntradayQuality.Partial);
-    private static void Pump(Task task) { if (!task.IsCompleted) { var frame = new DispatcherFrame(); task.GetAwaiter().OnCompleted(() => frame.Continue = false); Dispatcher.PushFrame(frame); } task.GetAwaiter().GetResult(); }
-    private sealed class Clock : TimeProvider { public override DateTimeOffset GetUtcNow() => T; }
-    private sealed class Provider : IStockDataProvider
+    private static string Dir() => Path.Combine(Path.GetTempPath(), "AIHelper-T1Pkg", Guid.NewGuid().ToString("N"));
+    internal static Action<string>? BoundaryHook { get => T1RankingArtifact.BoundaryHook; set => T1RankingArtifact.BoundaryHook = value; }
+    internal static void Pump(Task task) { if (!task.IsCompleted) { var frame = new DispatcherFrame(); task.GetAwaiter().OnCompleted(() => frame.Continue = false); Dispatcher.PushFrame(frame); } task.GetAwaiter().GetResult(); }
+    internal sealed class Clock : TimeProvider { public override DateTimeOffset GetUtcNow() => T; }
+    internal sealed class Provider : IStockDataProvider
     {
         public bool CanHandle(StockDataRequest request) => true;
         public Task<StockDataResult> GetDataAsync(StockDataRequest request, CancellationToken token = default)

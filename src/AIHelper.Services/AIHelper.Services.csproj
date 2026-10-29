@@ -1,5 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <InternalsVisibleTo Include="AIHelper.Services.Tests" />
     <ProjectReference Include="..\AIHelper.Core\AIHelper.Core.csproj" />
     <ProjectReference Include="..\AIHelper.Infrastructure\AIHelper.Infrastructure.csproj" />
   </ItemGroup>

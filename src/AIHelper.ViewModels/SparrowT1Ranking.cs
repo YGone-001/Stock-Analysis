@@ -107,9 +107,10 @@ public partial class SparrowViewModel
         {
             var paths = await Task.Run(() => T1RankingArtifact.Write(result, T1ExportDirectory, cts.Token), cts.Token);
             if (!OwnsExport()) return;
-            T1RankStatus = $"已导出：{paths.CsvPath}；{paths.SidecarPath}；内容指纹 {paths.ContentFingerprint}。"
-                + "同一不可变快照与固定配置可逐字节复现；未包含易变导出时间戳。";
-            AppendLog($"T1 Ranking artifact: {paths.CsvPath}");
+            T1RankStatus = $"已导出（{(paths.ReusedExisting ? "复用现有有效包" : "新发布不可变包")}）：{paths.PackageDirectory}；"
+                + $"内容指纹 {paths.ContentFingerprint}；CSV 与 JSON sidecar 原子成对发布，可用独立校验器验证。"
+                + "同一不可变快照与固定配置逐字节复现；未包含易变导出时间戳。";
+            AppendLog($"T1 Ranking artifact: {paths.PackageDirectory}");
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         { if (OwnsExport()) T1RankStatus = "T1 导出已取消；未发布不完整工件。"; }
