@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -218,7 +218,7 @@ class EastMoneyProvider:
         cache_key = f"minute:{normalized}:{date or 'latest'}"
         cached = self.memory_cache.get(cache_key)
         if cached is not None:
-            return cached
+            return {**cached, "observation": {**cached.get("observation", {}), "used_cache": True}}
 
         payload = await self._get_json(
             "https://push2his.eastmoney.com/api/qt/stock/trends2/get",
@@ -243,12 +243,17 @@ class EastMoneyProvider:
             rows.append(
                 {
                     "Time": stamp,
-                    "Price": to_milli(as_float(parts[2])),
-                    "Number": as_float(parts[5]),
-                    "Amount": as_float(parts[6]) if len(parts) > 6 else 0,
+                    "Price": to_milli(optional_float(parts[2])) if optional_float(parts[2]) is not None else None,
+                    "Number": optional_float(parts[5]),
+                    "Amount": optional_float(parts[6]) if len(parts) > 6 else None,
                 }
             )
-        result = {"data": {"List": rows}}
+        result = {"data": {"List": rows}, "observation": {
+            "provider": "EastMoney/trends2/ndays=1", "price_unit": "milli-CNY",
+            "volume_unit": "unknown", "amount_unit": "unknown",
+            "observed_at_utc": datetime.now(timezone.utc).isoformat(), "used_cache": False,
+            "coverage": "latest-source-day only; requested date filtering does not establish historical coverage",
+        }}
         if rows:
             return self.memory_cache.set(cache_key, result, ttl_seconds=10)
         return result

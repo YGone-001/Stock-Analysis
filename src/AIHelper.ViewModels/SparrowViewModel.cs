@@ -298,6 +298,21 @@ public partial class SparrowViewModel : ObservableObject
         }
     }
 
+    private bool _enableIntradaySnapshotCapture;
+    public bool EnableIntradaySnapshotCapture { get => _enableIntradaySnapshotCapture; set => SetProperty(ref _enableIntradaySnapshotCapture, value); }
+    public string? LastSnapshotPath { get; private set; }
+    private bool CanOpenSnapshot() => LastSnapshotPath != null && File.Exists(LastSnapshotPath);
+    [RelayCommand(CanExecute = nameof(CanOpenSnapshot))]
+    private void OpenSnapshot()
+    {
+        if (CanOpenSnapshot()) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(LastSnapshotPath!) { UseShellExecute = true });
+    }
+    public string SnapshotStatus { get; private set; } = "快照采集关闭；普通策略结果不等于 T+1 时点认证";
+    internal TimeProvider SnapshotClock { get; set; } = TimeProvider.System;
+    internal IntradaySnapshotCapture? SnapshotCapture { get; set; }
+
+    private static string IntradaySnapshotStoreHash(string value) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)));
+
     private bool CanStart() => !_closed && !IsScanning;
     private bool CanCancelScan() => !_closed && IsScanning;
 
@@ -331,6 +346,8 @@ public partial class SparrowViewModel : ObservableObject
         var mode = StrategyMode;
         var pair = SelectedPairComparisonPreset;
         int topN = TopN;
+        bool captureEnabled = EnableIntradaySnapshotCapture;
+        DateTimeOffset scanStartedUtc = SnapshotClock.GetUtcNow();
         SparrowParameterValidationResult validation = SparrowParameterValidator.Validate(
             mode, ClassicParameters, V2Parameters, SystemSettings,
             mode == SparrowStrategyMode.V3 ? V3Parameters : null,
@@ -729,6 +746,34 @@ public partial class SparrowViewModel : ObservableObject
                 if (completionMessage.Length > 0) Notification(completionMessage);
                 if (mode is not (SparrowStrategyMode.Compare or SparrowStrategyMode.PairCompare))
                 {
+                    if (captureEnabled)
+                    {
+                        var scanCompletedUtc = SnapshotClock.GetUtcNow();
+                        LastSnapshotPath = null;
+                        OpenSnapshotCommand.NotifyCanExecuteChanged();
+                        SnapshotStatus = "策略扫描已完成；正在采集分钟快照（独立结果）";
+                        OnPropertyChanged(nameof(SnapshotStatus));
+                        try
+                        {
+                            string directory = Path.Combine(Path.GetDirectoryName(GetKlineCachePersistPath())!, "intraday-snapshots");
+                            var capture = SnapshotCapture ?? new IntradaySnapshotCapture(new MinuteObservationService(_mainVm.DataProvider, SnapshotClock),
+                                _mainVm.QuoteService ?? new QuoteService(_mainVm.DataProvider),
+                                _mainVm.MarketCalendar ?? new MarketCalendarService(_mainVm.DataProvider), new IntradaySnapshotStore(directory), SnapshotClock);
+                            var context = new IntradayScanContext(runId, mode.ToString(), mode switch {
+                                SparrowStrategyMode.Classic => SparrowStrategyVersions.Classic, SparrowStrategyMode.V2 => SparrowStrategyVersions.V2,
+                                SparrowStrategyMode.V3 => SparrowStrategyVersions.V3, SparrowStrategyMode.V4 => SparrowStrategyVersions.V4,
+                                SparrowStrategyMode.V5 => SparrowStrategyVersions.V5, _ => SparrowStrategyVersions.V6 },
+                                IntradaySnapshotStoreHash(parameterIdentity), topN, scanStartedUtc, scanCompletedUtc);
+                            var saved = await capture.CaptureAsync(context, ranking, token);
+                            if (OwnsRun()) { LastSnapshotPath = saved.Path; OpenSnapshotCommand.NotifyCanExecuteChanged(); SnapshotStatus = $"已保存诊断快照（非 T+1 认证）；交易日 {saved.Snapshot.TradingDate} Asia/Shanghai UTC+08；采集 {saved.Snapshot.CapturedAtUtc:O}；日历 {saved.Snapshot.Calendar}；{saved.Snapshot.Symbols.Count}只；质量 {string.Join(", ", saved.Snapshot.Symbols.Select(s => s.Quality).Distinct())}；单位/区间或报价事件时间证据不足。文件：{saved.Path}"; }
+                        }
+                        catch (OperationCanceledException) when (token.IsCancellationRequested)
+                        { if (!_closed) { SnapshotStatus = "快照采集已取消；策略扫描结果保留"; ScanOutcome = Results.Count == 0 ? "CompletedEmpty" : "Completed"; } }
+                        catch (Exception ex)
+                        { if (!_closed) SnapshotStatus = "快照采集失败；策略扫描结果保留：" + ex.GetType().Name; }
+                        if (!_closed) OnPropertyChanged(nameof(SnapshotStatus));
+                    }
+                    if (!OwnsRun()) return;
                     var entrants = _snapshot.Observe(parameterIdentity, startedAt.Date, ranking.Take(topN).ToArray());
                     if (automatic && entrants.Count > 0)
                     {

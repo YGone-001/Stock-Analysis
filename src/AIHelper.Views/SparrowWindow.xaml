@@ -209,6 +209,9 @@
           <TextBlock Text=" 只（完整候选池仍保留并导出）" VerticalAlignment="Center" Foreground="DimGray"/>
         </StackPanel>
 
+        <CheckBox Content="采集 TopN 分钟诊断快照（默认关闭，非 T+1 认证）" IsChecked="{Binding EnableIntradaySnapshotCapture, Mode=TwoWay}" Margin="0,0,0,6"/>
+        <Button Content="打开已保存快照" HorizontalAlignment="Left" Command="{Binding OpenSnapshotCommand}" Margin="0,0,0,6"/>
+        <TextBox Text="{Binding SnapshotStatus, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Background="Transparent" Margin="0,0,0,6"/>
         <TextBlock Text="{Binding ResultSummary}" Foreground="SteelBlue" TextWrapping="Wrap" Margin="0,0,0,8"/>
 
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">

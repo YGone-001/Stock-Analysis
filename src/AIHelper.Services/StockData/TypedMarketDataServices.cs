@@ -258,7 +258,9 @@ internal static class MarketDataContractParser
 			{
 				previous = parsed;
 			}
-			return new TradingDayResult(requestedDate, isWorkday.GetBoolean(), previous);
+			bool authoritative = !(TryGetPropertyIgnoreCase(data, "source", out var source) && source.GetString() == "weekday-heuristic")
+                && !(TryGetPropertyIgnoreCase(data, "calendar_evidence", out var evidence) && evidence.GetString() == "unavailable");
+            return new TradingDayResult(requestedDate, isWorkday.GetBoolean(), previous, authoritative);
 		}
 		catch (JsonException ex)
 		{

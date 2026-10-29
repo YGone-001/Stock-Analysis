@@ -61,7 +61,7 @@ public sealed record KlineBar(
 
 public sealed record KlineSeries(string Symbol, IReadOnlyList<KlineBar> Bars);
 
-public sealed record TradingDayResult(DateTime RequestedDate, bool IsTradingDay, DateTime PreviousTradingDay);
+public sealed record TradingDayResult(DateTime RequestedDate, bool IsTradingDay, DateTime PreviousTradingDay, bool HasAuthoritativeEvidence = true);
 
 public interface IQuoteService
 {

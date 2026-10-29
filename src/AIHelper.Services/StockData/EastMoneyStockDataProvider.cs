@@ -590,7 +590,7 @@ public sealed class EastMoneyStockDataProvider : IStockDataProvider
 			}
 			bool isWorkday = actual == date;
 			var previous = string.IsNullOrWhiteSpace(actual) ? Array.Empty<object>() : new object[] { new { numeric = actual } };
-			return Success(request, JsonSerializer.Serialize(new { data = new { is_workday = isWorkday, previous } }), url, "000001", "target=" + date + ", actual=" + actual);
+			return Success(request, JsonSerializer.Serialize(new { data = new { is_workday = isWorkday, previous, calendar_evidence = string.IsNullOrWhiteSpace(actual) ? "unavailable" : "index-daily-bar" } }), url, "000001", "target=" + date + ", actual=" + actual);
 		}
 		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{

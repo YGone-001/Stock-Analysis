@@ -97,3 +97,16 @@ Final implementation workflows pending push; no dispatch/running state is treate
 ## Limitations and STOP boundary
 
 Offline fake execution exercises lifecycle without live providers; this phase does not certify live market-data quality or trading profitability. Existing NU1701 warnings remain. No holiday calendar or timezone redesign. No V7, VWAP/RVOL, T1-Rank, prediction, order API, replay/return methodology change, minute snapshot store, dashboard redesign or strategy tuning. STOP after Phase T1-0; Phase T1-1 requires separate authorization.
+
+## T1-0 archival verification addendum (T1-1 baseline audit)
+
+Verified final T1-0 SHA: `3c849922aea251d48bc1897928d91e35e6c1db96` on develop.
+[CI 40881830783](https://github.com/YGone-001/Stock-Analysis/actions/runs/40881830783)
+and [Repository size guard 40881830810](https://github.com/YGone-001/Stock-Analysis/actions/runs/40881830810)
+both completed successfully against that exact SHA, rechecked via GitHub CLI.
+Windows: 781 passed, zero failed. Python: 11 passed. HEAD tree: 3,923,514 bytes;
+270,790 bytes remained below the unchanged 4,194,304-byte budget. This addendum
+supersedes the pending statements in the archived body without rewriting its commit.
+Limitations: no intraday timestamp certification, no holiday-aware automatic scheduling,
+no point-in-time history or predictive-performance claims. StartButtonText already
+shows scanning status; the independent CancelScanCommand handles cancellation.
