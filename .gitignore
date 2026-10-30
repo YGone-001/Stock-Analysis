@@ -25,6 +25,9 @@ coverage/
 StockGroups.json
 StockNameMap.json
 GPSJ/
+intraday-snapshots/
+t1-ranking/
+/local-research-data/
 logs/
 *.log
 market-data-server/.cache/

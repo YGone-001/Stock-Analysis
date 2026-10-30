@@ -4,7 +4,7 @@ param(
     [int]$MaxSizeMiB = 5,
 
     [ValidateRange(0.0, 10240.0)]
-    [double]$MaxTreeMiB = 4.00,
+    [double]$MaxTreeMiB = 8.00,
 
     [string]$BaseRef = '',
 

@@ -78,7 +78,12 @@ rather than committing them to the repository. Run the repository size audit wit
 ```
 
 New files larger than 5 MiB are rejected by CI unless their path is explicitly
-listed in `.large-file-allowlist` and reviewed.
+listed in `.large-file-allowlist` and reviewed. The tracked HEAD tree ceiling is
+8 MiB (8,388,608 bytes); this does not change the independent 5 MiB blob limit.
+See [the current capacity policy](REPOSITORY_SLIMMING_PLAN.md#8-当前体积预算t1-4-b0-授权重定基线).
+Market data, generated research outputs, databases, snapshots, ranking packages,
+credentials and caches must stay outside version control; use an ignored runtime
+directory or the root `local-research-data/` directory for local data.
 
 ## Development Branches
 
