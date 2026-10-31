@@ -11,7 +11,7 @@ public static partial class T1EvidenceReadiness
         var items = inputs.Take(101).ToArray();
         if (items.Length > 100 || items.Any(i => i?.Evidence is null)) throw new ArgumentException("ASSOCIATION_INPUT_BOUND");
         // Reuse B's complete duplicate identity and source coverage rules, without outcome dependencies.
-        var sourceRequests = items.Select(i => i.Evidence with { Outcomes = null }).ToArray();
+        var sourceRequests = items.Select(i => i.Evidence with { Outcomes = null, Calendar = null }).ToArray();
         var sourceCoverage = EvaluateCoverage(sourceRequests);
         var records = items.Select(BuildAssociation).OrderBy(r => r.Evidence.SnapshotFingerprint, StringComparer.Ordinal)
             .ThenBy(r => r.Evidence.PackageFingerprint, StringComparer.Ordinal).ThenBy(r => DeclarationFingerprint(r), StringComparer.Ordinal).ToArray();
@@ -21,32 +21,9 @@ public static partial class T1EvidenceReadiness
                 && s.PackageFingerprint == record.Evidence.PackageFingerprint && s.Binding == record.Evidence.Binding))
                 throw new InvalidDataException("SOURCE_CHANGED_DURING_ASSOCIATION");
         }
-        var candidates = records.SelectMany(r => r.Candidates).ToArray();
-        sourceCoverage = sourceCoverage with
-        {
-            Samples = records.Select(r => r.Evidence).ToArray(),
-            Overall = records.Any(r => r.Evidence.Overall == T1ReadinessStatus.FAIL) ? T1ReadinessStatus.FAIL : T1ReadinessStatus.BLOCKED,
-            AvailableOutcomeEnvelopes = candidates.Count(c => c.Outcome.SourceAvailability == T1ReadinessStatus.PASS && c.Outcome.FieldValidity == T1ReadinessStatus.PASS),
-            PriceBasisMismatches = candidates.Count(c => c.Outcome.Reasons.Contains("PRICE_BASIS_MISMATCH")),
-            MissingOutcomeReasons = new SortedDictionary<string, int>(candidates.SelectMany(c => c.Outcome.Reasons)
-                .GroupBy(r => r, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count()), StringComparer.Ordinal)
-        };
-        int usable = candidates.Count(c => c.AssociationUsableDeclared);
-        var breakdown = records.GroupBy(r => (Date: r.Evidence.DecisionDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "NOT_APPLICABLE", r.Evidence.Strategy))
-            .OrderBy(g => g.Key.Date, StringComparer.Ordinal).ThenBy(g => g.Key.Strategy, StringComparer.Ordinal)
-            .Select(g => new T1AssociationBreakdown(g.Key.Date, g.Key.Strategy, g.Sum(r => r.Candidates.Count),
-                g.Sum(r => r.Candidates.Count(c => c.AssociationUsableDeclared)), g.Count(r => r.Evidence.Origin == T1EvidenceOrigin.TEST_FIXTURE))).ToArray();
-        var coverage = new T1AssociationCoverage(sourceCoverage, candidates.Length, candidates.Length, candidates.Count(c => c.OutcomeAvailableDeclared),
-            candidates.Count(c => c.Outcome.FieldValidity == T1ReadinessStatus.PASS), candidates.Count(c => Aligned(c.Outcome.PriceBasis)),
-            candidates.Count(c => !Aligned(c.Outcome.PriceBasis)), candidates.Count(c => c.Outcome.Reasons.Contains("MISSING_TARGET_DAILY_BAR")),
-            candidates.Count(c => c.Outcome.SourceState != T1OutcomeSourceState.AVAILABLE),
-            candidates.Count(c => c.Outcome.Reasons.Contains("SUSPENDED")),
-            candidates.Count(c => c.Outcome.Reasons.Any(r => r is "LIFECYCLE_EFFECTIVE_DATE_UNVERIFIED" or "SESSION_STATUS_UNVERIFIED")),
-            candidates.Count(c => c.Outcome.Reasons.Contains("NO_EXECUTION_EVIDENCE")), usable,
-            candidates.Length == 0 ? "NOT_APPLICABLE" : $"{usable}/{candidates.Length}", breakdown);
-        var content = new T1AssociationContent(1, PolicyVersion,
-            "Declared association only; not authenticated PIT, executable fills or performance evaluation.", records, coverage);
-        return new(1, DeclarationFingerprint(content), content);
+        var content = new T1AssociationContent(2, PolicyVersion,
+            "Declared association only; not authenticated PIT, executable fills or performance evaluation.", records, RecomputeAssociationCoverage(records));
+        return new(2, DeclarationFingerprint(content), content);
     }
 
     private static bool Aligned(T1PriceBasisState state) => state is T1PriceBasisState.ALIGNED_RAW or T1PriceBasisState.ALIGNED_ADJUSTED_WITH_PROVENANCE;
@@ -54,7 +31,7 @@ public static partial class T1EvidenceReadiness
     private static T1AssociationRecord BuildAssociation(T1AssociationInput input)
     {
         var request = input.Evidence;
-        var sample = Evaluate(request with { Outcomes = null });
+        var sample = Evaluate(request with { Outcomes = null, Calendar = null });
         var source = VerifySnapshot(request.SnapshotPath);
         var errors = new List<string>();
         var package = ReadPackage(request.PackageDirectory, errors); // existing Verify() is invoked inside this accepted reader
@@ -68,52 +45,36 @@ public static partial class T1EvidenceReadiness
             throw new ArgumentException("OUTCOME_OUTSIDE_CAPTURED_POOL");
         if (sample.SnapshotStructure == T1ReadinessStatus.PASS && input.DecisionBases?.Any(p => !sample.Captured.Any(c => c.Symbol == p.Key)) == true)
             throw new ArgumentException("BASIS_OUTSIDE_CAPTURED_POOL");
-        var records = new List<T1CandidateAssociation>();
-        foreach (var original in sample.Captured)
-        {
-            bool linked = sample.Binding == T1ReadinessStatus.PASS;
-            var ranked = linked ? package!.Ranked.SingleOrDefault(r => r.Symbol == original.Symbol) : null;
-            var excluded = linked ? package!.Excluded.SingleOrDefault(r => r.Symbol == original.Symbol) : null;
-            var category = !linked ? sample.Binding == T1ReadinessStatus.FAIL || sample.RankingIntegrity == T1ReadinessStatus.FAIL
-                ? T1CandidateAssociationCategory.SOURCE_OR_RANKING_INVALID : T1CandidateAssociationCategory.ELIGIBLE_STATUS_NOT_VERIFIED
-                : ranked is not null ? T1CandidateAssociationCategory.SHORTLISTED : excluded is not null ? T1CandidateAssociationCategory.EXCLUDED
-                : T1CandidateAssociationCategory.ELIGIBLE_TRUNCATED_DECLARED;
-            var basis = input.DecisionBases?.GetValueOrDefault(original.Symbol) ?? request.DecisionBasis;
-            var envelope = envelopes.SingleOrDefault(e => e.Symbol == original.Symbol);
-            var check = CheckOutcome(original.Symbol, sample.DecisionDate!.Value, source.Snapshot!.RequestedAsOf,
-                sample.Calendar, envelope, basis);
-            // B's absent-envelope status is preserved; C also explicitly accounts for its absent target bar.
-            if (envelope?.Daily is null && !check.Reasons.Contains("MISSING_TARGET_DAILY_BAR"))
-                check = check with { Reasons = Ordered(check.Reasons.Append("MISSING_TARGET_DAILY_BAR")) };
-            bool available = envelope?.Daily is not null && envelope.State == T1OutcomeSourceState.AVAILABLE;
-            bool usable = linked && sample.Calendar.Status == T1ReadinessStatus.PASS && available
-                && check.SourceAvailability == T1ReadinessStatus.PASS && check.FieldValidity == T1ReadinessStatus.PASS
-                && Aligned(check.PriceBasis) && envelope!.Session == T1OutcomeSession.OPEN;
-            var reasons = new List<string>(check.Reasons);
-            reasons.Add(usable ? "OUTCOME_AVAILABLE_DECLARED" : "OUTCOME_SOURCE_NOT_VERIFIED");
-            if (sample.FullEligibleOrdering != T1ReadinessStatus.PASS) reasons.Add("FULL_ORDERING_NOT_VERIFIED");
-            if (category == T1CandidateAssociationCategory.ELIGIBLE_TRUNCATED_DECLARED) reasons.Add("ELIGIBLE_STATUS_NOT_INDEPENDENTLY_RECONSTRUCTED");
-            records.Add(new(original, category, ranked?.T1Rank, excluded?.Code, excluded?.Reason,
-                T1ReadinessStatus.NOT_VERIFIED, check, basis is null ? "" : DeclarationFingerprint(basis), available, usable, Ordered(reasons)));
-        }
-        sample = sample with { Outcomes = records.Select(c => c.Outcome).ToArray(),
-            Overall = sample.Overall == T1ReadinessStatus.FAIL || records.Any(c => c.Outcome.Status == T1ReadinessStatus.FAIL)
-                ? T1ReadinessStatus.FAIL : T1ReadinessStatus.BLOCKED };
-        return new(sample, source.Structure == T1ReadinessStatus.PASS ? source.Snapshot!.Scan.StrategyVersion : "",
+        var calendars = new SortedDictionary<string, T1CalendarEvidence>(StringComparer.Ordinal);
+        if (input.Calendars is not null && request.Calendar is not null) throw new ArgumentException("AMBIGUOUS_CALENDARS");
+        if (input.Calendars is not null)
+            foreach (var pair in input.Calendars) calendars.Add(pair.Key, pair.Value);
+        else if (request.Calendar is not null) calendars.Add(request.Calendar.Exchange, request.Calendar);
+        ValidateCalendarMap(calendars);
+        var bases = new SortedDictionary<string, T1PriceBasis>(StringComparer.Ordinal);
+        foreach (var pair in input.DecisionBases ?? new Dictionary<string, T1PriceBasis>()) bases.Add(pair.Key, pair.Value);
+        var proof = new T1AssociationDerivation(sample with { Outcomes = Array.Empty<T1OutcomeCheck>() },
+            source.Structure == T1ReadinessStatus.PASS ? source.Snapshot!.Scan.StrategyVersion : "",
             source.Structure == T1ReadinessStatus.PASS ? source.Snapshot!.Scan.ParameterFingerprint : "",
-            source.Structure == T1ReadinessStatus.PASS ? source.Snapshot!.RequestedAsOf : null, records);
+            source.Structure == T1ReadinessStatus.PASS ? source.Snapshot!.RequestedAsOf : null,
+            !Missing(request.SnapshotPath) && File.Exists(request.SnapshotPath),
+            Missing(request.SnapshotPath) ? "" : DeclarationFingerprint(Path.GetFullPath(request.SnapshotPath!)),
+            calendars, envelopes.OrderBy(e => e.Symbol, StringComparer.Ordinal).ToArray(), bases, request.DecisionBasis, package?.Request,
+            package?.Ranked ?? Array.Empty<T1RankingCandidate>(), package?.Excluded ?? Array.Empty<T1RankingExclusion>());
+        return DeriveAssociation(proof);
     }
 
     public static string CanonicalAssociation(T1AssociationArtifact artifact) => JsonSerializer.Serialize(artifact, Json);
 
-    public static bool VerifyAssociation(T1AssociationArtifact artifact)
+    private static bool VerifyAssociationV1Structure(T1AssociationArtifact artifact)
     {
         try
         {
             if (artifact.SchemaVersion != 1 || artifact.Content.SchemaVersion != 1 || artifact.Content.PolicyVersion != PolicyVersion
                 || artifact.Fingerprint != DeclarationFingerprint(artifact.Content)) return false;
             var records = artifact.Content.Records;
-            if (records.Count > 100 || records.Any(r => r.Candidates.Count > 20
+            if (records.Count > 100 || records.Any(r => r.Derivation is not null || r.Candidates.Any(c => c.Exchange is not null || c.Calendar is not null)
+                || r.Candidates.Count > 20
                 || r.Candidates.Select(c => c.Original.Symbol).Distinct(StringComparer.Ordinal).Count() != r.Candidates.Count
                 || !r.Candidates.Select(c => c.Original).SequenceEqual(r.Evidence.Captured)
                 || r.Evidence.Overall == T1ReadinessStatus.PASS || r.Evidence.EvidenceClass is T1EvidenceClass.LIVE_RECORDED_PIT or T1EvidenceClass.ARCHIVED_PIT_REPLAY)) return false;

@@ -9,15 +9,15 @@ public static partial class T1EvidenceReadiness
     {
         if (options.ContainsKey("help"))
         {
-            output.WriteLine("--associate-t1 [--snapshot FILE] [--ranking-package DIR] [--calendar FILE] [--outcomes FILE] [--test-fixture] [--output IGNORED_DIR]");
-            output.WriteLine("Offline only. Calendar: T1CalendarEvidence JSON. Outcomes: T1AssociationOutcomeInput JSON. Enum names are strings.");
+            output.WriteLine("--associate-t1 [--snapshot FILE] [--ranking-package DIR] [--calendar FILE | --calendars FILE] [--outcomes FILE] [--test-fixture] [--output IGNORED_DIR]");
+            output.WriteLine("Offline only. Calendar: T1CalendarEvidence JSON. Calendars: T1ExchangeCalendarInput schema 1 (at most one entry per SSE/SZSE/BSE). Outcomes: T1AssociationOutcomeInput JSON. Enum names are strings.");
             output.WriteLine("Optional --outcomes includes per-symbol DecisionBases. Metadata cannot authenticate PIT. Exit 2=BLOCKED, 1=invalid input, 0=help.");
             output.WriteLine("Missing paths report NO_AUTHORITATIVE_SAMPLE/CALENDAR_NOT_VERIFIED/OUTCOME_SOURCE_NOT_VERIFIED. No data is fetched.");
             return 0;
         }
         try
         {
-            var allowed = new HashSet<string>(new[] { "associate-t1", "snapshot", "ranking-package", "calendar", "outcomes", "test-fixture", "output" }, StringComparer.OrdinalIgnoreCase);
+            var allowed = new HashSet<string>(new[] { "associate-t1", "snapshot", "ranking-package", "calendar", "calendars", "outcomes", "test-fixture", "output" }, StringComparer.OrdinalIgnoreCase);
             if (options.Keys.Any(k => !allowed.Contains(k))) throw new ArgumentException("UNKNOWN_ASSOCIATION_OPTION");
             string? Value(string key) => options.TryGetValue(key, out var value) ? value : null;
             T? Read<T>(string key) where T : class
@@ -31,11 +31,21 @@ public static partial class T1EvidenceReadiness
                 }
                 catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return null; }
             }
+            if (options.ContainsKey("calendar") && options.ContainsKey("calendars")) throw new ArgumentException("AMBIGUOUS_CALENDARS");
             var calendar = Read<T1CalendarEvidence>("calendar");
+            var collection = Read<T1ExchangeCalendarInput>("calendars");
+            IReadOnlyDictionary<string, T1CalendarEvidence>? calendars = null;
+            if (collection is not null)
+            {
+                if (collection.SchemaVersion != 1 || collection.Calendars is null || collection.Calendars.Count > 3
+                    || collection.Calendars.Any(c => c is null)) throw new ArgumentException("CALENDAR_COLLECTION_INVALID");
+                calendars = collection.Calendars.ToDictionary(c => c.Exchange, StringComparer.Ordinal);
+                ValidateCalendarMap(calendars);
+            }
             var outcomes = Read<T1AssociationOutcomeInput>("outcomes");
             var request = new T1EvidenceRequest(Value("snapshot"), Value("ranking-package"), calendar, outcomes?.Outcomes,
                 Origin: options.TryGetValue("test-fixture", out var fixture) && bool.Parse(fixture) ? T1EvidenceOrigin.TEST_FIXTURE : T1EvidenceOrigin.UNVERIFIED);
-            var artifact = Associate(new[] { new T1AssociationInput(request, outcomes?.DecisionBases) });
+            var artifact = Associate(new[] { new T1AssociationInput(request, outcomes?.DecisionBases, calendars) });
             output.WriteLine("SAMPLE=" + artifact.Content.Coverage.SourceCoverage.SampleState);
             if (artifact.Content.Coverage.SourceCoverage.VerifiedSnapshots == 0) output.WriteLine("NO_AUTHORITATIVE_SAMPLE: supply the original retained schema-1 snapshot.");
             if (artifact.Content.Coverage.SourceCoverage.MissingCalendarCoverage > 0) output.WriteLine("CALENDAR_NOT_VERIFIED: supply a complete source-declared exchange calendar with coverage evidence.");
@@ -46,7 +56,7 @@ public static partial class T1EvidenceReadiness
             output.WriteLine("AUTHENTICATION=NOT_VERIFIED; no execution or performance claims.");
             if (Value("output") is { } directory)
             {
-                var protectedPaths = new[] { Value("snapshot"), Value("ranking-package"), Value("calendar"), Value("outcomes") }.Where(p => !Missing(p)).Select(p => p!);
+                var protectedPaths = new[] { Value("snapshot"), Value("ranking-package"), Value("calendar"), Value("calendars"), Value("outcomes") }.Where(p => !Missing(p)).Select(p => p!);
                 var publication = PublishAssociation(artifact, directory, protectedInputs: protectedPaths);
                 output.WriteLine("PUBLICATION=" + (publication.ReusedExisting ? "REUSED" : "PUBLISHED"));
             }

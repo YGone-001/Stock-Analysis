@@ -13,7 +13,7 @@ namespace AIHelper.Services.Tests;
 [Collection("T1ArtifactWrites")]
 public sealed class T1OutcomeAssociationTests
 {
-    private static T1AssociationInput Input(Fixture f)
+    internal static T1AssociationInput Input(Fixture f)
     {
         var outcomes = f.Snapshot.Symbols.Select(s =>
         {
@@ -174,7 +174,7 @@ public sealed class T1OutcomeAssociationTests
         Assert.Equal(T1EvidenceReadiness.CanonicalAssociation(result), T1EvidenceReadiness.CanonicalAssociation(T1EvidenceReadiness.Associate(new[] { first, second })));
     }
 
-    private static string IgnoredStorage(Fixture f)
+    internal static string IgnoredStorage(Fixture f)
     {
         string repo = Path.Combine(f.Root, "publication-repo"); Directory.CreateDirectory(repo);
         var start = new ProcessStartInfo("git") { WorkingDirectory = repo, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };

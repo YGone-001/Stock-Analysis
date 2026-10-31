@@ -87,4 +87,85 @@ enumeration entirely; zero observed records never proves an empty market univers
 
 No real input paths were supplied for this delivery. The production pilot is
 NO_AUTHORITATIVE_SAMPLE/BLOCKED; fixture success does not remove that blocker.
-STOP at T1-4-C: no profitability claims, live collection, optimization or orders.
+STOP at T1-4-C-R: no profitability claims, live collection, optimization or orders.
+
+## Exchange calendars (T1-4-C-R)
+
+The single-exchange `--calendar` command above remains supported. It applies only
+to candidates whose actual exchange matches that declaration. For a mixed SSE/SZSE
+pool, replace it with the explicit collection option:
+
+```powershell
+dotnet run --project tools/AIHelper.HistoricalDataTool -c Release --no-build -- --associate-t1 --snapshot C:\authorized\snapshot.json --ranking-package C:\authorized\immutable-ranking-package --calendars C:\authorized\calendars.json --outcomes C:\authorized\outcomes.json --output .\local-research-data\associations
+```
+
+`--calendars` is a serialized `T1ExchangeCalendarInput` with this structure:
+
+```json
+{
+  "SchemaVersion": 1,
+  "Calendars": [
+    { "Exchange": "SSE", "Acquisition": { "Data": [], "CoverageEvidence": [] } },
+    { "Exchange": "SZSE", "Acquisition": { "Data": [], "CoverageEvidence": [] } }
+  ]
+}
+```
+
+The empty arrays illustrate the shape only and cannot prove a next trading date.
+Supply each exchange's retained `HistoricalCalendarDay` records and full matching
+`HistoricalCoverageEvidence`, as required by the existing `MapNextTradingDay` verifier.
+The collection has at most three entries, exactly one per declared exchange.
+BSE is optional and supports existing 4/8/9-prefix identities such as 430001.BJ,
+with its own `BSE` calendar and independent outcome envelope. Duplicate exchanges,
+unsupported identifiers, unknown collection versions, or supplying both calendar
+options are rejected. The API accepts the equivalent bounded exchange-keyed mapping;
+each key must match its evidence's Exchange.
+
+Each candidate records its actual Exchange and Calendar (Status, NextTradingDate,
+EvidenceFingerprint, Reasons). Missing or insufficient matching evidence retains
+the candidate with CALENDAR_NOT_VERIFIED and blocks its usable-declared flag.
+There is no cross-exchange fallback. A missing daily bar never moves the calendar
+target. Mixed records expose a MULTIPLE summary with no universal next trading
+date; candidate-specific dates are authoritative even when markets differ.
+
+## Association schema 2 and semantic verification
+
+New association envelopes and content explicitly use schema 2. Calendar input
+collection schema 1 is a separate contract; snapshot schema 1 and ranking package
+formats remain unchanged. No existing association.json is modified or migrated.
+The content-addressed immutable directory format and atomic publication remain.
+
+Schema 2 stores a Derivation containing stable source-verifier facts, captured
+identities, validated ranking/exclusion projections, calendar declarations, outcome
+envelopes, and decision-basis declarations. Its SourceFileKey is an opaque hash of
+the explicit absolute input path, used only to recompute distinct-file accounting.
+Identical inputs at the same paths are deterministic; relocating an input changes
+this local identity. This field does not authenticate a file or market source.
+
+`VerifyAssociation` accepts schema 2 only. It replays accepted calendar, outcome
+and price-basis checks, derives candidate categories/rank attribution/readiness/
+reasons, and compares the entire regenerated records and coverage. Every source
+counter, candidate counter, date/strategy breakdown and ratio is recomputed.
+The schema-2 nested SourceCoverage calendar counters count candidate mappings
+(plus one missing-calendar blocker for an unenumerable record); source pool totals
+retain their linked-pair scope. Its outcome-reason map counts candidate check
+reasons. This does not change the separate T1-4-B readiness API's counter semantics.
+
+The explicitly named `VerifyLegacyAssociationIntegrity` retains schema-1 structural
+diagnostics only, with its original limitations. It does not certify new semantic
+readiness, grant publication, or migrate old content. The default package verifier
+and publisher reject schema 1. Old bytes can still be inspected separately and
+remain untouched when a new schema-2 package is published.
+
+Self-rehashed contradictions in derived fields fail verification. Consistently
+replacing all source declarations is outside an unsigned artifact's authenticity
+boundary: this is internal semantic verification against stored local facts, not
+re-authentication of original source files or independent market observations.
+Production PIT, execution and market authentication remain NOT_VERIFIED/BLOCKED;
+all correction fixtures are synthetic and authenticated production samples stay zero.
+
+Run the mixed CLI fixture and correction matrix offline with:
+
+```powershell
+dotnet test tests/AIHelper.Services.Tests/AIHelper.Services.Tests.csproj -c Release --filter FullyQualifiedName~T1AssociationCorrectionTests
+```
