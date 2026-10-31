@@ -6,4 +6,8 @@
     <LangVersion>latest</LangVersion>
     <WarningsAsErrors>$(WarningsAsErrors);NU1605;NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
   </PropertyGroup>
+  <!-- SkiaSharp's modern WPF assets require Windows 10 build 19041; avoid .NET Framework fallback. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'AIHelper' Or '$(MSBuildProjectName)' == 'AIHelper.Services.Tests'">
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+  </PropertyGroup>
 </Project>

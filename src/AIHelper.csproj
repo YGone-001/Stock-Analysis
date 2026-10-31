@@ -190,6 +190,8 @@
     <Resource Include="assets\face\08.png" />
     <Resource Include="assets\app.ico" />
     <Content Include="assets\app.ico" Link="app.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Recovered window BAML also resolves the icon as a loose Assets/app.ico file. -->
+    <None Include="assets\app.ico" Link="Assets\app.ico" TargetPath="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Resource Include="views\chartwindow.baml" />
     <Resource Include="views\exportcontrol.baml" />
     <Resource Include="views\livechartwindow.baml" />

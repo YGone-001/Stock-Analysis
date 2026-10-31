@@ -8,5 +8,5 @@ using System.Windows.Resources;
 [assembly: ThemeInfo(ResourceDictionaryLocation.None, ResourceDictionaryLocation.SourceAssembly)]
 [assembly: AssemblyAssociatedContentFile("app.ico")]
 [assembly: AssemblyAssociatedContentFile("webview2loader.dll")]
-[assembly: SupportedOSPlatform("Windows7.0")]
+[assembly: SupportedOSPlatform("Windows10.0.19041.0")]
 [assembly: InternalsVisibleTo("AIHelper.Services.Tests")]

@@ -27,7 +27,7 @@ Stock Analysis is a recovered and maintained C# / WPF stock analysis workspace b
 
 ## Requirements
 
-- Windows
+- Windows 10 version 2004 (build 19041) or later, including Windows 11
 - .NET 10 SDK
 - WebView2 Runtime
 - Python 3.12 for the optional market-data gateway
