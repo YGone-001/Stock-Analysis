@@ -13,7 +13,7 @@ public sealed class T1EvidenceReadinessTests
     private static readonly DateOnly Day = new(2026, 10, 30), Monday = new(2026, 11, 2);
     private static readonly MarketDataMetadata Meta = new("TEST_FIXTURE", false, false, false, DataSourceKind.EastMoney);
 
-    private sealed class Fixture : IDisposable
+    internal sealed class Fixture : IDisposable
     {
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "AIHelper-T1Evidence", Guid.NewGuid().ToString("N"));
         public IntradaySnapshot Snapshot { get; }
@@ -50,7 +50,7 @@ public sealed class T1EvidenceReadinessTests
         public void Dispose() { if (Directory.Exists(Root)) Directory.Delete(Root, true); }
     }
 
-    private static T1CalendarEvidence Calendar(DateOnly? end = null)
+    internal static T1CalendarEvidence Calendar(DateOnly? end = null)
     {
         var target = end ?? Monday;
         var rows = Enumerable.Range(0, target.DayNumber - Day.DayNumber + 1)
@@ -61,9 +61,9 @@ public sealed class T1EvidenceReadinessTests
             rows.Length, false, 0, 0, 0, 0, 0, rows.Length, rows.Length, 0, HistoricalCoverageAcquisitionStatus.Full, "exact natural date set");
         return new("SSE", new(rows, new[] { coverage }));
     }
-    private static T1PriceBasis Basis(HistoricalPriceAdjustmentMode mode = HistoricalPriceAdjustmentMode.Raw) =>
+    internal static T1PriceBasis Basis(HistoricalPriceAdjustmentMode mode = HistoricalPriceAdjustmentMode.Raw) =>
         new(mode, "600001.SH", "CNY", "per-share", "TEST_FIXTURE/basis");
-    private static T1OutcomeEnvelope Outcome() => new("600001", "SSE", "600001.SH", Day, Monday, "TEST_FIXTURE",
+    internal static T1OutcomeEnvelope Outcome() => new("600001", "SSE", "600001.SH", Day, Monday, "TEST_FIXTURE",
         new DateTimeOffset(2026, 11, 2, 8, 0, 0, TimeSpan.Zero), T1OutcomeSourceState.AVAILABLE,
         HistoricalPriceAdjustmentMode.Raw, T1OutcomeSession.OPEN,
         new("600001", "600001.SH", Monday, 10, 11, 9, 10.5, 10, .5, 5, 100, 1000, "TEST_FIXTURE", HistoricalPriceAdjustmentMode.Raw),

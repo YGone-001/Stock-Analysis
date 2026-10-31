@@ -4,11 +4,13 @@ using System.Text.Json.Serialization;
 using AIHelper.Core.Sparrow;
 using AIHelper.Models;
 using AIHelper.Services.StockData.Sparrow;
+using AIHelper.Services.StockData;
 
 Dictionary<string, string> options = Parse(args);
 try
 {
     List<string> detectedModes = new();
+    if (options.ContainsKey("associate-t1")) detectedModes.Add("t1-outcome-association");
     if (Bool("report-legacy-capability", false)) detectedModes.Add("legacy-capability");
     if (options.ContainsKey("verify-reproducibility")) detectedModes.Add("reproducibility-verification");
     if (options.ContainsKey("reproduce-experiment")) detectedModes.Add("research-reexecution");
@@ -32,6 +34,8 @@ try
         return 1;
     }
 
+    if (options.ContainsKey("associate-t1"))
+        return T1EvidenceReadiness.RunAssociationCommand(options, Console.Out, Console.Error);
     if (Bool("report-legacy-capability", false))
     {
         Console.WriteLine("LEGACY=Unsupported");
