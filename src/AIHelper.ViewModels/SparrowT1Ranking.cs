@@ -30,17 +30,22 @@ public partial class SparrowViewModel
     internal Func<IntradaySnapshot, string, IReadOnlyList<IntradayFeatureResult>, int, CancellationToken, Task<T1RankingResult>>? T1RankingOverride { get; set; }
     internal string? T1ExportDirectory { get; set; }
     private bool CanRunT1Ranking() => !_closed && !IsScanning && !IsCapturing && !IsAnalyzingFeatures && !IsRankingT1 && CanOpenSnapshot() && LastFeatureResults != null;
-    private bool CanExportT1Ranking() => !_closed && !IsRankingT1 && _lastT1Result != null;
+    private bool CanExportT1Ranking() => !_closed && !IsScanning && !IsCapturing && !IsAnalyzingFeatures && !IsRankingT1
+        && _lastT1Result != null && ReferenceEquals(LastFeatureResults, _lastRankedFeatures);
     private void T1CommandsChanged()
     {
         RunT1RankingCommand.NotifyCanExecuteChanged(); ExportT1RankingCommand.NotifyCanExecuteChanged();
         CancelScanCommand.NotifyCanExecuteChanged(); OnPropertyChanged(nameof(IsRankingT1));
+        RetainT1ResearchSampleCommand.NotifyCanExecuteChanged();
     }
     private void InvalidateT1Ranking(Guid runId)
     {
         _t1Generation++;
+        _researchSelectedRunId = runId;
+        InvalidateResearchRetention(); _featureCompletedAtUtc = null; _rankingCompletedAtUtc = null;
         _t1Cts?.Cancel();
         _lastT1Result = null;
+        _lastRankedFeatures = null;
         T1RankRows.Clear(); SelectedT1RankRow = null;
         T1RankStatus = $"当前扫描 {runId}: 新扫描已使旧排序失效；请重新完成特征分析后再运行 PriceOnlyV1 排序。";
         OnPropertyChanged(nameof(T1RankStatus));
@@ -58,6 +63,7 @@ public partial class SparrowViewModel
         long generation = ++_t1Generation;
         bool OwnsRanking() => !_closed && !cts.IsCancellationRequested && generation == _t1Generation && path == LastSnapshotPath;
         IsRankingT1 = true; T1CommandsChanged();
+        InvalidateResearchRetention(); _rankingCompletedAtUtc = null;
         T1RankRows.Clear(); SelectedT1RankRow = null; _lastT1Result = null;
         T1RankStatus = $"正在对已分析快照执行 PriceOnlyV1 排序（本地确定性计算，不取数）；{path}";
         OnPropertyChanged(nameof(T1RankStatus));
@@ -72,6 +78,8 @@ public partial class SparrowViewModel
                 : await Task.Run(() => T1PriceOnlyRanking.Rank(snapshot, features, topN, cts.Token), cts.Token);
             if (!OwnsRanking()) return;
             _lastT1Result = result;
+            _lastRankedFeatures = features;
+            _rankingCompletedAtUtc = SnapshotClock.GetUtcNow();
             foreach (var candidate in result.Shortlist) T1RankRows.Add(new T1RankDisplayRow(candidate));
             foreach (var exclusion in result.Excluded) T1RankRows.Add(T1RankDisplayRow.From(exclusion));
             SelectedT1RankRow = T1RankRows.FirstOrDefault();
@@ -96,6 +104,8 @@ public partial class SparrowViewModel
     private async Task ExportT1Ranking()
     {
         if (!CanExportT1Ranking()) return;
+        var previousExport = _lastT1Export; var previousExportTime = _exportCompletedAtUtc;
+        InvalidateResearchRetention();
         var result = _lastT1Result!;
         using var cts = new CancellationTokenSource();
         _t1Cts = cts;
@@ -107,6 +117,8 @@ public partial class SparrowViewModel
         {
             var paths = await Task.Run(() => T1RankingArtifact.Write(result, T1ExportDirectory, cts.Token), cts.Token);
             if (!OwnsExport()) return;
+            _lastT1Export = paths;
+            _exportCompletedAtUtc = previousExport?.ContentFingerprint == paths.ContentFingerprint && previousExportTime is not null ? previousExportTime : SnapshotClock.GetUtcNow();
             T1RankStatus = $"已导出（{(paths.ReusedExisting ? "复用现有有效包" : "新发布不可变包")}）：{paths.PackageDirectory}；"
                 + $"内容指纹 {paths.ContentFingerprint}；CSV 与 JSON sidecar 原子成对发布，可用独立校验器验证。"
                 + "同一不可变快照与固定配置逐字节复现；未包含易变导出时间戳。";

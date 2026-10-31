@@ -165,6 +165,7 @@ public partial class SparrowViewModel : ObservableObject
                 AnalyzeFeaturesCommand.NotifyCanExecuteChanged();
                 RunT1RankingCommand.NotifyCanExecuteChanged();
                 ExportT1RankingCommand.NotifyCanExecuteChanged();
+                RetainT1ResearchSampleCommand.NotifyCanExecuteChanged();
             }
         }
     }
@@ -328,11 +329,12 @@ public partial class SparrowViewModel : ObservableObject
     private static string IntradaySnapshotStoreHash(string value) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)));
 
     private bool CanStart() => !_closed && !IsScanning && !IsCapturing;
-    private bool CanCancelScan() => !_closed && (IsScanning || IsCapturing || IsAnalyzingFeatures || IsRankingT1);
+    private bool CanCancelScan() => !_closed && (IsScanning || IsCapturing || IsAnalyzingFeatures || IsRankingT1 || IsRetainingResearch);
 
     [RelayCommand(CanExecute = nameof(CanCancelScan))]
     private void CancelScan()
     {
+        if (IsRetainingResearch) { _retentionCts?.Cancel(); }
         if (IsCapturing) { _captureCts?.Cancel(); return; }
         if (!IsScanning && IsAnalyzingFeatures) { _featureCts?.Cancel(); return; }
         if (!IsScanning && IsRankingT1) { _t1Cts?.Cancel(); return; }
@@ -347,6 +349,7 @@ public partial class SparrowViewModel : ObservableObject
         if (_closed) return;
         CancelScan();
         _closed = true;
+        InvalidateResearchRetention();
         _featureGeneration++;
         _featureCts?.Cancel();
         AnalyzeFeaturesCommand.NotifyCanExecuteChanged();

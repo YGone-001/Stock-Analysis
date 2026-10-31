@@ -49,6 +49,7 @@ public partial class SparrowViewModel
         long generation = ++_featureGeneration;
         bool OwnsAnalysis() => !_closed && !cts.IsCancellationRequested && generation == _featureGeneration && path == LastSnapshotPath;
         IsAnalyzingFeatures = true; FeatureCommandsChanged();
+        InvalidateResearchRetention(); _featureCompletedAtUtc = null;
         FeatureRows.Clear(); SelectedFeatureRow = null; LastFeatureResults = null;
         FeatureStatus = $"正在分析文件 {path}；不重新采集行情"; OnPropertyChanged(nameof(FeatureStatus));
         try
@@ -60,6 +61,7 @@ public partial class SparrowViewModel
                 : await Task.Run(() => IntradayFeatureAnalysis.Analyze(snapshot, fingerprint, snapshot.RequestedAsOf, token: cts.Token), cts.Token);
             if (!OwnsAnalysis()) return;
             LastFeatureResults = results;
+            _featureCompletedAtUtc = SnapshotClock.GetUtcNow();
             foreach (var result in results) FeatureRows.Add(new(result));
             SelectedFeatureRow = FeatureRows.FirstOrDefault();
             FeatureStatus = $"Diagnostic（非认证）；运行 {snapshot.Scan.RunId}；{snapshot.Scan.Strategy}/{snapshot.Scan.StrategyVersion}；截止 {snapshot.RequestedAsOf:O}；Asia/Shanghai UTC+08；快照 {fingerprint}；{FeatureRows.Count}只；缺失基准/单位/历史数据各项单独说明。";

@@ -774,7 +774,7 @@ public sealed class T1RankingTests
 		RankingProfile = "fixture", Code = code, Name = "first", Rank = rank,
 		Features = new SparrowRankingFeatures { Code = code, Name = "first" }
 	};
-	private static void Configure(AIHelper.ViewModels.SparrowViewModel vm, string dir)
+	internal static void Configure(AIHelper.ViewModels.SparrowViewModel vm, string dir)
 	{
 		var clock = new Clock(); var provider = new Provider();
 		vm.SnapshotClock = clock;

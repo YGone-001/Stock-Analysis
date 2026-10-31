@@ -319,6 +319,12 @@
             </StackPanel>
             <StackPanel Grid.Row="1" Margin="0,0,0,6">
               <TextBox Text="{Binding T1RankStatus, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Background="Transparent"/>
+              <WrapPanel Margin="0,6,0,4">
+                <TextBlock Text="研究归档目录：" VerticalAlignment="Center"/>
+                <TextBox Text="{Binding ResearchArchiveRoot, UpdateSourceTrigger=PropertyChanged}" Width="300" Margin="0,0,8,0" AutomationProperties.Name="研究归档目录" ToolTip="独立目录或 Git 忽略的 local-research-data 目录；不会自动清理归档。"/>
+                <Button Content="留存 T1 研究样本" Command="{Binding RetainT1ResearchSampleCommand}"/>
+              </WrapPanel>
+              <TextBlock Text="{Binding ResearchRetentionStatus}" TextWrapping="Wrap"/>
               <TextBlock Text="⚠ 研究短名单仅为诊断性排序（EvidenceClass=Diagnostic，非认证）；未对照次日结果评估；不构成买卖建议；覆盖范围仅限快照已捕获 TopN 候选，绝非全市场最佳。" Foreground="DarkOrange" TextWrapping="Wrap"/>
             </StackPanel>
             <DataGrid x:Name="T1RankGrid" Grid.Row="2" ItemsSource="{Binding T1RankRows}" SelectedItem="{Binding SelectedT1RankRow, Mode=TwoWay}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" EnableRowVirtualization="True">

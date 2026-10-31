@@ -10,6 +10,8 @@ Dictionary<string, string> options = Parse(args);
 try
 {
     List<string> detectedModes = new();
+    foreach (string operation in new[] { "retain-t1", "probe-t1", "report-t1" })
+        if (options.ContainsKey(operation)) detectedModes.Add(operation);
     if (options.ContainsKey("associate-t1")) detectedModes.Add("t1-outcome-association");
     if (Bool("report-legacy-capability", false)) detectedModes.Add("legacy-capability");
     if (options.ContainsKey("verify-reproducibility")) detectedModes.Add("reproducibility-verification");
@@ -36,6 +38,8 @@ try
 
     if (options.ContainsKey("associate-t1"))
         return T1EvidenceReadiness.RunAssociationCommand(options, Console.Out, Console.Error);
+    if (options.ContainsKey("retain-t1") || options.ContainsKey("probe-t1") || options.ContainsKey("report-t1"))
+        return await T1ResearchCommand.RunAsync(options, Console.Out, Console.Error);
     if (Bool("report-legacy-capability", false))
     {
         Console.WriteLine("LEGACY=Unsupported");
